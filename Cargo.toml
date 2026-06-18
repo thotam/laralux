@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["core", "laragonctl"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "1"
