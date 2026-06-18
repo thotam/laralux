@@ -19,6 +19,49 @@ impl Site {
             self.root.clone()
         }
     }
+
+    /// Generate the nginx vhost (HTTP→HTTPS redirect + HTTPS server) for this site.
+    pub fn vhost_config(
+        &self,
+        paths: &LaragonPaths,
+        php_socket: &std::path::Path,
+        cert: &std::path::Path,
+        key: &std::path::Path,
+    ) -> String {
+        format!(
+            "server {{\n\
+             \x20 listen 80;\n\
+             \x20 server_name {host};\n\
+             \x20 return 301 https://$host$request_uri;\n\
+             }}\n\
+             server {{\n\
+             \x20 listen 443 ssl;\n\
+             \x20 server_name {host};\n\
+             \x20 ssl_certificate {cert};\n\
+             \x20 ssl_certificate_key {key};\n\
+             \x20 root {docroot};\n\
+             \x20 index index.php index.html;\n\
+             \x20 access_log {alog};\n\
+             \x20 error_log {elog};\n\
+             \x20 location / {{ try_files $uri $uri/ /index.php?$query_string; }}\n\
+             \x20 location ~ \\.php$ {{\n\
+             \x20   fastcgi_pass unix:{sock};\n\
+             \x20   fastcgi_index index.php;\n\
+             \x20   include {nginx_etc}/fastcgi_params;\n\
+             \x20   fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n\
+             \x20   fastcgi_param HTTPS on;\n\
+             \x20 }}\n\
+             }}\n",
+            host = self.hostname,
+            cert = cert.display(),
+            key = key.display(),
+            docroot = self.document_root().display(),
+            alog = paths.log().join(format!("{}-access.log", self.name)).display(),
+            elog = paths.log().join(format!("{}-error.log", self.name)).display(),
+            sock = php_socket.display(),
+            nginx_etc = paths.etc_for("nginx").display(),
+        )
+    }
 }
 
 /// Discover sites in `www/`: immediate subdirectories, skipping hidden ones.
@@ -100,5 +143,29 @@ mod tests {
     fn missing_www_returns_empty() {
         let paths = LaragonPaths::new(temp_root());
         assert!(scan_sites(&paths, "dev").unwrap().is_empty());
+    }
+
+    #[test]
+    fn vhost_has_https_redirect_ssl_and_fastcgi() {
+        let root = temp_root();
+        let www = root.join("www");
+        std::fs::create_dir_all(www.join("app").join("public")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+        let site = scan_sites(&paths, "dev").unwrap().into_iter().find(|s| s.name == "app").unwrap();
+
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("app.dev.pem");
+        let key = paths.ssl().join("app.dev-key.pem");
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+
+        assert!(conf.contains("server_name app.dev;"));
+        assert!(conf.contains("return 301 https://$host$request_uri;"));
+        assert!(conf.contains("listen 443 ssl;"));
+        assert!(conf.contains(&format!("ssl_certificate {};", cert.display())));
+        assert!(conf.contains(&format!("ssl_certificate_key {};", key.display())));
+        assert!(conf.contains(&format!("root {};", www.join("app").join("public").display())));
+        assert!(conf.contains(&format!("fastcgi_pass unix:{};", sock.display())));
+        assert!(conf.contains("fastcgi_param HTTPS on;"));
+        std::fs::remove_dir_all(&root).ok();
     }
 }
