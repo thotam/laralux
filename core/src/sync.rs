@@ -52,7 +52,7 @@ pub fn sync_sites(
 #[cfg(test)]
 mod tests {
     use super::sync_sites;
-    use crate::hosts::{apply_block, render_block};
+    use crate::hosts::apply_block;
     use crate::paths::LaragonPaths;
     use crate::privileged::FakePrivileged;
     use crate::ssl::FakeCertIssuer;
@@ -108,7 +108,6 @@ mod tests {
         let hosts_path = r.join("hosts");
         let already = apply_block("127.0.0.1 localhost\n", &["app.dev".to_string()]);
         std::fs::write(&hosts_path, &already).unwrap();
-        let _ = render_block; // ensure import used
 
         let issuer = FakeCertIssuer::new(paths.ssl());
         let priv_ = FakePrivileged::new();
