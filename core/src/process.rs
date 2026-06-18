@@ -27,7 +27,7 @@ impl Process for RealProcess {
         matches!(self.child.try_wait(), Ok(None))
     }
     fn stop(&mut self) -> std::io::Result<()> {
-        // Graceful SIGTERM via libc kill; fall back to SIGKILL if needed.
+        // Graceful shutdown: send SIGTERM. No SIGKILL fallback yet — children that ignore SIGTERM are handled in a later plan.
         let pid = self.child.id() as i32;
         unsafe {
             libc_kill(pid, 15); // SIGTERM
