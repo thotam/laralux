@@ -44,6 +44,17 @@ impl Orchestrator {
 
         self.states.insert(kind, ServiceState::Starting);
 
+        // Perform fallible work; on error, revert state to Stopped before returning
+        if let Err(e) = self.do_start(kind, needs_init) {
+            self.states.insert(kind, ServiceState::Stopped);
+            return Err(e);
+        }
+
+        self.states.insert(kind, ServiceState::Running);
+        Ok(())
+    }
+
+    fn do_start(&mut self, kind: ServiceKind, needs_init: bool) -> Result<(), ServiceError> {
         if needs_init {
             // Re-find the service after releasing the immutable borrow
             if let Some(svc) = self.find(kind) {
@@ -57,8 +68,6 @@ impl Orchestrator {
             let handle = self.spawner.spawn(&spec)?;
             self.handles.insert(kind, handle);
         }
-
-        self.states.insert(kind, ServiceState::Running);
         Ok(())
     }
 
@@ -117,6 +126,16 @@ mod tests {
         Orchestrator::new(LaragonPaths::new("/tmp/lara".into()), services, Box::new(spawner))
     }
 
+    struct FailingSpawner;
+    impl ProcessSpawner for FailingSpawner {
+        fn spawn(&self, _spec: &SpawnSpec) -> Result<Box<dyn Process>, std::io::Error> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "spawn failed",
+            ))
+        }
+    }
+
     #[test]
     fn unknown_service_is_stopped() {
         let o = orch(FakeSpawner::new());
@@ -141,5 +160,20 @@ mod tests {
     fn starting_unregistered_kind_errors() {
         let mut o = orch(FakeSpawner::new());
         assert!(o.start(ServiceKind::Nginx).is_err());
+    }
+
+    #[test]
+    fn spawn_failure_reverts_state_to_stopped() {
+        let services: Vec<Box<dyn Service>> =
+            vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
+        let mut o = Orchestrator::new(
+            LaragonPaths::new("/tmp/lara".into()),
+            services,
+            Box::new(FailingSpawner),
+        );
+
+        let result = o.start(ServiceKind::Redis);
+        assert!(result.is_err());
+        assert_eq!(o.state(ServiceKind::Redis), ServiceState::Stopped);
     }
 }
