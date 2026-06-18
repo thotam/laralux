@@ -86,6 +86,22 @@ pub trait Service: Send + Sync {
     }
 }
 
+/// Returns Ok if a TCP connect to `127.0.0.1:port` succeeds within 1s.
+pub fn probe_tcp(port: u16) -> Result<(), ServiceError> {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+    let addr = ("127.0.0.1", port)
+        .to_socket_addrs()
+        .map_err(ServiceError::Io)?
+        .next()
+        .ok_or_else(|| ServiceError::HealthCheck("no address".into()))?;
+    TcpStream::connect_timeout(&addr, Duration::from_secs(1))
+        .map(|_| ())
+        .map_err(|e| ServiceError::HealthCheck(format!("port {port}: {e}")))
+}
+
+pub mod redis;
+
 #[cfg(test)]
 mod tests {
     use super::*;
