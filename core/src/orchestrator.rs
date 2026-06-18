@@ -93,6 +93,49 @@ impl Orchestrator {
             self.states.insert(k, ServiceState::Crashed);
         }
     }
+
+    /// Topological order of registered services honoring `deps()`.
+    /// Deterministic: respects registration order among independent services.
+    pub fn start_order(&self) -> Vec<ServiceKind> {
+        let mut ordered: Vec<ServiceKind> = Vec::new();
+        let mut remaining: Vec<&dyn Service> = self.services.iter().map(|b| b.as_ref()).collect();
+
+        while !remaining.is_empty() {
+            // Find the first service whose deps are all already ordered.
+            let idx = remaining.iter().position(|s| {
+                s.deps().iter().all(|d| {
+                    ordered.contains(d)
+                        // Ignore deps on services we don't manage.
+                        || !remaining.iter().any(|r| r.kind() == *d)
+                })
+            });
+            match idx {
+                Some(i) => {
+                    let s = remaining.remove(i);
+                    ordered.push(s.kind());
+                }
+                None => {
+                    // Dependency cycle — break it deterministically.
+                    let s = remaining.remove(0);
+                    ordered.push(s.kind());
+                }
+            }
+        }
+        ordered
+    }
+
+    pub fn start_all(&mut self) -> Result<(), ServiceError> {
+        for kind in self.start_order() {
+            self.start(kind)?;
+        }
+        Ok(())
+    }
+
+    pub fn stop_all(&mut self) {
+        for kind in self.start_order().into_iter().rev() {
+            let _ = self.stop(kind);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -114,6 +157,28 @@ mod tests {
         }
         fn command(&self, _p: &LaragonPaths) -> SpawnSpec {
             SpawnSpec::new(self.name)
+        }
+        fn health_check(&self, _p: &LaragonPaths) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    struct DepDummy {
+        kind: ServiceKind,
+        deps: Vec<ServiceKind>,
+    }
+    impl Service for DepDummy {
+        fn kind(&self) -> ServiceKind {
+            self.kind
+        }
+        fn name(&self) -> &str {
+            "dep"
+        }
+        fn deps(&self) -> &[ServiceKind] {
+            &self.deps
+        }
+        fn command(&self, _p: &LaragonPaths) -> SpawnSpec {
+            SpawnSpec::new(format!("{:?}", self.kind))
         }
         fn health_check(&self, _p: &LaragonPaths) -> Result<(), ServiceError> {
             Ok(())
@@ -175,5 +240,44 @@ mod tests {
         let result = o.start(ServiceKind::Redis);
         assert!(result.is_err());
         assert_eq!(o.state(ServiceKind::Redis), ServiceState::Stopped);
+    }
+
+    #[test]
+    fn start_order_respects_deps() {
+        let services: Vec<Box<dyn Service>> = vec![
+            Box::new(DepDummy { kind: ServiceKind::Nginx, deps: vec![ServiceKind::PhpFpm] }),
+            Box::new(DepDummy { kind: ServiceKind::PhpFpm, deps: vec![ServiceKind::Mariadb] }),
+            Box::new(DepDummy { kind: ServiceKind::Mariadb, deps: vec![] }),
+        ];
+        let o = Orchestrator::new(
+            LaragonPaths::new("/tmp/lara".into()),
+            services,
+            Box::new(FakeSpawner::new()),
+        );
+        let order = o.start_order();
+        let pos = |k| order.iter().position(|x| *x == k).unwrap();
+        assert!(pos(ServiceKind::Mariadb) < pos(ServiceKind::PhpFpm));
+        assert!(pos(ServiceKind::PhpFpm) < pos(ServiceKind::Nginx));
+    }
+
+    #[test]
+    fn start_all_spawns_every_service_in_order() {
+        let spawner = FakeSpawner::new();
+        let log = spawner.log();
+        let services: Vec<Box<dyn Service>> = vec![
+            Box::new(DepDummy { kind: ServiceKind::Nginx, deps: vec![ServiceKind::PhpFpm] }),
+            Box::new(DepDummy { kind: ServiceKind::PhpFpm, deps: vec![] }),
+        ];
+        let mut o = Orchestrator::new(
+            LaragonPaths::new("/tmp/lara".into()),
+            services,
+            Box::new(spawner),
+        );
+        o.start_all().unwrap();
+        let log = log.lock().unwrap();
+        assert_eq!(log.len(), 2);
+        // php-fpm (no deps) must be spawned before nginx.
+        assert_eq!(log[0].program, "PhpFpm");
+        assert_eq!(log[1].program, "Nginx");
     }
 }
