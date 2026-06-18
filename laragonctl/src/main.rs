@@ -1,4 +1,8 @@
-use laragon_core::{build_services, Config, LaragonPaths, Orchestrator, RealSpawner};
+use laragon_core::service::php_fpm::PhpFpmService;
+use laragon_core::{
+    build_services, scan_sites, sync_sites, Config, LaragonPaths, MkcertIssuer, Orchestrator,
+    Privileged, RealSpawner, SudoPrivileged,
+};
 
 fn main() {
     let cmd = std::env::args().nth(1).unwrap_or_else(|| "help".into());
@@ -11,9 +15,48 @@ fn main() {
             cfg.save(&paths.config_file()).expect("save config");
             println!("Initialized {}", paths.config_file().display());
         }
+        "sites" => {
+            let cfg = Config::load(&paths.config_file()).expect("load config");
+            let sites = scan_sites(&paths, &cfg.tld).expect("scan sites");
+            if sites.is_empty() {
+                println!("No sites found in {}", paths.www().display());
+            }
+            for s in sites {
+                println!("{:<20} https://{}", s.name, s.hostname);
+            }
+        }
+        "setup-perms" => {
+            let priv_ = SudoPrivileged;
+            println!("Installing mkcert local CA (may prompt for sudo)...");
+            priv_.install_mkcert_ca().expect("mkcert -install");
+            let nginx_bin = which("nginx").unwrap_or_else(|| "/usr/sbin/nginx".into());
+            println!("Granting nginx permission to bind low ports via setcap...");
+            priv_.setcap_nginx(&nginx_bin).expect("setcap nginx");
+            println!("Done.");
+        }
         "up" => {
             let cfg = Config::load(&paths.config_file()).expect("load config");
             paths.ensure_dirs().expect("create dirs");
+
+            // Sync sites (vhosts + certs + /etc/hosts) before starting nginx.
+            let php_socket = PhpFpmService::new(cfg.php_version.clone()).socket_path(&paths);
+            let issuer = MkcertIssuer::new(paths.ssl());
+            let privileged = SudoPrivileged;
+            match sync_sites(
+                &paths,
+                &cfg.tld,
+                &php_socket,
+                std::path::Path::new("/etc/hosts"),
+                &issuer,
+                &privileged,
+            ) {
+                Ok(sites) => println!("Synced {} site(s).", sites.len()),
+                Err(e) => {
+                    eprintln!("site sync failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+
             let mut orch =
                 Orchestrator::new(paths.clone(), build_services(&cfg, &paths), Box::new(RealSpawner));
             match orch.start_all() {
@@ -24,7 +67,6 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            // Keep the process (and thus child processes) alive until Ctrl-C.
             wait_for_ctrl_c();
             println!("Stopping...");
             orch.stop_all();
@@ -41,9 +83,21 @@ fn main() {
             println!("`up` manages the process lifetime; stop it with Ctrl-C.");
         }
         _ => {
-            println!("usage: laragonctl <config-init|up|status>");
+            println!("usage: laragonctl <config-init|up|status|sites|setup-perms>");
         }
     }
+}
+
+/// Resolve a binary on PATH (minimal `which`, no external crate).
+fn which(bin: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(bin);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn wait_for_ctrl_c() {
