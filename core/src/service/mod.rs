@@ -101,6 +101,7 @@ pub fn probe_tcp(port: u16) -> Result<(), ServiceError> {
 }
 
 pub mod mailpit;
+pub mod php_fpm;
 pub mod redis;
 
 #[cfg(test)]
