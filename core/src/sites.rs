@@ -2,7 +2,7 @@ use crate::paths::LaragonPaths;
 use std::path::PathBuf;
 
 /// A project under `www/` exposed at `<name>.<tld>`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Site {
     pub name: String,
     pub root: PathBuf,
