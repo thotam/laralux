@@ -9,6 +9,7 @@ pub mod sites;
 pub mod hosts;
 pub mod ssl;
 pub mod privileged;
+pub mod sync;
 
 pub use config::Config;
 pub use orchestrator::Orchestrator;
