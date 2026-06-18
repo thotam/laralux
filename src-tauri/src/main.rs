@@ -70,14 +70,20 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                if let Some(state) = window.app_handle().try_state::<AppState>() {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building Laragon Linux")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
                     if let Ok(mut orch) = state.orch.lock() {
                         orch.stop_all();
                     }
                 }
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running Laragon Linux");
+        });
 }
