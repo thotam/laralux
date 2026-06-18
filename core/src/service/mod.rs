@@ -105,6 +105,7 @@ pub mod mariadb;
 pub mod nginx;
 pub mod php_fpm;
 pub mod redis;
+pub mod registry;
 
 #[cfg(test)]
 mod tests {
