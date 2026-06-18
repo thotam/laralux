@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "laragonctl"]
+members = ["core", "laragonctl", "src-tauri"]
 
 [workspace.package]
 edition = "2021"

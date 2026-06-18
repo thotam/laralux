@@ -1,7 +1,8 @@
 use crate::paths::LaragonPaths;
 use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum ServiceKind {
     Nginx,
     PhpFpm,
@@ -10,7 +11,7 @@ pub enum ServiceKind {
     Mailpit,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ServiceState {
     Stopped,
     Starting,

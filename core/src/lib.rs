@@ -12,7 +12,7 @@ pub mod privileged;
 pub mod sync;
 
 pub use config::Config;
-pub use orchestrator::Orchestrator;
+pub use orchestrator::{Orchestrator, ServiceStatus};
 pub use paths::LaragonPaths;
 pub use process::RealSpawner;
 pub use service::registry::build_services;

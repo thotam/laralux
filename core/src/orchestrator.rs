@@ -2,6 +2,14 @@ use crate::paths::LaragonPaths;
 use crate::process::{Process, ProcessSpawner};
 use crate::service::{Service, ServiceError, ServiceKind, ServiceState};
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+
+/// A serializable point-in-time view of one service.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ServiceStatus {
+    pub kind: ServiceKind,
+    pub state: ServiceState,
+}
 
 pub struct Orchestrator {
     paths: LaragonPaths,
@@ -135,6 +143,14 @@ impl Orchestrator {
         for kind in self.start_order().into_iter().rev() {
             let _ = self.stop(kind);
         }
+    }
+
+    /// Snapshot of every registered service in dependency-start order.
+    pub fn snapshot(&self) -> Vec<ServiceStatus> {
+        self.start_order()
+            .into_iter()
+            .map(|kind| ServiceStatus { kind, state: self.state(kind) })
+            .collect()
     }
 }
 
@@ -279,5 +295,33 @@ mod tests {
         // php-fpm (no deps) must be spawned before nginx.
         assert_eq!(log[0].program, "PhpFpm");
         assert_eq!(log[1].program, "Nginx");
+    }
+
+    #[test]
+    fn snapshot_lists_services_with_states() {
+        let spawner = crate::process::FakeSpawner::new();
+        let services: Vec<Box<dyn Service>> =
+            vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
+        let mut o = Orchestrator::new(
+            LaragonPaths::new("/tmp/lara".into()),
+            services,
+            Box::new(spawner),
+        );
+
+        let before = o.snapshot();
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].kind, ServiceKind::Redis);
+        assert_eq!(before[0].state, ServiceState::Stopped);
+
+        o.start(ServiceKind::Redis).unwrap();
+        let after = o.snapshot();
+        assert_eq!(after[0].state, ServiceState::Running);
+    }
+
+    #[test]
+    fn service_status_serializes_to_variant_names() {
+        let s = ServiceStatus { kind: ServiceKind::Nginx, state: ServiceState::Running };
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(json, r#"{"kind":"Nginx","state":"Running"}"#);
     }
 }

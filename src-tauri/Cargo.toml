@@ -1,0 +1,18 @@
+[package]
+name = "laragon-desktop"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "laragon-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde = { workspace = true }
+serde_json = "1"
+laragon-core = { path = "../core" }
