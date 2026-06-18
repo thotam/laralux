@@ -100,6 +100,7 @@ pub fn probe_tcp(port: u16) -> Result<(), ServiceError> {
         .map_err(|e| ServiceError::HealthCheck(format!("port {port}: {e}")))
 }
 
+pub mod mailpit;
 pub mod redis;
 
 #[cfg(test)]
