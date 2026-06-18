@@ -7,6 +7,7 @@ pub mod process;
 pub mod orchestrator;
 pub mod sites;
 pub mod hosts;
+pub mod ssl;
 
 pub use config::Config;
 pub use orchestrator::Orchestrator;
