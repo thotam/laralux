@@ -6,6 +6,7 @@ pub mod service;
 pub mod process;
 pub mod orchestrator;
 pub mod sites;
+pub mod hosts;
 
 pub use config::Config;
 pub use orchestrator::Orchestrator;
