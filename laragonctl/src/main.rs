@@ -83,19 +83,21 @@ fn main() {
             println!("`up` manages the process lifetime; stop it with Ctrl-C.");
         }
         "setup" => {
-            let cfg = Config::load(&paths.config_file()).expect("load config");
             paths.ensure_dirs().expect("create dirs");
             println!("Component status:");
-            for s in detect_components(&paths, &cfg.php_version) {
+            for s in detect_components(&paths) {
                 println!("  {:?}: {}", s.component, if s.present { "installed" } else { "missing" });
             }
             println!("Running setup (may prompt for sudo)...");
-            let report = run_setup(&paths, &cfg.php_version, &SudoPrivileged, &CurlDownloader);
+            let report = run_setup(&paths, &SudoPrivileged, &CurlDownloader);
             println!(
                 "apt: {}\nmailpit fetched: {}\nmkcert CA: {}\nnginx setcap: {}",
                 if report.apt_packages.is_empty() { "none".to_string() } else { report.apt_packages.join(" ") },
                 report.mailpit_fetched, report.mkcert_ca, report.nginx_setcap
             );
+            if let Some(ver) = &report.php_version {
+                println!("PHP {ver} installed — restart laragon to use it.");
+            }
             for e in &report.errors {
                 eprintln!("  error: {e}");
             }

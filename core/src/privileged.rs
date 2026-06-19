@@ -40,7 +40,7 @@ fn apt_argv(packages: &[String]) -> Vec<String> {
     vec![
         "sh".to_string(),
         "-c".to_string(),
-        format!("apt-get update && apt-get install -y {}", packages.join(" ")),
+        format!("apt-get update || true; apt-get install -y {}", packages.join(" ")),
     ]
 }
 
@@ -203,7 +203,7 @@ mod tests {
         let argv = apt_argv(&["nginx".to_string(), "redis-server".to_string()]);
         assert_eq!(argv[0], "sh");
         assert_eq!(argv[1], "-c");
-        assert!(argv[2].contains("apt-get update"));
+        assert!(argv[2].contains("apt-get update || true"));
         assert!(argv[2].contains("apt-get install -y nginx redis-server"));
     }
 

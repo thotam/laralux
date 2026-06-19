@@ -11,7 +11,6 @@ pub struct AppState {
     pub orch: Mutex<Orchestrator>,
     pub paths: LaragonPaths,
     pub tld: String,
-    pub php_version: String,
 }
 
 /// Build the managed state from the on-disk config.
@@ -20,7 +19,7 @@ pub fn build_state() -> AppState {
     let config = Config::load(&paths.config_file()).unwrap_or_default();
     let _ = paths.ensure_dirs();
     let orch = Orchestrator::new(paths.clone(), build_services(&config, &paths), Box::new(RealSpawner));
-    AppState { orch: Mutex::new(orch), paths, tld: config.tld, php_version: config.php_version }
+    AppState { orch: Mutex::new(orch), paths, tld: config.tld }
 }
 
 fn lock_err<T>(_: std::sync::PoisonError<T>) -> String {
@@ -75,12 +74,12 @@ pub fn list_sites(state: tauri::State<AppState>) -> Result<Vec<Site>, String> {
 
 #[tauri::command]
 pub fn setup_status(state: tauri::State<AppState>) -> Result<Vec<ComponentStatus>, String> {
-    Ok(detect_components(&state.paths, &state.php_version))
+    Ok(detect_components(&state.paths))
 }
 
 #[tauri::command]
 pub fn run_setup_cmd(state: tauri::State<AppState>) -> Result<SetupReport, String> {
     let privileged = PkexecPrivileged;
     let downloader = CurlDownloader;
-    Ok(run_setup(&state.paths, &state.php_version, &privileged, &downloader))
+    Ok(run_setup(&state.paths, &privileged, &downloader))
 }

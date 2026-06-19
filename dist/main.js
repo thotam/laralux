@@ -101,7 +101,8 @@ document.querySelector("#run-setup").addEventListener("click", async () => {
   try {
     const report = await invoke("run_setup_cmd");
     const errs = report.errors.length ? `\nErrors:\n${report.errors.join("\n")}` : "";
-    alert(`Setup done. apt: ${report.apt_packages.join(", ") || "none"}; mkcert CA: ${report.mkcert_ca}; nginx setcap: ${report.nginx_setcap}${errs}`);
+    const php = report.php_version ? `\nPHP ${report.php_version} installed — restart the app to use it.` : "";
+    alert(`Setup done. apt: ${report.apt_packages.join(", ") || "none"}; mkcert CA: ${report.mkcert_ca}; nginx setcap: ${report.nginx_setcap}${php}${errs}`);
     await refresh();
   } catch (e) {
     alert(`setup failed: ${e}`);
