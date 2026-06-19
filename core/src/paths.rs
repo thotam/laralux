@@ -43,6 +43,9 @@ impl LaragonPaths {
     pub fn ssl(&self) -> PathBuf {
         self.root.join("ssl")
     }
+    pub fn bin(&self) -> PathBuf {
+        self.root.join("bin")
+    }
     pub fn etc_for(&self, sub: &str) -> PathBuf {
         self.etc().join(sub)
     }
@@ -51,7 +54,7 @@ impl LaragonPaths {
     }
 
     pub fn ensure_dirs(&self) -> std::io::Result<()> {
-        for dir in [self.www(), self.etc(), self.data(), self.log(), self.tmp(), self.ssl()] {
+        for dir in [self.www(), self.etc(), self.data(), self.log(), self.tmp(), self.ssl(), self.bin()] {
             std::fs::create_dir_all(dir)?;
         }
         Ok(())

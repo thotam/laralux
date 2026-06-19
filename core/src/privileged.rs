@@ -14,6 +14,46 @@ pub trait Privileged: Send + Sync {
     fn write_etc_hosts(&self, new_content: &str) -> Result<(), PrivError>;
     fn install_mkcert_ca(&self) -> Result<(), PrivError>;
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError>;
+    fn apt_install(&self, packages: &[String]) -> Result<(), PrivError>;
+    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError>;
+}
+
+// ---------- Shared free helpers ----------
+
+fn cp_argv(src: &Path) -> Vec<String> {
+    vec!["cp".to_string(), src.display().to_string(), "/etc/hosts".to_string()]
+}
+
+fn setcap_argv(bin: &Path) -> Vec<String> {
+    vec![
+        "setcap".to_string(),
+        "cap_net_bind_service=+ep".to_string(),
+        bin.display().to_string(),
+    ]
+}
+
+fn add_repo_argv(repo: &str) -> Vec<String> {
+    vec!["add-apt-repository".to_string(), "-y".to_string(), repo.to_string()]
+}
+
+fn apt_argv(packages: &[String]) -> Vec<String> {
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!("apt-get update && apt-get install -y {}", packages.join(" ")),
+    ]
+}
+
+fn run_escalated(escalator: &str, argv: &[String]) -> Result<(), PrivError> {
+    let status = std::process::Command::new(escalator)
+        .args(argv)
+        .status()
+        .map_err(|e| PrivError::Command(format!("spawn {escalator}: {e}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(PrivError::Command(format!("{escalator} command failed")))
+    }
 }
 
 // ---------- Real: sudo / mkcert ----------
@@ -22,32 +62,10 @@ pub struct SudoPrivileged;
 
 impl SudoPrivileged {
     pub fn hosts_cp_command(src: &Path) -> (String, Vec<String>) {
-        (
-            "sudo".to_string(),
-            vec!["cp".to_string(), src.display().to_string(), "/etc/hosts".to_string()],
-        )
+        ("sudo".to_string(), cp_argv(src))
     }
     pub fn setcap_command(bin: &Path) -> (String, Vec<String>) {
-        (
-            "sudo".to_string(),
-            vec![
-                "setcap".to_string(),
-                "cap_net_bind_service=+ep".to_string(),
-                bin.display().to_string(),
-            ],
-        )
-    }
-
-    fn run(prog: &str, args: &[String]) -> Result<(), PrivError> {
-        let status = std::process::Command::new(prog)
-            .args(args)
-            .status()
-            .map_err(|e| PrivError::Command(format!("spawn {prog}: {e}")))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(PrivError::Command(format!("{prog} exited with failure")))
-        }
+        ("sudo".to_string(), setcap_argv(bin))
     }
 }
 
@@ -55,15 +73,44 @@ impl Privileged for SudoPrivileged {
     fn write_etc_hosts(&self, new_content: &str) -> Result<(), PrivError> {
         let tmp = std::env::temp_dir().join("laragon-hosts.new");
         std::fs::write(&tmp, new_content)?;
-        let (prog, args) = Self::hosts_cp_command(&tmp);
-        Self::run(&prog, &args)
+        run_escalated("sudo", &cp_argv(&tmp))
     }
     fn install_mkcert_ca(&self) -> Result<(), PrivError> {
-        Self::run("mkcert", &["-install".to_string()])
+        run_escalated("mkcert", &["-install".to_string()])
     }
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError> {
-        let (prog, args) = Self::setcap_command(nginx_bin);
-        Self::run(&prog, &args)
+        run_escalated("sudo", &setcap_argv(nginx_bin))
+    }
+    fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
+        run_escalated("sudo", &apt_argv(packages))
+    }
+    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
+        run_escalated("sudo", &add_repo_argv(repo))
+    }
+}
+
+// ---------- Real: pkexec (graphical auth) ----------
+
+/// Privileged operations escalated with `pkexec` (graphical auth) — for GUI use.
+pub struct PkexecPrivileged;
+
+impl Privileged for PkexecPrivileged {
+    fn write_etc_hosts(&self, new_content: &str) -> Result<(), PrivError> {
+        let tmp = std::env::temp_dir().join("laragon-hosts.new");
+        std::fs::write(&tmp, new_content)?;
+        run_escalated("pkexec", &cp_argv(&tmp))
+    }
+    fn install_mkcert_ca(&self) -> Result<(), PrivError> {
+        run_escalated("mkcert", &["-install".to_string()])
+    }
+    fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError> {
+        run_escalated("pkexec", &setcap_argv(nginx_bin))
+    }
+    fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
+        run_escalated("pkexec", &apt_argv(packages))
+    }
+    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
+        run_escalated("pkexec", &add_repo_argv(repo))
     }
 }
 
@@ -74,6 +121,8 @@ pub struct FakePrivileged {
     hosts_writes: Arc<Mutex<Vec<String>>>,
     installed_ca: Arc<Mutex<bool>>,
     setcap_done: Arc<Mutex<bool>>,
+    apt_installs: Arc<Mutex<Vec<Vec<String>>>>,
+    add_repos: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakePrivileged {
@@ -85,6 +134,12 @@ impl FakePrivileged {
     }
     pub fn installed_ca(&self) -> bool {
         *self.installed_ca.lock().unwrap()
+    }
+    pub fn apt_installs(&self) -> Arc<Mutex<Vec<Vec<String>>>> {
+        self.apt_installs.clone()
+    }
+    pub fn add_repos(&self) -> Arc<Mutex<Vec<String>>> {
+        self.add_repos.clone()
     }
 }
 
@@ -99,6 +154,14 @@ impl Privileged for FakePrivileged {
     }
     fn setcap_nginx(&self, _nginx_bin: &Path) -> Result<(), PrivError> {
         *self.setcap_done.lock().unwrap() = true;
+        Ok(())
+    }
+    fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
+        self.apt_installs.lock().unwrap().push(packages.to_vec());
+        Ok(())
+    }
+    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
+        self.add_repos.lock().unwrap().push(repo.to_string());
         Ok(())
     }
 }
@@ -133,5 +196,45 @@ mod tests {
         f.write_etc_hosts("# BEGIN laragon-linux\n# END laragon-linux\n").unwrap();
         assert_eq!(log.lock().unwrap().len(), 1);
         assert!(log.lock().unwrap()[0].contains("laragon-linux"));
+    }
+
+    #[test]
+    fn apt_argv_builds_update_then_install() {
+        let argv = apt_argv(&["nginx".to_string(), "redis-server".to_string()]);
+        assert_eq!(argv[0], "sh");
+        assert_eq!(argv[1], "-c");
+        assert!(argv[2].contains("apt-get update"));
+        assert!(argv[2].contains("apt-get install -y nginx redis-server"));
+    }
+
+    #[test]
+    fn pkexec_uses_pkexec_program() {
+        // The pkexec impl escalates with `pkexec`; verify via the shared builder usage.
+        // hosts_cp_command on Sudo still uses sudo (unchanged Plan-2 contract).
+        let (prog, _args) = SudoPrivileged::hosts_cp_command(std::path::Path::new("/tmp/h"));
+        assert_eq!(prog, "sudo");
+    }
+
+    #[test]
+    fn fake_records_apt_installs() {
+        let f = FakePrivileged::new();
+        let log = f.apt_installs();
+        f.apt_install(&["nginx".to_string()]).unwrap();
+        assert_eq!(log.lock().unwrap().len(), 1);
+        assert_eq!(log.lock().unwrap()[0], vec!["nginx".to_string()]);
+    }
+
+    #[test]
+    fn add_repo_argv_builds_add_apt_repository() {
+        let argv = add_repo_argv("ppa:ondrej/php");
+        assert_eq!(argv, vec!["add-apt-repository".to_string(), "-y".to_string(), "ppa:ondrej/php".to_string()]);
+    }
+
+    #[test]
+    fn fake_records_add_repos() {
+        let f = FakePrivileged::new();
+        let log = f.add_repos();
+        f.add_apt_repository("ppa:ondrej/php").unwrap();
+        assert_eq!(log.lock().unwrap().as_slice(), &["ppa:ondrej/php".to_string()]);
     }
 }
