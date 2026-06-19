@@ -194,16 +194,19 @@ pub fn run_setup(
         match downloader.fetch(MAILPIT_URL, &tarball) {
             Ok(()) => {
                 report.mailpit_fetched = true;
-                let status = std::process::Command::new("tar")
+                let output = std::process::Command::new("tar")
                     .arg("-xzf")
                     .arg(&tarball)
                     .arg("-C")
                     .arg(paths.bin())
                     .arg("mailpit")
-                    .status();
-                match status {
-                    Ok(s) if s.success() => {}
-                    Ok(_) => report.errors.push("tar extract mailpit failed".to_string()),
+                    .output();
+                match output {
+                    Ok(o) if o.status.success() => {}
+                    Ok(o) => report.errors.push(format!(
+                        "tar extract mailpit failed: {}",
+                        String::from_utf8_lossy(&o.stderr).trim()
+                    )),
                     Err(e) => report.errors.push(format!("tar spawn: {e}")),
                 }
             }
