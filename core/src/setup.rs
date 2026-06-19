@@ -41,10 +41,10 @@ pub struct ComponentStatus {
 }
 
 /// The binary that, if resolvable, means the component is installed.
-fn detect_binary(component: Component, php_version: &str) -> String {
+fn detect_binary(component: Component) -> String {
     match component {
         Component::Nginx => "nginx".to_string(),
-        Component::Php => format!("php-fpm{php_version}"),
+        Component::Php => "php-fpm".to_string(), // unused for detection (handled in detect)
         Component::Mariadb => "mariadbd".to_string(),
         Component::Redis => "redis-server".to_string(),
         Component::Mkcert => "mkcert".to_string(),
@@ -53,28 +53,33 @@ fn detect_binary(component: Component, php_version: &str) -> String {
 }
 
 /// Detect presence of every component. Mailpit also searches `~/laragon/bin`.
-pub fn detect(paths: &LaragonPaths, php_version: &str) -> Vec<ComponentStatus> {
+pub fn detect(paths: &LaragonPaths) -> Vec<ComponentStatus> {
     Component::ALL
         .iter()
         .map(|&component| {
-            let name = detect_binary(component, php_version);
-            let present = resolve_bin(&name, &[paths.bin()]).is_some();
+            let present = match component {
+                Component::Php => crate::bin::detect_php_fpm_version(&[paths.bin()]).is_some(),
+                other => {
+                    let name = detect_binary(other);
+                    resolve_bin(&name, &[paths.bin()]).is_some()
+                }
+            };
             ComponentStatus { component, present }
         })
         .collect()
 }
 
 /// The apt packages that install a component (empty for mailpit, which is downloaded).
-pub fn apt_packages_for(component: Component, php_version: &str) -> Vec<String> {
+pub fn apt_packages_for(component: Component) -> Vec<String> {
     match component {
         Component::Nginx => vec!["nginx".to_string()],
         Component::Php => vec![
-            format!("php{php_version}-fpm"),
-            format!("php{php_version}-cli"),
-            format!("php{php_version}-mysql"),
-            format!("php{php_version}-curl"),
-            format!("php{php_version}-mbstring"),
-            format!("php{php_version}-xml"),
+            "php-fpm".to_string(),
+            "php-cli".to_string(),
+            "php-mysql".to_string(),
+            "php-curl".to_string(),
+            "php-mbstring".to_string(),
+            "php-xml".to_string(),
         ],
         Component::Mariadb => vec!["mariadb-server".to_string()],
         Component::Redis => vec!["redis-server".to_string()],
@@ -153,18 +158,14 @@ pub struct SetupReport {
     pub mailpit_fetched: bool,
     pub mkcert_ca: bool,
     pub nginx_setcap: bool,
+    pub php_version: Option<String>,
     pub errors: Vec<String>,
-}
-
-fn is_php(component: Component) -> bool {
-    matches!(component, Component::Php)
 }
 
 /// Install missing components, fetch mailpit, install the mkcert CA, and setcap nginx.
 /// Non-fatal: each failure is collected into `report.errors`.
 pub fn run_setup(
     paths: &LaragonPaths,
-    php_version: &str,
     privileged: &dyn Privileged,
     downloader: &dyn Downloader,
 ) -> SetupReport {
@@ -173,36 +174,26 @@ pub fn run_setup(
         mailpit_fetched: false,
         mkcert_ca: false,
         nginx_setcap: false,
+        php_version: None,
         errors: Vec::new(),
     };
     let _ = paths.ensure_dirs();
-    let statuses = detect(paths, php_version);
+    let statuses = detect(paths);
     let missing: Vec<Component> =
         statuses.iter().filter(|s| !s.present).map(|s| s.component).collect();
 
-    // 1. Install missing apt-backed components.
-    //    PHP lives in the ondrej PPA on Ubuntu; add it first when PHP is missing,
-    //    and install PHP separately so an unavailable PHP package can't block the
-    //    rest of the stack (apt-get install is all-or-nothing per invocation).
-    let php_missing = missing.contains(&Component::Php);
-    if php_missing {
-        if let Err(e) = privileged.add_apt_repository("ppa:ondrej/php") {
-            report.errors.push(format!("add-apt-repository ppa:ondrej/php: {e}"));
-        }
-    }
-
+    // 1. Install missing apt components: core stack in one call, PHP (unversioned
+    //    distro meta) in a separate call so one failing package can't block the rest.
     let other_packages: Vec<String> = missing
         .iter()
-        .filter(|c| !is_php(**c))
-        .flat_map(|&c| apt_packages_for(c, php_version))
+        .filter(|c| !matches!(c, Component::Php))
+        .flat_map(|&c| apt_packages_for(c))
         .collect();
     let php_packages: Vec<String> = missing
         .iter()
-        .filter(|c| is_php(**c))
-        .flat_map(|&c| apt_packages_for(c, php_version))
+        .filter(|c| matches!(c, Component::Php))
+        .flat_map(|&c| apt_packages_for(c))
         .collect();
-
-    // Record everything we attempted to install (core first, then php).
     report.apt_packages = other_packages.iter().chain(php_packages.iter()).cloned().collect();
 
     if !other_packages.is_empty() {
@@ -213,6 +204,15 @@ pub fn run_setup(
     if !php_packages.is_empty() {
         if let Err(e) = privileged.apt_install(&php_packages) {
             report.errors.push(format!("apt_install (php): {e}"));
+        }
+        // Detect the version that actually got installed and persist it.
+        if let Some(ver) = crate::bin::detect_php_fpm_version(&[paths.bin()]) {
+            report.php_version = Some(ver.clone());
+            let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+            cfg.php_version = ver;
+            if let Err(e) = cfg.save(&paths.config_file()) {
+                report.errors.push(format!("persist php version: {e}"));
+            }
         }
     }
 
@@ -266,49 +266,21 @@ mod tests {
     use crate::privileged::FakePrivileged;
 
     #[test]
-    fn run_setup_installs_missing_apt_and_fetches_mailpit() {
-        let root = std::env::temp_dir().join(format!("lara-runsetup-{}", std::process::id()));
-        std::fs::create_dir_all(root.join("bin")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
-
-        let priv_ = FakePrivileged::new();
-        let apt_log = priv_.apt_installs();
-        let dl = FakeDownloader::new();
-        let urls = dl.requested();
-
-        let report = run_setup(&paths, "8.4", &priv_, &dl);
-
-        // ondrej PPA added because php is missing
-        assert!(priv_.add_repos().lock().unwrap().iter().any(|r| r == "ppa:ondrej/php"));
-        // two apt_install calls: one core (no php pkgs), one php-only
-        let calls = apt_log.lock().unwrap();
-        assert_eq!(calls.len(), 2);
-        let core_call = calls.iter().find(|c| c.iter().any(|p| p == "nginx")).unwrap();
-        assert!(core_call.iter().any(|p| p == "mariadb-server"));
-        assert!(!core_call.iter().any(|p| p.starts_with("php")));
-        let php_call = calls.iter().find(|c| c.iter().all(|p| p.starts_with("php"))).unwrap();
-        assert!(php_call.iter().any(|p| p == "php8.4-fpm"));
-        // mailpit fetched, mkcert CA attempted
-        assert!(urls.lock().unwrap().iter().any(|u| u.contains("mailpit")));
-        assert!(report.mkcert_ca);
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn php_packages_are_versioned() {
-        let pkgs = apt_packages_for(Component::Php, "8.4");
-        assert!(pkgs.contains(&"php8.4-fpm".to_string()));
-        assert!(pkgs.contains(&"php8.4-mysql".to_string()));
+    fn php_packages_are_unversioned_meta() {
+        let pkgs = apt_packages_for(Component::Php);
+        assert!(pkgs.contains(&"php-fpm".to_string()));
+        assert!(pkgs.contains(&"php-mysql".to_string()));
+        assert!(!pkgs.iter().any(|p| p.contains('8'))); // no hardcoded version
     }
 
     #[test]
     fn mailpit_has_no_apt_packages() {
-        assert!(apt_packages_for(Component::Mailpit, "8.4").is_empty());
+        assert!(apt_packages_for(Component::Mailpit).is_empty());
     }
 
     #[test]
     fn mkcert_includes_nss_tools() {
-        let pkgs = apt_packages_for(Component::Mkcert, "8.4");
+        let pkgs = apt_packages_for(Component::Mkcert);
         assert!(pkgs.contains(&"mkcert".to_string()));
         assert!(pkgs.contains(&"libnss3-tools".to_string()));
     }
@@ -316,10 +288,37 @@ mod tests {
     #[test]
     fn detect_reports_all_components() {
         let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-detect-{}", std::process::id())));
-        let statuses = detect(&paths, "8.4");
+        let statuses = detect(&paths);
         assert_eq!(statuses.len(), 6);
-        // A bogus root means mailpit (only in ~/laragon/bin or PATH) is absent here.
-        let mailpit = statuses.iter().find(|s| s.component == Component::Mailpit).unwrap();
-        assert!(!mailpit.present);
+    }
+
+    #[test]
+    fn run_setup_installs_core_and_php_without_ppa() {
+        let root = std::env::temp_dir().join(format!("lara-runsetup-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+
+        let priv_ = FakePrivileged::new();
+        let apt_log = priv_.apt_installs();
+        let add_repos = priv_.add_repos();
+        let dl = FakeDownloader::new();
+        let urls = dl.requested();
+
+        let report = run_setup(&paths, &priv_, &dl);
+
+        // No PPA is added anymore.
+        assert!(add_repos.lock().unwrap().is_empty());
+        // Two apt installs: core (has nginx, no php) + php (unversioned meta).
+        let calls = apt_log.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        let core = calls.iter().find(|c| c.iter().any(|p| p == "nginx")).unwrap();
+        assert!(core.iter().any(|p| p == "mariadb-server"));
+        assert!(!core.iter().any(|p| p.starts_with("php")));
+        let php = calls.iter().find(|c| c.iter().all(|p| p.starts_with("php"))).unwrap();
+        assert!(php.iter().any(|p| p == "php-fpm"));
+        // mailpit fetched, mkcert CA attempted.
+        assert!(urls.lock().unwrap().iter().any(|u| u.contains("mailpit")));
+        assert!(report.mkcert_ca);
+        std::fs::remove_dir_all(&root).ok();
     }
 }
