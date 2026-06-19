@@ -15,6 +15,7 @@ pub trait Privileged: Send + Sync {
     fn install_mkcert_ca(&self) -> Result<(), PrivError>;
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError>;
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError>;
+    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError>;
 }
 
 // ---------- Shared free helpers ----------
@@ -29,6 +30,10 @@ fn setcap_argv(bin: &Path) -> Vec<String> {
         "cap_net_bind_service=+ep".to_string(),
         bin.display().to_string(),
     ]
+}
+
+fn add_repo_argv(repo: &str) -> Vec<String> {
+    vec!["add-apt-repository".to_string(), "-y".to_string(), repo.to_string()]
 }
 
 fn apt_argv(packages: &[String]) -> Vec<String> {
@@ -79,6 +84,9 @@ impl Privileged for SudoPrivileged {
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
         run_escalated("sudo", &apt_argv(packages))
     }
+    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
+        run_escalated("sudo", &add_repo_argv(repo))
+    }
 }
 
 // ---------- Real: pkexec (graphical auth) ----------
@@ -101,6 +109,9 @@ impl Privileged for PkexecPrivileged {
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
         run_escalated("pkexec", &apt_argv(packages))
     }
+    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
+        run_escalated("pkexec", &add_repo_argv(repo))
+    }
 }
 
 // ---------- Fake (used by sync tests) ----------
@@ -111,6 +122,7 @@ pub struct FakePrivileged {
     installed_ca: Arc<Mutex<bool>>,
     setcap_done: Arc<Mutex<bool>>,
     apt_installs: Arc<Mutex<Vec<Vec<String>>>>,
+    add_repos: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakePrivileged {
@@ -125,6 +137,9 @@ impl FakePrivileged {
     }
     pub fn apt_installs(&self) -> Arc<Mutex<Vec<Vec<String>>>> {
         self.apt_installs.clone()
+    }
+    pub fn add_repos(&self) -> Arc<Mutex<Vec<String>>> {
+        self.add_repos.clone()
     }
 }
 
@@ -143,6 +158,10 @@ impl Privileged for FakePrivileged {
     }
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
         self.apt_installs.lock().unwrap().push(packages.to_vec());
+        Ok(())
+    }
+    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
+        self.add_repos.lock().unwrap().push(repo.to_string());
         Ok(())
     }
 }
@@ -203,5 +222,19 @@ mod tests {
         f.apt_install(&["nginx".to_string()]).unwrap();
         assert_eq!(log.lock().unwrap().len(), 1);
         assert_eq!(log.lock().unwrap()[0], vec!["nginx".to_string()]);
+    }
+
+    #[test]
+    fn add_repo_argv_builds_add_apt_repository() {
+        let argv = add_repo_argv("ppa:ondrej/php");
+        assert_eq!(argv, vec!["add-apt-repository".to_string(), "-y".to_string(), "ppa:ondrej/php".to_string()]);
+    }
+
+    #[test]
+    fn fake_records_add_repos() {
+        let f = FakePrivileged::new();
+        let log = f.add_repos();
+        f.add_apt_repository("ppa:ondrej/php").unwrap();
+        assert_eq!(log.lock().unwrap().as_slice(), &["ppa:ondrej/php".to_string()]);
     }
 }

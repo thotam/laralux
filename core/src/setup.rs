@@ -156,6 +156,10 @@ pub struct SetupReport {
     pub errors: Vec<String>,
 }
 
+fn is_php(component: Component) -> bool {
+    matches!(component, Component::Php)
+}
+
 /// Install missing components, fetch mailpit, install the mkcert CA, and setcap nginx.
 /// Non-fatal: each failure is collected into `report.errors`.
 pub fn run_setup(
@@ -176,15 +180,39 @@ pub fn run_setup(
     let missing: Vec<Component> =
         statuses.iter().filter(|s| !s.present).map(|s| s.component).collect();
 
-    // 1. apt-install all missing apt-backed components in one call.
-    let apt_packages: Vec<String> = missing
+    // 1. Install missing apt-backed components.
+    //    PHP lives in the ondrej PPA on Ubuntu; add it first when PHP is missing,
+    //    and install PHP separately so an unavailable PHP package can't block the
+    //    rest of the stack (apt-get install is all-or-nothing per invocation).
+    let php_missing = missing.contains(&Component::Php);
+    if php_missing {
+        if let Err(e) = privileged.add_apt_repository("ppa:ondrej/php") {
+            report.errors.push(format!("add-apt-repository ppa:ondrej/php: {e}"));
+        }
+    }
+
+    let other_packages: Vec<String> = missing
         .iter()
+        .filter(|c| !is_php(**c))
         .flat_map(|&c| apt_packages_for(c, php_version))
         .collect();
-    if !apt_packages.is_empty() {
-        report.apt_packages = apt_packages.clone();
-        if let Err(e) = privileged.apt_install(&apt_packages) {
-            report.errors.push(format!("apt_install: {e}"));
+    let php_packages: Vec<String> = missing
+        .iter()
+        .filter(|c| is_php(**c))
+        .flat_map(|&c| apt_packages_for(c, php_version))
+        .collect();
+
+    // Record everything we attempted to install (core first, then php).
+    report.apt_packages = other_packages.iter().chain(php_packages.iter()).cloned().collect();
+
+    if !other_packages.is_empty() {
+        if let Err(e) = privileged.apt_install(&other_packages) {
+            report.errors.push(format!("apt_install (core): {e}"));
+        }
+    }
+    if !php_packages.is_empty() {
+        if let Err(e) = privileged.apt_install(&php_packages) {
+            report.errors.push(format!("apt_install (php): {e}"));
         }
     }
 
@@ -250,12 +278,17 @@ mod tests {
 
         let report = run_setup(&paths, "8.4", &priv_, &dl);
 
-        // On a machine without the stack, all apt components are planned for install.
-        let installed: Vec<String> = apt_log.lock().unwrap().iter().flatten().cloned().collect();
-        assert!(installed.contains(&"nginx".to_string()));
-        assert!(installed.contains(&"mariadb-server".to_string()));
-        assert!(installed.iter().any(|p| p.starts_with("php8.4-")));
-        // mailpit is fetched, not apt-installed.
+        // ondrej PPA added because php is missing
+        assert!(priv_.add_repos().lock().unwrap().iter().any(|r| r == "ppa:ondrej/php"));
+        // two apt_install calls: one core (no php pkgs), one php-only
+        let calls = apt_log.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        let core_call = calls.iter().find(|c| c.iter().any(|p| p == "nginx")).unwrap();
+        assert!(core_call.iter().any(|p| p == "mariadb-server"));
+        assert!(!core_call.iter().any(|p| p.starts_with("php")));
+        let php_call = calls.iter().find(|c| c.iter().all(|p| p.starts_with("php"))).unwrap();
+        assert!(php_call.iter().any(|p| p == "php8.4-fpm"));
+        // mailpit fetched, mkcert CA attempted
         assert!(urls.lock().unwrap().iter().any(|u| u.contains("mailpit")));
         assert!(report.mkcert_ca);
         std::fs::remove_dir_all(&root).ok();
