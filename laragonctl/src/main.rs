@@ -1,7 +1,7 @@
 use laragon_core::service::php_fpm::PhpFpmService;
 use laragon_core::{
-    build_services, scan_sites, sync_sites, Config, LaragonPaths, MkcertIssuer, Orchestrator,
-    Privileged, RealSpawner, SudoPrivileged,
+    build_services, detect_components, scan_sites, sync_sites, Config, CurlDownloader, LaragonPaths,
+    MkcertIssuer, Orchestrator, Privileged, RealSpawner, run_setup, SudoPrivileged,
 };
 
 fn main() {
@@ -82,8 +82,26 @@ fn main() {
         "down" => {
             println!("`up` manages the process lifetime; stop it with Ctrl-C.");
         }
+        "setup" => {
+            let cfg = Config::load(&paths.config_file()).expect("load config");
+            paths.ensure_dirs().expect("create dirs");
+            println!("Component status:");
+            for s in detect_components(&paths, &cfg.php_version) {
+                println!("  {:?}: {}", s.component, if s.present { "installed" } else { "missing" });
+            }
+            println!("Running setup (may prompt for sudo)...");
+            let report = run_setup(&paths, &cfg.php_version, &SudoPrivileged, &CurlDownloader);
+            println!(
+                "apt: {}\nmailpit fetched: {}\nmkcert CA: {}\nnginx setcap: {}",
+                if report.apt_packages.is_empty() { "none".to_string() } else { report.apt_packages.join(" ") },
+                report.mailpit_fetched, report.mkcert_ca, report.nginx_setcap
+            );
+            for e in &report.errors {
+                eprintln!("  error: {e}");
+            }
+        }
         _ => {
-            println!("usage: laragonctl <config-init|up|status|sites|setup-perms>");
+            println!("usage: laragonctl <config-init|up|status|sites|setup-perms|setup>");
         }
     }
 }
