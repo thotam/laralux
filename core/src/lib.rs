@@ -18,7 +18,7 @@ pub use paths::LaragonPaths;
 pub use process::RealSpawner;
 pub use service::registry::build_services;
 pub use service::ServiceKind;
-pub use privileged::{Privileged, SudoPrivileged};
+pub use privileged::{PkexecPrivileged, Privileged, SudoPrivileged};
 pub use sites::{scan_sites, Site};
 pub use ssl::MkcertIssuer;
 pub use sync::sync_sites;
