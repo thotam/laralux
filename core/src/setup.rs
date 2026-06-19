@@ -206,12 +206,19 @@ pub fn run_setup(
             report.errors.push(format!("apt_install (php): {e}"));
         }
         // Detect the version that actually got installed and persist it.
-        if let Some(ver) = crate::bin::detect_php_fpm_version(&[paths.bin()]) {
-            report.php_version = Some(ver.clone());
-            let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
-            cfg.php_version = ver;
-            if let Err(e) = cfg.save(&paths.config_file()) {
-                report.errors.push(format!("persist php version: {e}"));
+        match crate::bin::detect_php_fpm_version(&[paths.bin()]) {
+            Some(ver) => {
+                report.php_version = Some(ver.clone());
+                let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+                cfg.php_version = ver;
+                if let Err(e) = cfg.save(&paths.config_file()) {
+                    report.errors.push(format!("persist php version: {e}"));
+                }
+            }
+            None => {
+                report.errors.push(
+                    "php-fpm binary not found after install; Config php_version not updated".to_string(),
+                );
             }
         }
     }
@@ -290,6 +297,7 @@ mod tests {
         let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-detect-{}", std::process::id())));
         let statuses = detect(&paths);
         assert_eq!(statuses.len(), 6);
+        assert!(!statuses.iter().find(|s| s.component == Component::Mailpit).unwrap().present);
     }
 
     #[test]

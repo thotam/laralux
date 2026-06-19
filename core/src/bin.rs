@@ -65,6 +65,9 @@ pub fn detect_php_fpm_version(extra_dirs: &[PathBuf]) -> Option<String> {
             Err(_) => continue,
         };
         for entry in entries.flatten() {
+            if !entry.path().is_file() {
+                continue;
+            }
             let name = entry.file_name().to_string_lossy().into_owned();
             if let Some(ver) = name.strip_prefix("php-fpm") {
                 if let Some((maj, min)) = parse_php_version(ver) {
