@@ -50,17 +50,11 @@ fn parse_php_version(s: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
-/// Find the highest installed `php-fpm<major>.<minor>` and return its version string.
-pub fn detect_php_fpm_version(extra_dirs: &[PathBuf]) -> Option<String> {
-    let mut dirs: Vec<PathBuf> = extra_dirs.to_vec();
-    if let Some(path) = std::env::var_os("PATH") {
-        dirs.extend(std::env::split_paths(&path));
-    }
-    dirs.extend(FALLBACK_DIRS.iter().map(PathBuf::from));
-
+/// Scan exactly `dirs` (no implicit PATH/fallback) for the highest php-fpm<maj>.<min>.
+fn detect_php_fpm_version_in(dirs: &[PathBuf]) -> Option<String> {
     let mut best: Option<(u32, u32, String)> = None;
     for dir in dirs {
-        let entries = match std::fs::read_dir(&dir) {
+        let entries = match std::fs::read_dir(dir) {
             Ok(e) => e,
             Err(_) => continue,
         };
@@ -79,6 +73,16 @@ pub fn detect_php_fpm_version(extra_dirs: &[PathBuf]) -> Option<String> {
         }
     }
     best.map(|(_, _, ver)| ver)
+}
+
+/// Find the highest installed `php-fpm<major>.<minor>` and return its version string.
+pub fn detect_php_fpm_version(extra_dirs: &[PathBuf]) -> Option<String> {
+    let mut dirs: Vec<PathBuf> = extra_dirs.to_vec();
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path));
+    }
+    dirs.extend(FALLBACK_DIRS.iter().map(PathBuf::from));
+    detect_php_fpm_version_in(&dirs)
 }
 
 #[cfg(test)]
@@ -128,7 +132,7 @@ mod tests {
         std::fs::write(dir.join("php-fpm8.3"), "x").unwrap();
         std::fs::write(dir.join("php-fpm8.4"), "x").unwrap();
         std::fs::write(dir.join("php-fpm"), "x").unwrap(); // unversioned: ignored
-        assert_eq!(detect_php_fpm_version(&[dir.clone()]), Some("8.4".to_string()));
+        assert_eq!(detect_php_fpm_version_in(&[dir.clone()]), Some("8.4".to_string()));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -136,7 +140,7 @@ mod tests {
     fn no_php_fpm_returns_none() {
         let dir = tmp();
         std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(detect_php_fpm_version(&[dir.clone()]), None);
+        assert_eq!(detect_php_fpm_version_in(&[dir.clone()]), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

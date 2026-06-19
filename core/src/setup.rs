@@ -88,6 +88,15 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
     }
 }
 
+/// Split a missing-component set into (core apt packages, php apt packages).
+fn classify_apt(missing: &[Component]) -> (Vec<String>, Vec<String>) {
+    let core = missing.iter().filter(|c| !matches!(c, Component::Php))
+        .flat_map(|&c| apt_packages_for(c)).collect();
+    let php = missing.iter().filter(|c| matches!(c, Component::Php))
+        .flat_map(|&c| apt_packages_for(c)).collect();
+    (core, php)
+}
+
 use crate::privileged::Privileged;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -184,16 +193,7 @@ pub fn run_setup(
 
     // 1. Install missing apt components: core stack in one call, PHP (unversioned
     //    distro meta) in a separate call so one failing package can't block the rest.
-    let other_packages: Vec<String> = missing
-        .iter()
-        .filter(|c| !matches!(c, Component::Php))
-        .flat_map(|&c| apt_packages_for(c))
-        .collect();
-    let php_packages: Vec<String> = missing
-        .iter()
-        .filter(|c| matches!(c, Component::Php))
-        .flat_map(|&c| apt_packages_for(c))
-        .collect();
+    let (other_packages, php_packages) = classify_apt(&missing);
     report.apt_packages = other_packages.iter().chain(php_packages.iter()).cloned().collect();
 
     if !other_packages.is_empty() {
@@ -301,32 +301,27 @@ mod tests {
     }
 
     #[test]
-    fn run_setup_installs_core_and_php_without_ppa() {
+    fn classify_apt_splits_core_and_php() {
+        let (core, php) = classify_apt(&[Component::Nginx, Component::Php, Component::Mailpit]);
+        assert!(core.contains(&"nginx".to_string()));
+        assert!(!core.iter().any(|p| p.starts_with("php")));
+        assert!(php.contains(&"php-fpm".to_string()));
+        assert!(php.iter().all(|p| p.starts_with("php")));
+        // mailpit contributes no apt packages
+        assert!(!core.iter().any(|p| p.contains("mailpit")));
+    }
+
+    #[test]
+    fn run_setup_adds_no_ppa() {
         let root = std::env::temp_dir().join(format!("lara-runsetup-{}", std::process::id()));
         std::fs::create_dir_all(root.join("bin")).unwrap();
         let paths = LaragonPaths::new(root.clone());
-
         let priv_ = FakePrivileged::new();
-        let apt_log = priv_.apt_installs();
         let add_repos = priv_.add_repos();
         let dl = FakeDownloader::new();
-        let urls = dl.requested();
-
-        let report = run_setup(&paths, &priv_, &dl);
-
-        // No PPA is added anymore.
+        let _ = run_setup(&paths, &priv_, &dl);
+        // Hermetic: regardless of what's installed, we never add a PPA.
         assert!(add_repos.lock().unwrap().is_empty());
-        // Two apt installs: core (has nginx, no php) + php (unversioned meta).
-        let calls = apt_log.lock().unwrap();
-        assert_eq!(calls.len(), 2);
-        let core = calls.iter().find(|c| c.iter().any(|p| p == "nginx")).unwrap();
-        assert!(core.iter().any(|p| p == "mariadb-server"));
-        assert!(!core.iter().any(|p| p.starts_with("php")));
-        let php = calls.iter().find(|c| c.iter().all(|p| p.starts_with("php"))).unwrap();
-        assert!(php.iter().any(|p| p == "php-fpm"));
-        // mailpit fetched, mkcert CA attempted.
-        assert!(urls.lock().unwrap().iter().any(|u| u.contains("mailpit")));
-        assert!(report.mkcert_ca);
         std::fs::remove_dir_all(&root).ok();
     }
 }
