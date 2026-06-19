@@ -72,7 +72,8 @@ impl Orchestrator {
 
         if let Some(svc) = self.find(kind) {
             svc.write_config(&self.paths)?;
-            let spec = svc.command(&self.paths);
+            let mut spec = svc.command(&self.paths);
+            spec.program = crate::bin::resolve_or_name(&spec.program, &[self.paths.bin()]);
             let handle = self.spawner.spawn(&spec)?;
             self.handles.insert(kind, handle);
         }
@@ -316,6 +317,26 @@ mod tests {
         o.start(ServiceKind::Redis).unwrap();
         let after = o.snapshot();
         assert_eq!(after[0].state, ServiceState::Running);
+    }
+
+    #[test]
+    fn start_resolves_program_against_bin_dir() {
+        // A fake binary placed in <root>/bin should be spawned by absolute path.
+        let root = std::env::temp_dir().join(format!("lara-orch-res-{}", std::process::id()));
+        let bindir = root.join("bin");
+        std::fs::create_dir_all(&bindir).unwrap();
+        let exe = bindir.join("redis-server");
+        std::fs::write(&exe, "x").unwrap();
+
+        let spawner = crate::process::FakeSpawner::new();
+        let log = spawner.log();
+        let services: Vec<Box<dyn Service>> =
+            vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
+        let mut o = Orchestrator::new(LaragonPaths::new(root.clone()), services, Box::new(spawner));
+
+        o.start(ServiceKind::Redis).unwrap();
+        assert_eq!(log.lock().unwrap()[0].program, exe.display().to_string());
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
