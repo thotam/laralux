@@ -35,3 +35,15 @@ td:first-child { font-weight: 600; }
 #sites li { padding: 0.4rem 0; }
 #sites a { color: #2a6df5; text-decoration: none; }
 #sites a:hover { text-decoration: underline; }
+#setup { list-style: none; padding: 0; }
+#setup li { padding: 0.3rem 0; }
+#run-setup {
+  cursor: pointer;
+  border: 1px solid #c4c9d0;
+  background: #fff;
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  margin-top: 0.5rem;
+}
+#run-setup:hover { background: #eef1f5; }
+#run-setup:disabled { opacity: 0.6; cursor: default; }

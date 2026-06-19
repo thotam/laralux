@@ -20,6 +20,8 @@ fn main() {
             commands::service_start,
             commands::service_stop,
             commands::list_sites,
+            commands::setup_status,
+            commands::run_setup_cmd,
         ])
         .setup(|app| {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;
