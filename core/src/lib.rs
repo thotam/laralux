@@ -11,6 +11,7 @@ pub mod hosts;
 pub mod ssl;
 pub mod privileged;
 pub mod sync;
+pub mod setup;
 
 pub use config::Config;
 pub use orchestrator::{Orchestrator, ServiceStatus};
