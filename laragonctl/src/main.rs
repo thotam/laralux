@@ -121,36 +121,22 @@ fn which(bin: &str) -> Option<std::path::PathBuf> {
 }
 
 fn wait_for_ctrl_c() {
-    use std::sync::mpsc::channel;
-    let (tx, rx) = channel();
-    ctrlc_lite(move || {
-        let _ = tx.send(());
-    });
-    let _ = rx.recv();
-}
+    use std::sync::atomic::{AtomicBool, Ordering};
 
-// Minimal Ctrl-C handler without external crates: register a SIGINT handler
-// that writes to a static flag via a self-pipe-free approach using libc.
-fn ctrlc_lite<F: Fn() + Send + 'static>(f: F) {
-    use std::sync::Mutex;
-    use std::sync::OnceLock;
-    static HANDLER: OnceLock<Mutex<Option<Box<dyn Fn() + Send>>>> = OnceLock::new();
-    HANDLER.get_or_init(|| Mutex::new(None));
-    *HANDLER.get().unwrap().lock().unwrap() = Some(Box::new(f));
+    static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
+    // Signal handler: only an atomic store — async-signal-safe, cannot deadlock.
     extern "C" fn on_sigint(_sig: i32) {
-        if let Some(lock) = HANDLER.get() {
-            if let Ok(guard) = lock.lock() {
-                if let Some(cb) = guard.as_ref() {
-                    cb();
-                }
-            }
-        }
+        SHUTDOWN.store(true, Ordering::SeqCst);
     }
     extern "C" {
         fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
     }
     unsafe {
         signal(2, on_sigint); // SIGINT = 2
+    }
+
+    while !SHUTDOWN.load(Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
