@@ -1,8 +1,9 @@
 use laragon_core::{
-    build_services, detect_components, run_setup, scan_sites, Config, LaragonPaths, Orchestrator,
-    PkexecPrivileged, RealSpawner, ServiceKind, ServiceStatus, Site,
+    build_services, detect_components, run_setup, scan_sites, sync_sites, Config, LaragonPaths,
+    MkcertIssuer, Orchestrator, PkexecPrivileged, RealSpawner, ServiceKind, ServiceStatus, Site,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
+use laragon_core::service::php_fpm::PhpFpmService;
 use std::sync::Mutex;
 
 /// Shared, app-lifetime state. The orchestrator owns the running child
@@ -35,6 +36,22 @@ pub fn stack_status(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus>,
 
 #[tauri::command]
 pub fn stack_start_all(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus>, String> {
+    // Sync sites (per-site vhosts + mkcert certs + /etc/hosts) BEFORE starting,
+    // so nginx loads the vhosts on start and <name>.<tld> resolves. Best-effort:
+    // a sync failure (e.g. the user cancels the pkexec prompt) must not block start.
+    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+    let issuer = MkcertIssuer::new(state.paths.ssl());
+    let privileged = PkexecPrivileged;
+    let _ = sync_sites(
+        &state.paths,
+        &config.tld,
+        &php_socket,
+        std::path::Path::new("/etc/hosts"),
+        &issuer,
+        &privileged,
+    );
+
     let mut orch = state.orch.lock().map_err(lock_err)?;
     orch.start_all().map_err(|e| e.to_string())?;
     Ok(orch.snapshot())
