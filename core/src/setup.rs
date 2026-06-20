@@ -171,6 +171,16 @@ pub struct SetupReport {
     pub errors: Vec<String>,
 }
 
+/// Distro systemd stack units to disable: always nginx/mariadb/redis-server,
+/// plus the versioned php-fpm unit when a php-fpm version is known.
+fn stack_units_to_disable(php_version: Option<&str>) -> Vec<String> {
+    let mut units = vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()];
+    if let Some(ver) = php_version {
+        units.push(format!("php{ver}-fpm"));
+    }
+    units
+}
+
 /// Install missing components, fetch mailpit, install the mkcert CA, and setcap nginx.
 /// Non-fatal: each failure is collected into `report.errors`.
 pub fn run_setup(
@@ -225,7 +235,9 @@ pub fn run_setup(
 
     // apt auto-starts + enables the distro nginx/mariadb/redis systemd units, which
     // hold ports 80/3306/6379. Disable them so the app-managed processes can bind.
-    let stack_units = vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()];
+    // Also disable the versioned php-fpm unit when detected.
+    let php_ver = crate::bin::detect_php_fpm_version(&[paths.bin()]);
+    let stack_units = stack_units_to_disable(php_ver.as_deref());
     if let Err(e) = privileged.disable_system_services(&stack_units) {
         report.errors.push(format!("disable system services: {e}"));
     }
@@ -337,11 +349,20 @@ mod tests {
 
         let calls = disabled.lock().unwrap();
         assert_eq!(calls.len(), 1);
-        assert_eq!(
-            calls[0],
-            vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()]
-        );
+        let units = &calls[0];
+        assert!(units.contains(&"nginx".to_string()));
+        assert!(units.contains(&"mariadb".to_string()));
+        assert!(units.contains(&"redis-server".to_string()));
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn stack_units_includes_php_when_version_known() {
+        let none = stack_units_to_disable(None);
+        assert_eq!(none, vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()]);
+        let some = stack_units_to_disable(Some("8.4"));
+        assert!(some.contains(&"php8.4-fpm".to_string()));
+        assert_eq!(some.len(), 4);
     }
 
     #[test]
