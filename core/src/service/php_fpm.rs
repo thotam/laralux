@@ -35,7 +35,6 @@ impl Service for PhpFpmService {
              daemonize = no\n\
              \n\
              [www]\n\
-             user = {user}\n\
              listen = {sock}\n\
              listen.mode = 0660\n\
              pm = dynamic\n\
@@ -45,7 +44,6 @@ impl Service for PhpFpmService {
              pm.max_spare_servers = 4\n",
             pid = paths.tmp().join("php-fpm.pid").display(),
             log = paths.log().join("php-fpm.log").display(),
-            user = std::env::var("USER").unwrap_or_else(|_| "www-data".into()),
             sock = self.socket_path(paths).display(),
         );
         std::fs::write(self.conf_path(paths), conf)?;
@@ -101,6 +99,21 @@ mod tests {
         assert!(conf.contains("[www]"));
         assert!(conf.contains("listen = "));
         assert!(conf.contains("php-fpm.sock"));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn write_config_omits_user_directive() {
+        let tmp = std::env::temp_dir().join(format!("lara-php-nouser-{}", std::process::id()));
+        let p = LaragonPaths::new(tmp.clone());
+        let svc = PhpFpmService::new("8.4");
+        svc.write_config(&p).unwrap();
+        let conf =
+            std::fs::read_to_string(p.etc_for("php").join("8.4").join("php-fpm.conf")).unwrap();
+        assert!(!conf.contains("user ="), "pool must not set a user directive");
+        // sanity: the pool is still defined and listens on the socket
+        assert!(conf.contains("[www]"));
+        assert!(conf.contains("listen = "));
         std::fs::remove_dir_all(&tmp).ok();
     }
 }

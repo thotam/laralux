@@ -223,6 +223,13 @@ pub fn run_setup(
         }
     }
 
+    // apt auto-starts + enables the distro nginx/mariadb/redis systemd units, which
+    // hold ports 80/3306/6379. Disable them so the app-managed processes can bind.
+    let stack_units = vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()];
+    if let Err(e) = privileged.disable_system_services(&stack_units) {
+        report.errors.push(format!("disable system services: {e}"));
+    }
+
     // 2. Fetch + extract mailpit into ~/laragon/bin when missing.
     if missing.contains(&Component::Mailpit) {
         let tarball = paths.tmp().join("mailpit.tar.gz");
@@ -309,6 +316,26 @@ mod tests {
         assert!(php.iter().all(|p| p.starts_with("php")));
         // mailpit contributes no apt packages
         assert!(!core.iter().any(|p| p.contains("mailpit")));
+    }
+
+    #[test]
+    fn run_setup_disables_distro_stack_services() {
+        let root = std::env::temp_dir().join(format!("lara-disable-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+        let priv_ = FakePrivileged::new();
+        let disabled = priv_.disabled_services();
+        let dl = FakeDownloader::new();
+
+        let _ = run_setup(&paths, &priv_, &dl);
+
+        let calls = disabled.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0],
+            vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()]
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
