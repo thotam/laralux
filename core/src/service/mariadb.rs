@@ -16,6 +16,13 @@ impl MariadbService {
     fn datadir(&self, paths: &LaragonPaths) -> PathBuf {
         paths.data().join("mariadb")
     }
+    fn install_db_args(&self, paths: &LaragonPaths) -> Vec<String> {
+        vec![
+            "--no-defaults".to_string(),
+            format!("--datadir={}", self.datadir(paths).display()),
+            "--auth-root-authentication-method=normal".to_string(),
+        ]
+    }
 }
 
 impl Default for MariadbService {
@@ -57,9 +64,7 @@ impl Service for MariadbService {
     fn init(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
         self.write_config(paths)?;
         let status = std::process::Command::new("mariadb-install-db")
-            .arg(format!("--defaults-file={}", self.cnf_path(paths).display()))
-            .arg(format!("--datadir={}", self.datadir(paths).display()))
-            .arg("--auth-root-authentication-method=normal")
+            .args(self.install_db_args(paths))
             .status()
             .map_err(|e| ServiceError::Init(format!("mariadb-install-db: {e}")))?;
         if !status.success() {
@@ -113,5 +118,16 @@ mod tests {
         assert!(conf.contains("datadir"));
         assert!(conf.contains("port=3306") || conf.contains("port = 3306"));
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn install_db_args_use_no_defaults_not_defaults_file() {
+        let p = LaragonPaths::new("/tmp/lara".into());
+        let svc = MariadbService::new();
+        let args = svc.install_db_args(&p);
+        assert!(args.contains(&"--no-defaults".to_string()));
+        assert!(args.iter().any(|a| a.starts_with("--datadir=")));
+        assert!(args.iter().any(|a| a.contains("auth-root-authentication-method=normal")));
+        assert!(!args.iter().any(|a| a.contains("--defaults-file")));
     }
 }
