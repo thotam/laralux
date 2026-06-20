@@ -270,6 +270,12 @@ pub fn run_setup(
         }
     }
 
+    // Ubuntu's mariadb AppArmor profile confines mariadbd to standard paths;
+    // allow it into ~/laragon so the app-managed datadir works.
+    if let Err(e) = privileged.allow_mariadb_apparmor() {
+        report.errors.push(format!("mariadb apparmor: {e}"));
+    }
+
     report
 }
 
@@ -349,6 +355,18 @@ mod tests {
         let _ = run_setup(&paths, &priv_, &dl);
         // Hermetic: regardless of what's installed, we never add a PPA.
         assert!(add_repos.lock().unwrap().is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn run_setup_configures_mariadb_apparmor() {
+        let root = std::env::temp_dir().join(format!("lara-aa-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+        let priv_ = FakePrivileged::new();
+        let dl = FakeDownloader::new();
+        let _ = run_setup(&paths, &priv_, &dl);
+        assert!(priv_.mariadb_apparmor_configured());
         std::fs::remove_dir_all(&root).ok();
     }
 }

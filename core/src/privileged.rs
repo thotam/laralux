@@ -17,6 +17,7 @@ pub trait Privileged: Send + Sync {
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError>;
     fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError>;
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError>;
+    fn allow_mariadb_apparmor(&self) -> Result<(), PrivError>;
 }
 
 // ---------- Shared free helpers ----------
@@ -41,6 +42,15 @@ fn systemctl_disable_argv(units: &[String]) -> Vec<String> {
     let mut argv = vec!["systemctl".to_string(), "disable".to_string(), "--now".to_string()];
     argv.extend(units.iter().cloned());
     argv
+}
+
+const MARIADB_APPARMOR_SCRIPT: &str = "\
+[ -f /etc/apparmor.d/mariadbd ] || exit 0\n\
+grep -q laragon /etc/apparmor.d/local/mariadbd 2>/dev/null || echo 'owner /home/*/laragon/** rwk,' >> /etc/apparmor.d/local/mariadbd\n\
+apparmor_parser -r /etc/apparmor.d/mariadbd\n";
+
+fn mariadb_apparmor_argv() -> Vec<String> {
+    vec!["sh".to_string(), "-c".to_string(), MARIADB_APPARMOR_SCRIPT.to_string()]
 }
 
 fn apt_argv(packages: &[String]) -> Vec<String> {
@@ -97,6 +107,9 @@ impl Privileged for SudoPrivileged {
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {
         run_escalated("sudo", &systemctl_disable_argv(units))
     }
+    fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
+        run_escalated("sudo", &mariadb_apparmor_argv())
+    }
 }
 
 // ---------- Real: pkexec (graphical auth) ----------
@@ -125,6 +138,9 @@ impl Privileged for PkexecPrivileged {
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {
         run_escalated("pkexec", &systemctl_disable_argv(units))
     }
+    fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
+        run_escalated("pkexec", &mariadb_apparmor_argv())
+    }
 }
 
 // ---------- Fake (used by sync tests) ----------
@@ -137,6 +153,7 @@ pub struct FakePrivileged {
     apt_installs: Arc<Mutex<Vec<Vec<String>>>>,
     add_repos: Arc<Mutex<Vec<String>>>,
     disabled_services: Arc<Mutex<Vec<Vec<String>>>>,
+    apparmor_configured: Arc<Mutex<bool>>,
 }
 
 impl FakePrivileged {
@@ -157,6 +174,9 @@ impl FakePrivileged {
     }
     pub fn disabled_services(&self) -> Arc<Mutex<Vec<Vec<String>>>> {
         self.disabled_services.clone()
+    }
+    pub fn mariadb_apparmor_configured(&self) -> bool {
+        *self.apparmor_configured.lock().unwrap()
     }
 }
 
@@ -183,6 +203,10 @@ impl Privileged for FakePrivileged {
     }
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {
         self.disabled_services.lock().unwrap().push(units.to_vec());
+        Ok(())
+    }
+    fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
+        *self.apparmor_configured.lock().unwrap() = true;
         Ok(())
     }
 }
@@ -281,5 +305,23 @@ mod tests {
         f.disable_system_services(&["nginx".to_string()]).unwrap();
         assert_eq!(log.lock().unwrap().len(), 1);
         assert_eq!(log.lock().unwrap()[0], vec!["nginx".to_string()]);
+    }
+
+    #[test]
+    fn mariadb_apparmor_argv_runs_parser_with_laragon_rule() {
+        let argv = mariadb_apparmor_argv();
+        assert_eq!(argv[0], "sh");
+        assert_eq!(argv[1], "-c");
+        assert!(argv[2].contains("laragon"));
+        assert!(argv[2].contains("/etc/apparmor.d/local/mariadbd"));
+        assert!(argv[2].contains("apparmor_parser -r /etc/apparmor.d/mariadbd"));
+    }
+
+    #[test]
+    fn fake_records_apparmor_configured() {
+        let f = FakePrivileged::new();
+        assert!(!f.mariadb_apparmor_configured());
+        f.allow_mariadb_apparmor().unwrap();
+        assert!(f.mariadb_apparmor_configured());
     }
 }
