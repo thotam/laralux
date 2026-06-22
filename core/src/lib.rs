@@ -12,6 +12,7 @@ pub mod ssl;
 pub mod privileged;
 pub mod sync;
 pub mod setup;
+pub mod scaffold;
 
 pub use config::Config;
 pub use orchestrator::{Orchestrator, ServiceStatus};
@@ -24,3 +25,4 @@ pub use sites::{scan_sites, Site};
 pub use ssl::MkcertIssuer;
 pub use sync::sync_sites;
 pub use setup::{detect as detect_components, run_setup, Component, ComponentStatus, CurlDownloader, SetupReport};
+pub use scaffold::{SiteTemplate, ScaffoldError};
