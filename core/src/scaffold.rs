@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SiteTemplate {
@@ -147,6 +149,66 @@ pub fn laravel_create_argv(target_dir: &str) -> Vec<String> {
     ]
 }
 
+pub trait CommandRunner: Send + Sync {
+    fn run(&self, program: &str, args: &[String], cwd: Option<&Path>) -> Result<(), ScaffoldError>;
+}
+
+pub struct RealCommandRunner;
+
+impl CommandRunner for RealCommandRunner {
+    fn run(&self, program: &str, args: &[String], cwd: Option<&Path>) -> Result<(), ScaffoldError> {
+        let mut cmd = std::process::Command::new(program);
+        cmd.args(args);
+        if let Some(dir) = cwd {
+            cmd.current_dir(dir);
+        }
+        let output = cmd
+            .output()
+            .map_err(|e| ScaffoldError::Command(format!("spawn {program}: {e}")))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(ScaffoldError::Command(format!(
+                "{program} failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )))
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct FakeCommandRunner {
+    calls: Arc<Mutex<Vec<(String, Vec<String>, Option<String>)>>>,
+    fail: bool,
+}
+
+impl FakeCommandRunner {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn failing() -> Self {
+        Self { fail: true, ..Self::default() }
+    }
+    pub fn calls(&self) -> Arc<Mutex<Vec<(String, Vec<String>, Option<String>)>>> {
+        self.calls.clone()
+    }
+}
+
+impl CommandRunner for FakeCommandRunner {
+    fn run(&self, program: &str, args: &[String], cwd: Option<&Path>) -> Result<(), ScaffoldError> {
+        self.calls.lock().unwrap().push((
+            program.to_string(),
+            args.to_vec(),
+            cwd.map(|p| p.display().to_string()),
+        ));
+        if self.fail {
+            Err(ScaffoldError::Command(format!("fake failure: {program}")))
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +271,30 @@ mod tests {
         assert!(cfg.contains("define( 'DB_USER', 'root' )"));
         assert!(cfg.contains("define( 'DB_HOST', '127.0.0.1' )"));
         assert!(cfg.contains("/*SALTS*/"));
+    }
+
+    #[test]
+    fn fake_runner_records_calls() {
+        let r = FakeCommandRunner::new();
+        let calls = r.calls();
+        r.run("composer", &["create-project".into()], Some(std::path::Path::new("/x"))).unwrap();
+        let c = calls.lock().unwrap();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].0, "composer");
+        assert_eq!(c[0].1, vec!["create-project".to_string()]);
+        assert_eq!(c[0].2.as_deref(), Some("/x"));
+    }
+
+    #[test]
+    fn fake_runner_can_fail() {
+        let r = FakeCommandRunner::failing();
+        assert!(r.run("composer", &[], None).is_err());
+    }
+
+    #[test]
+    fn real_runner_runs_true_and_errors_on_false() {
+        let r = RealCommandRunner;
+        assert!(r.run("true", &[], None).is_ok());
+        assert!(r.run("false", &[], None).is_err());
     }
 }

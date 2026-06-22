@@ -25,4 +25,4 @@ pub use sites::{scan_sites, Site};
 pub use ssl::MkcertIssuer;
 pub use sync::sync_sites;
 pub use setup::{detect as detect_components, run_setup, Component, ComponentStatus, CurlDownloader, SetupReport};
-pub use scaffold::{SiteTemplate, ScaffoldError};
+pub use scaffold::{CommandRunner, RealCommandRunner, SiteTemplate, ScaffoldError};
