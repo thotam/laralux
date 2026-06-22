@@ -313,7 +313,7 @@
 
   function svcButton(kind, m) {
     if (m.busy)
-      return '<button class="btn-sm busy" disabled>' + spinner("muted") + esc(m.label.replace("…", "")) + "</button>";
+      return '<button class="btn-sm busy" disabled>' + spinner("muted") + esc(m.label) + "</button>";
     return (
       '<button class="btn-sm' + (m.primary ? " primary" : "") + '" data-action="svc-toggle" data-kind="' + kind + '">' +
       esc(m.btn) + "</button>"
