@@ -72,6 +72,7 @@ impl Orchestrator {
 
         if let Some(svc) = self.find(kind) {
             svc.write_config(&self.paths)?;
+            svc.pre_start(&self.paths)?;
             let mut spec = svc.command(&self.paths);
             spec.program = crate::bin::resolve_or_name(&spec.program, &[self.paths.bin()]);
             let handle = self.spawner.spawn(&spec)?;

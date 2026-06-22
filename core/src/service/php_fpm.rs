@@ -62,6 +62,15 @@ impl Service for PhpFpmService {
             Err(ServiceError::HealthCheck("php-fpm socket missing".into()))
         }
     }
+    fn pre_start(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+        // Clear a stale socket / orphaned master from a previous run so php-fpm
+        // doesn't error with "Another FPM instance seems to already listen".
+        crate::service::cleanup_stale_endpoint(
+            Some(&paths.tmp().join("php-fpm.pid")),
+            Some(&self.socket_path(paths)),
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -114,6 +123,21 @@ mod tests {
         // sanity: the pool is still defined and listens on the socket
         assert!(conf.contains("[www]"));
         assert!(conf.contains("listen = "));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn pre_start_removes_stale_socket() {
+        let tmp = std::env::temp_dir().join(format!("lara-php-prestart-{}", std::process::id()));
+        let p = LaragonPaths::new(tmp.clone());
+        std::fs::create_dir_all(p.tmp()).unwrap();
+        let sock = p.tmp().join("php-fpm.sock");
+        std::fs::write(&sock, b"stale").unwrap();
+        assert!(sock.exists());
+
+        let svc = PhpFpmService::new("8.4");
+        svc.pre_start(&p).unwrap(); // no pid file present -> just unlinks the socket
+        assert!(!sock.exists(), "stale socket should be removed before start");
         std::fs::remove_dir_all(&tmp).ok();
     }
 }
