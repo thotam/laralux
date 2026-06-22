@@ -85,6 +85,32 @@ pub trait Service: Send + Sync {
     fn init(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
         Ok(())
     }
+    /// Cleanup run immediately before spawning (after `write_config`).
+    /// Used to clear a stale unix socket / orphaned process left by a previous
+    /// run so the daemon can bind cleanly. Default: no-op.
+    fn pre_start(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+        Ok(())
+    }
+}
+
+/// Best-effort cleanup of a stale daemon endpoint left by a previous run:
+/// SIGTERM the PID in `pid_file` (if any), then unlink a leftover `socket`.
+/// Both steps are best-effort and never error (a missing file is fine).
+pub fn cleanup_stale_endpoint(pid_file: Option<&std::path::Path>, socket: Option<&std::path::Path>) {
+    if let Some(pf) = pid_file {
+        if let Ok(text) = std::fs::read_to_string(pf) {
+            if let Ok(pid) = text.trim().parse::<i32>() {
+                if pid > 1 {
+                    let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+                }
+            }
+        }
+    }
+    if let Some(sock) = socket {
+        if sock.exists() {
+            let _ = std::fs::remove_file(sock);
+        }
+    }
 }
 
 /// Returns Ok if a TCP connect to `127.0.0.1:port` succeeds within 1s.

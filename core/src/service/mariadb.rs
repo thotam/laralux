@@ -79,6 +79,14 @@ impl Service for MariadbService {
     fn health_check(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
         probe_tcp(self.port)
     }
+    fn pre_start(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+        // Clear a stale unix socket / orphaned mariadbd from a previous run.
+        crate::service::cleanup_stale_endpoint(
+            Some(&paths.tmp().join("mariadb.pid")),
+            Some(&paths.tmp().join("mysql.sock")),
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
