@@ -22,6 +22,7 @@ fn main() {
             commands::list_sites,
             commands::setup_status,
             commands::run_setup_cmd,
+            commands::create_site,
         ])
         .setup(|app| {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;
