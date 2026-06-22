@@ -10,16 +10,18 @@ pub enum Component {
     Redis,
     Mkcert,
     Mailpit,
+    Composer,
 }
 
 impl Component {
-    pub const ALL: [Component; 6] = [
+    pub const ALL: [Component; 7] = [
         Component::Nginx,
         Component::Php,
         Component::Mariadb,
         Component::Redis,
         Component::Mkcert,
         Component::Mailpit,
+        Component::Composer,
     ];
 
     pub fn label(&self) -> &'static str {
@@ -30,6 +32,7 @@ impl Component {
             Component::Redis => "redis",
             Component::Mkcert => "mkcert",
             Component::Mailpit => "mailpit",
+            Component::Composer => "composer",
         }
     }
 }
@@ -49,6 +52,7 @@ fn detect_binary(component: Component) -> String {
         Component::Redis => "redis-server".to_string(),
         Component::Mkcert => "mkcert".to_string(),
         Component::Mailpit => "mailpit".to_string(),
+        Component::Composer => "composer".to_string(),
     }
 }
 
@@ -85,6 +89,7 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
         Component::Redis => vec!["redis-server".to_string()],
         Component::Mkcert => vec!["mkcert".to_string(), "libnss3-tools".to_string()],
         Component::Mailpit => Vec::new(),
+        Component::Composer => vec!["composer".to_string()],
     }
 }
 
@@ -321,7 +326,7 @@ mod tests {
     fn detect_reports_all_components() {
         let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-detect-{}", std::process::id())));
         let statuses = detect(&paths);
-        assert_eq!(statuses.len(), 6);
+        assert_eq!(statuses.len(), 7);
         assert!(!statuses.iter().find(|s| s.component == Component::Mailpit).unwrap().present);
     }
 
@@ -389,5 +394,12 @@ mod tests {
         let _ = run_setup(&paths, &priv_, &dl);
         assert!(priv_.mariadb_apparmor_configured());
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn composer_is_a_component_with_apt_package() {
+        assert!(Component::ALL.contains(&Component::Composer));
+        assert_eq!(apt_packages_for(Component::Composer), vec!["composer".to_string()]);
+        assert_eq!(Component::Composer.label(), "composer");
     }
 }
