@@ -209,6 +209,141 @@ impl CommandRunner for FakeCommandRunner {
     }
 }
 
+use crate::paths::LaragonPaths;
+use crate::setup::Downloader;
+
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct CreateReport {
+    pub site_name: String,
+    pub hostname: String,
+    pub template: SiteTemplate,
+    pub database_created: bool,
+    pub warnings: Vec<String>,
+}
+
+fn auto_create_db(
+    name: &str,
+    mariadb_running: bool,
+    runner: &dyn CommandRunner,
+    warnings: &mut Vec<String>,
+    required: bool,
+) -> bool {
+    if !mariadb_running {
+        if required {
+            warnings.push(format!("MariaDB is not running — start it, then create database `{name}`"));
+        } else {
+            warnings.push("MariaDB is not running — skipped database creation".to_string());
+        }
+        return false;
+    }
+    let sql = create_database_sql(name);
+    let args = vec![
+        "-h".to_string(), "127.0.0.1".to_string(),
+        "-u".to_string(), "root".to_string(),
+        "-e".to_string(), sql,
+    ];
+    match runner.run("mariadb", &args, None) {
+        Ok(()) => true,
+        Err(e) => {
+            warnings.push(format!("database creation failed: {e}"));
+            false
+        }
+    }
+}
+
+pub fn create_site(
+    paths: &LaragonPaths,
+    name: &str,
+    tld: &str,
+    template: SiteTemplate,
+    mariadb_running: bool,
+    runner: &dyn CommandRunner,
+    downloader: &dyn Downloader,
+) -> Result<CreateReport, ScaffoldError> {
+    validate_site_name(name)?;
+    let dir = paths.www().join(name);
+    if dir.exists() {
+        return Err(ScaffoldError::AlreadyExists(name.to_string()));
+    }
+
+    let mut warnings = Vec::new();
+    let result = build_template(paths, &dir, name, template, runner, downloader);
+    if let Err(e) = result {
+        // Roll back any partially-created directory.
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(e);
+    }
+
+    let required_db = matches!(template, SiteTemplate::Wordpress);
+    let database_created = auto_create_db(name, mariadb_running, runner, &mut warnings, required_db);
+
+    Ok(CreateReport {
+        site_name: name.to_string(),
+        hostname: format!("{name}.{tld}"),
+        template,
+        database_created,
+        warnings,
+    })
+}
+
+fn build_template(
+    paths: &LaragonPaths,
+    dir: &std::path::Path,
+    name: &str,
+    template: SiteTemplate,
+    runner: &dyn CommandRunner,
+    downloader: &dyn Downloader,
+) -> Result<(), ScaffoldError> {
+    match template {
+        SiteTemplate::Blank => {
+            std::fs::create_dir_all(dir)?;
+            std::fs::write(dir.join("index.php"), blank_index(name))?;
+        }
+        SiteTemplate::Laravel => {
+            // composer creates the dir itself; run from www/.
+            let argv = laravel_create_argv(&dir.display().to_string());
+            runner.run("composer", &argv, Some(&paths.www()))?;
+            // Best-effort .env DB wiring (only if composer produced an .env).
+            let env_path = dir.join(".env");
+            if let Ok(env) = std::fs::read_to_string(&env_path) {
+                let edited = env
+                    .lines()
+                    .map(|l| {
+                        if l.starts_with("DB_DATABASE=") { format!("DB_DATABASE={name}") }
+                        else if l.starts_with("DB_USERNAME=") { "DB_USERNAME=root".to_string() }
+                        else if l.starts_with("DB_PASSWORD=") { "DB_PASSWORD=".to_string() }
+                        else if l.starts_with("DB_HOST=") { "DB_HOST=127.0.0.1".to_string() }
+                        else { l.to_string() }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let _ = std::fs::write(&env_path, edited);
+            }
+        }
+        SiteTemplate::Wordpress => {
+            std::fs::create_dir_all(dir)?;
+            let tarball = paths.tmp().join(format!("wordpress-{name}.tar.gz"));
+            downloader
+                .fetch(WORDPRESS_URL, &tarball)
+                .map_err(|e| ScaffoldError::Download(e.to_string()))?;
+            runner.run(
+                "tar",
+                &[
+                    "-xzf".to_string(),
+                    tarball.display().to_string(),
+                    "-C".to_string(),
+                    dir.display().to_string(),
+                    "--strip-components=1".to_string(),
+                ],
+                None,
+            )?;
+            let cfg = wp_config(name, "root", "", "127.0.0.1", &wp_salts());
+            std::fs::write(dir.join("wp-config.php"), cfg)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +431,83 @@ mod tests {
         let r = RealCommandRunner;
         assert!(r.run("true", &[], None).is_ok());
         assert!(r.run("false", &[], None).is_err());
+    }
+
+    use crate::paths::LaragonPaths;
+    use crate::setup::FakeDownloader;
+
+    fn root() -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static C: AtomicUsize = AtomicUsize::new(0);
+        std::env::temp_dir().join(format!("lara-newsite-{}-{}", std::process::id(), C.fetch_add(1, Ordering::SeqCst)))
+    }
+
+    #[test]
+    fn blank_creates_index_and_optionally_db() {
+        let p = LaragonPaths::new(root());
+        p.ensure_dirs().unwrap();
+        let runner = FakeCommandRunner::new();
+        let calls = runner.calls();
+        let dl = FakeDownloader::new();
+
+        let rep = create_site(&p, "blog", "dev", SiteTemplate::Blank, true, &runner, &dl).unwrap();
+        assert_eq!(rep.hostname, "blog.dev");
+        assert!(p.www().join("blog").join("index.php").is_file());
+        // auto-db issued because mariadb_running = true
+        let c = calls.lock().unwrap();
+        assert!(c.iter().any(|(prog, args, _)| prog == "mariadb"
+            && args.iter().any(|a| a.contains("CREATE DATABASE IF NOT EXISTS `blog`"))));
+        assert!(rep.database_created);
+        std::fs::remove_dir_all(p.root()).ok();
+    }
+
+    #[test]
+    fn rejects_existing_site() {
+        let p = LaragonPaths::new(root());
+        p.ensure_dirs().unwrap();
+        std::fs::create_dir_all(p.www().join("dup")).unwrap();
+        let r = create_site(&p, "dup", "dev", SiteTemplate::Blank, false, &FakeCommandRunner::new(), &FakeDownloader::new());
+        assert!(matches!(r, Err(ScaffoldError::AlreadyExists(_))));
+        std::fs::remove_dir_all(p.root()).ok();
+    }
+
+    #[test]
+    fn laravel_runs_composer() {
+        let p = LaragonPaths::new(root());
+        p.ensure_dirs().unwrap();
+        let runner = FakeCommandRunner::new();
+        let calls = runner.calls();
+        create_site(&p, "app", "dev", SiteTemplate::Laravel, false, &runner, &FakeDownloader::new()).unwrap();
+        let c = calls.lock().unwrap();
+        assert!(c.iter().any(|(prog, args, _)| prog == "composer"
+            && args == &vec!["create-project".to_string(), "laravel/laravel".to_string(),
+                             p.www().join("app").display().to_string()]));
+        std::fs::remove_dir_all(p.root()).ok();
+    }
+
+    #[test]
+    fn wordpress_downloads_extracts_and_writes_config() {
+        let p = LaragonPaths::new(root());
+        p.ensure_dirs().unwrap();
+        let runner = FakeCommandRunner::new();
+        let calls = runner.calls();
+        let dl = FakeDownloader::new();
+        let urls = dl.requested();
+        create_site(&p, "wp", "dev", SiteTemplate::Wordpress, true, &runner, &dl).unwrap();
+        assert!(urls.lock().unwrap().iter().any(|u| u.contains("wordpress.org")));
+        assert!(calls.lock().unwrap().iter().any(|(prog, _, _)| prog == "tar"));
+        assert!(p.www().join("wp").join("wp-config.php").is_file());
+        std::fs::remove_dir_all(p.root()).ok();
+    }
+
+    #[test]
+    fn rolls_back_dir_on_failure() {
+        let p = LaragonPaths::new(root());
+        p.ensure_dirs().unwrap();
+        let runner = FakeCommandRunner::failing(); // composer will "fail"
+        let r = create_site(&p, "boom", "dev", SiteTemplate::Laravel, false, &runner, &FakeDownloader::new());
+        assert!(r.is_err());
+        assert!(!p.www().join("boom").exists(), "partial dir must be rolled back");
+        std::fs::remove_dir_all(p.root()).ok();
     }
 }
