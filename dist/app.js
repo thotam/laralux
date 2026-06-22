@@ -80,6 +80,8 @@
     busy: false,
     toasts: [],
     tId: 1,
+    modal: null,
+    newSite: { name: "", template: "Blank", busy: false, error: "" },
   };
 
   // ---- helpers ----
@@ -221,6 +223,53 @@
       title: DISP[kind] + " crashed",
       details: ["Check ~/laragon/log/" + f, "or: journalctl --user -n 50"],
     });
+  }
+
+  // ---- new site ----
+  const SITE_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+  function validName(n) { return n.length >= 1 && n.length <= 63 && SITE_NAME_RE.test(n); }
+
+  function openNewSite() {
+    state.modal = "newsite";
+    state.newSite = { name: "", template: "Blank", busy: false, error: "" };
+    render();
+    // focus the name input after render
+    requestAnimationFrame(() => {
+      const inp = document.getElementById("ns-name");
+      if (inp) inp.focus();
+    });
+  }
+
+  function closeNewSite() {
+    if (state.newSite.busy) return;
+    state.modal = null;
+    render();
+  }
+
+  async function submitNewSite() {
+    const { name, template } = state.newSite;
+    if (!validName(name)) { state.newSite.error = "Use lowercase letters, digits, hyphens (e.g. my-app)"; render(); return; }
+    state.newSite.busy = true; state.newSite.error = ""; render();
+    try {
+      const rep = await invoke("create_site", { name, template });
+      const extra = rep.database_created ? " · database created" : "";
+      const warn = rep.warnings && rep.warnings.length ? { details: rep.warnings } : {};
+      toast({ type: "success", title: "Created " + rep.site_name, msg: "https://" + rep.hostname + extra, ...warn });
+      state.modal = null;
+      state.newSite = { name: "", template: "Blank", busy: false, error: "" };
+      try {
+        const sites = await invoke("list_sites");
+        state.sites = Array.isArray(sites) ? sites : [];
+      } catch (_) {}
+      render();
+    } catch (e) {
+      state.newSite.error = String(e);
+      state.newSite.busy = false;
+      toast({ type: "error", title: "Create failed", msg: String(e) });
+      render();
+    } finally {
+      if (state.newSite.busy) { state.newSite.busy = false; render(); }
+    }
   }
 
   async function copySite(name) {
@@ -395,14 +444,14 @@
       '<div class="sites-head"><div><h1 class="h1">Sites</h1>' +
       '<p class="subtitle">Projects under <code class="chip-code">~/laragon/www</code></p></div>' +
       '<div class="sites-actions">' +
-      '<button class="btn-newsite" disabled title="Coming soon">' + I.plus + "New site</button></div></div>";
+      '<button class="btn-newsite" data-action="new-site">' + I.plus + "New site</button></div></div>";
     let bodyHtml;
     if (empty) {
       bodyHtml =
         '<div class="sites-empty"><div class="glyph">' + I.folderBig + "</div>" +
         '<div class="t">No sites yet</div>' +
         '<div class="h">Drop a project folder into <code class="chip-code">~/laragon/www</code> and it gets a pretty <code class="chip-code">https://&lt;name&gt;.dev</code> URL automatically.</div>' +
-        '<button class="btn-newsite" disabled style="margin-top:4px">' + I.plus + "New site</button></div>";
+        '<button class="btn-newsite" data-action="new-site" style="margin-top:4px">' + I.plus + "New site</button></div>";
     } else {
       bodyHtml =
         '<div class="stack-col g9">' +
@@ -521,6 +570,42 @@
     return '<div class="toasts">' + items + "</div>";
   }
 
+  function newSiteModal() {
+    const ns = state.newSite;
+    const ok = validName(ns.name);
+    const preview = ns.name ? '<span class="ns-preview">→ https://' + esc(ns.name) + '.dev</span>' : '<span class="ns-preview muted">→ https://&lt;name&gt;.dev</span>';
+    const errorHtml = ns.error ? '<div class="ns-error">' + esc(ns.error) + '</div>' : '';
+    const disabledAttr = ns.busy ? ' disabled' : '';
+    const templateOpts = ["Blank", "Laravel", "Wordpress"].map((t) =>
+      '<option value="' + t + '"' + (ns.template === t ? ' selected' : '') + '>' + t + '</option>'
+    ).join('');
+    const createLabel = ns.busy
+      ? '<span class="spin spinner on-primary"></span>Creating… (this can take a minute)'
+      : 'Create';
+    return (
+      '<div class="ns-overlay" data-action="ns-overlay-click" role="dialog" aria-modal="true" aria-labelledby="ns-title">' +
+      '<div class="ns-card" role="document">' +
+      '<div class="ns-head"><h2 class="ns-title" id="ns-title">New site</h2>' +
+      '<button class="icon-btn" data-action="ns-close" aria-label="Close"' + disabledAttr + '>' + I.close + '</button></div>' +
+      '<div class="ns-body">' +
+      '<label class="ns-label" for="ns-name">Site name</label>' +
+      '<input class="ns-input" type="text" id="ns-name" name="ns-name" placeholder="my-app"' +
+      ' value="' + esc(ns.name) + '" autocomplete="off" spellcheck="false" maxlength="63"' +
+      disabledAttr + ' data-action="ns-name-input" />' +
+      preview +
+      '<label class="ns-label" for="ns-template">Template</label>' +
+      '<select class="ns-select" id="ns-template" name="ns-template"' + disabledAttr + ' data-action="ns-template-change">' +
+      templateOpts + '</select>' +
+      errorHtml +
+      '</div>' +
+      '<div class="ns-foot">' +
+      '<button class="btn btn-outline" data-action="ns-close"' + disabledAttr + '>Cancel</button>' +
+      '<button class="btn btn-primary' + (!ok || ns.busy ? ' btn-dim' : '') + '" data-action="ns-submit"' +
+      (!ok || ns.busy ? ' disabled' : '') + '>' + createLabel + '</button>' +
+      '</div></div></div>'
+    );
+  }
+
   // ---- render ----
   const app = document.getElementById("app");
   let lastSig = "";
@@ -533,12 +618,14 @@
     else if (state.view === "setup") main = setupView();
     else main = settingsView();
 
+    const modalHtml = state.modal === "newsite" ? newSiteModal() : "";
     const html =
       '<div class="root" data-compact="' + state.compact + '">' +
       header() +
       pkexecBanner() +
       '<div class="body">' + sidebar() + '<main class="main">' + main + "</main></div>" +
       toasts() +
+      modalHtml +
       "</div>";
 
     // Avoid needless DOM churn (preserves scroll/focus) when nothing changed.
@@ -562,6 +649,69 @@
     else if (a === "svc-logs") viewLogs(el.getAttribute("data-kind"));
     else if (a === "copy-site") copySite(el.getAttribute("data-name"));
     else if (a === "toast-dismiss") dismiss(parseInt(el.getAttribute("data-id"), 10));
+    else if (a === "new-site") openNewSite();
+    else if (a === "ns-close") closeNewSite();
+    else if (a === "ns-submit") submitNewSite();
+    else if (a === "ns-overlay-click") {
+      // close only if click is directly on the overlay (not the card inside it)
+      if (e.target === el) closeNewSite();
+    }
+  });
+
+  // ---- modal input events (delegated on app) ----
+  app.addEventListener("input", (e) => {
+    const el = e.target;
+    if (el.dataset.action === "ns-name-input") {
+      state.newSite.name = el.value;
+      state.newSite.error = "";
+      // Re-render preview + button state without full DOM replace (avoid losing focus)
+      const preview = document.querySelector(".ns-preview");
+      if (preview) {
+        if (el.value) {
+          preview.classList.remove("muted");
+          preview.textContent = "→ https://" + el.value + ".dev";
+        } else {
+          preview.classList.add("muted");
+          preview.innerHTML = "→ https://&lt;name&gt;.dev";
+        }
+      }
+      const submitBtn = document.querySelector('[data-action="ns-submit"]');
+      if (submitBtn) {
+        const ok = validName(el.value);
+        submitBtn.disabled = !ok;
+        submitBtn.classList.toggle("btn-dim", !ok);
+      }
+      const errEl = document.querySelector(".ns-error");
+      if (errEl) errEl.remove();
+    }
+  });
+
+  app.addEventListener("change", (e) => {
+    const el = e.target;
+    if (el.dataset.action === "ns-template-change") {
+      state.newSite.template = el.value;
+    }
+  });
+
+  // ---- Esc closes modal ----
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.modal === "newsite") closeNewSite();
+  });
+
+  // ---- focus-trap inside modal ----
+  app.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab" || state.modal !== "newsite") return;
+    const card = document.querySelector(".ns-card");
+    if (!card) return;
+    const focusable = Array.from(card.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'));
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
   });
 
   // ---- responsive (compact <820px) ----
