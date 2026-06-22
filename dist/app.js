@@ -50,9 +50,9 @@
   };
 
   const SVC_KINDS = ["Nginx", "PhpFpm", "Mariadb", "Redis", "Mailpit"];
-  const COMP_ORDER = ["Nginx", "Php", "Mariadb", "Redis", "Mkcert", "Mailpit"];
+  const COMP_ORDER = ["Nginx", "Php", "Mariadb", "Redis", "Mkcert", "Mailpit", "Composer"];
   const DISP = { Nginx: "Nginx", PhpFpm: "PHP-FPM", Mariadb: "MariaDB", Redis: "Redis", Mailpit: "Mailpit" };
-  const DISP_COMP = { Nginx: "Nginx", Php: "PHP", Mariadb: "MariaDB", Redis: "Redis", Mkcert: "mkcert", Mailpit: "Mailpit" };
+  const DISP_COMP = { Nginx: "Nginx", Php: "PHP", Mariadb: "MariaDB", Redis: "Redis", Mkcert: "mkcert", Mailpit: "Mailpit", Composer: "Composer" };
   const SVC_ICON = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
   const PORTS = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
   const LOG_FILE = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Redis: "redis.log", Mailpit: "mailpit.log" };
@@ -476,7 +476,7 @@
 
   function setupView() {
     const miss = missingCount();
-    const subtitle = state.setup.phase === "done" ? "All components installed." : miss + " of 6 components missing.";
+    const subtitle = state.setup.phase === "done" ? "All components installed." : miss + " of " + state.setup.components.length + " components missing.";
     const items = state.setup.components
       .map((c) => {
         const tag = c.present
