@@ -873,7 +873,34 @@
     const sig = html;
     if (sig === lastSig) return;
     lastSig = sig;
+
+    // Preserve focus + caret across the full innerHTML replacement, so the 2s
+    // auto-refresh (or any background render) can't kick the user out of an
+    // input they are typing into. Identify the focused field by id, or by
+    // data-action(+data-idx) for the modal route fields (which have no id).
+    const ae = document.activeElement;
+    let fId = null, fAction = null, fIdx = null, selS = null, selE = null;
+    if (ae && app.contains(ae) && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) {
+      fId = ae.id || null;
+      fAction = ae.getAttribute("data-action");
+      fIdx = ae.getAttribute("data-idx");
+      try { selS = ae.selectionStart; selE = ae.selectionEnd; } catch (_) {}
+    }
+
     app.innerHTML = html;
+
+    if (fId || fAction) {
+      let el = fId ? document.getElementById(fId) : null;
+      if (!el && fAction) {
+        let sel = '[data-action="' + fAction + '"]';
+        if (fIdx != null) sel += '[data-idx="' + fIdx + '"]';
+        el = app.querySelector(sel);
+      }
+      if (el) {
+        el.focus();
+        if (selS != null) { try { el.setSelectionRange(selS, selE); } catch (_) {} }
+      }
+    }
   }
 
   // ---- events (delegated; bound once) ----
