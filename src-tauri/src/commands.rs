@@ -1,7 +1,8 @@
 use laragon_core::{
-    build_services, create_site as core_create_site, detect_components, run_setup, scan_sites,
+    build_services, create_site as core_create_site, detect_components, list_all_sites, run_setup,
     sync_sites, Config, CreateReport, LaragonPaths, MkcertIssuer, Orchestrator, PkexecPrivileged,
-    RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site, SiteTemplate,
+    RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site, SiteRegistry,
+    SiteTemplate,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
@@ -93,7 +94,8 @@ pub fn service_stop(
 
 #[tauri::command]
 pub fn list_sites(state: tauri::State<AppState>) -> Result<Vec<Site>, String> {
-    scan_sites(&state.paths, &state.tld).map_err(|e| e.to_string())
+    let (sites, _warnings) = list_all_sites(&state.paths, &state.tld).map_err(|e| e.to_string())?;
+    Ok(sites)
 }
 
 #[tauri::command]
@@ -162,6 +164,106 @@ pub async fn create_site(
         }
 
         Ok(report)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn link_site(
+    app: tauri::AppHandle,
+    name: String,
+    root: String,
+) -> Result<Site, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Site, String> {
+        let state = app.state::<AppState>();
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+
+        // Register the folder (validates name, existence, duplicates).
+        let mut registry =
+            SiteRegistry::load(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+        registry
+            .add(&name, std::path::Path::new(&root))
+            .map_err(|e| e.to_string())?;
+        registry
+            .save(&state.paths.sites_file())
+            .map_err(|e| e.to_string())?;
+
+        // Make it reachable: sync vhost+cert+/etc/hosts, then reload nginx if running.
+        let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let privileged = PkexecPrivileged;
+        let _ = sync_sites(
+            &state.paths,
+            &config.tld,
+            &php_socket,
+            std::path::Path::new("/etc/hosts"),
+            &issuer,
+            &privileged,
+        );
+        {
+            let mut orch = state.orch.lock().map_err(lock_err)?;
+            if orch.state(ServiceKind::Nginx) == ServiceState::Running {
+                let _ = orch.stop(ServiceKind::Nginx);
+                let _ = orch.start(ServiceKind::Nginx);
+            }
+        }
+
+        // Return the freshly linked site from the merged list.
+        let (sites, _w) = list_all_sites(&state.paths, &config.tld).map_err(|e| e.to_string())?;
+        sites
+            .into_iter()
+            .find(|s| s.name == name)
+            .ok_or_else(|| format!("linked site `{name}` not found after sync"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn unlink_site(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let state = app.state::<AppState>();
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+
+        let mut registry =
+            SiteRegistry::load(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+        let removed = registry.remove(&name);
+        registry
+            .save(&state.paths.sites_file())
+            .map_err(|e| e.to_string())?;
+        if !removed {
+            return Err(format!("site `{name}` is not a linked site"));
+        }
+
+        // Remove the now-orphaned vhost so nginx stops serving it.
+        let vhost = state
+            .paths
+            .etc_for("nginx")
+            .join("sites")
+            .join(format!("{name}.conf"));
+        let _ = std::fs::remove_file(&vhost);
+
+        // Re-sync (rewrites /etc/hosts without this host) and reload nginx.
+        let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let privileged = PkexecPrivileged;
+        let _ = sync_sites(
+            &state.paths,
+            &config.tld,
+            &php_socket,
+            std::path::Path::new("/etc/hosts"),
+            &issuer,
+            &privileged,
+        );
+        {
+            let mut orch = state.orch.lock().map_err(lock_err)?;
+            if orch.state(ServiceKind::Nginx) == ServiceState::Running {
+                let _ = orch.stop(ServiceKind::Nginx);
+                let _ = orch.start(ServiceKind::Nginx);
+            }
+        }
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
