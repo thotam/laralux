@@ -130,7 +130,10 @@
       applyServices(svc);
       state.sites = Array.isArray(sites) ? sites : [];
       applyComponents(comps);
-      render();
+      // While a modal is open, only refresh state — don't rebuild the DOM, or
+      // the user gets kicked out of the input they're typing into. The modal's
+      // own actions (and closing it) call render() with the fresh state.
+      if (!state.modal) render();
     } catch (e) {
       /* polling: stay quiet */
     }
