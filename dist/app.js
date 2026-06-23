@@ -361,6 +361,19 @@
     }
   }
 
+  // Open a URL in the system browser. In the Tauri webview, <a target="_blank">
+  // does nothing, so route through the opener plugin (fallback to window.open for dev).
+  async function openExternal(url) {
+    if (!url) return;
+    try {
+      const op = window.__TAURI__ && window.__TAURI__.opener;
+      if (op && op.openUrl) { await op.openUrl(url); return; }
+      window.open(url, "_blank");
+    } catch (e) {
+      toast({ type: "error", title: "Couldn't open", msg: String(e) });
+    }
+  }
+
   function setView(v) {
     state.view = v;
     state.confirmRemove = null;
@@ -457,7 +470,7 @@
     let footRight = "";
     if (kind === "Mailpit" && st === "Running")
       footRight =
-        '<a class="btn-xs" href="http://localhost:8025" target="_blank" rel="noreferrer">' + I.externalSm + "Open</a>";
+        '<a class="btn-xs" href="http://localhost:8025" data-action="open-url" data-url="http://localhost:8025" rel="noreferrer">' + I.externalSm + "Open</a>";
     if (st === "Crashed")
       footRight = '<button class="btn-xs danger" data-action="svc-logs" data-kind="' + kind + '">' + I.warnSm + "View logs</button>";
     return (
@@ -494,8 +507,8 @@
         return (
           '<div class="card site-row preview"><div class="site-tile">' + I.folder + "</div>" +
           '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
-          '<a class="site-url" href="' + esc(url) + '" target="_blank" rel="noreferrer">' + esc(url) + "</a></div>" +
-          '<a class="btn-sm" href="' + esc(url) + '" target="_blank" rel="noreferrer">Open</a></div>'
+          '<a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a></div>" +
+          '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">Open</a></div>'
         );
       })
       .join("");
@@ -542,7 +555,7 @@
             return (
               '<div class="card site-row"><div class="site-tile">' + I.folder18 + "</div>" +
               '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
-              '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" target="_blank" rel="noreferrer">' + esc(url) + "</a>" +
+              '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a>" +
               '<span class="site-root" title="' + esc(s.root) + '">' + esc(s.root) + "</span></div></div>" +
               (s.source === "Linked" ? '<span class="site-badge">linked</span>' : "") +
               '<button class="icon-btn sq32" data-action="copy-site" data-name="' + esc(s.name) + '" aria-label="Copy URL">' + I.copy + "</button>" +
@@ -550,7 +563,7 @@
                 ? '<button class="btn-sm danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
                   (state.confirmRemove === s.name ? "Confirm?" : "Remove") + "</button>"
                 : "") +
-              '<a class="btn-sm" href="' + esc(url) + '" target="_blank" rel="noreferrer">' + I.external + "Open</a></div>"
+              '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + I.external + "Open</a></div>"
             );
           })
           .join("") +
@@ -765,6 +778,7 @@
     else if (a === "svc-toggle") toggleService(el.getAttribute("data-kind"));
     else if (a === "svc-logs") viewLogs(el.getAttribute("data-kind"));
     else if (a === "copy-site") copySite(el.getAttribute("data-name"));
+    else if (a === "open-url") { e.preventDefault(); openExternal(el.getAttribute("data-url")); }
     else if (a === "toast-dismiss") dismiss(parseInt(el.getAttribute("data-id"), 10));
     else if (a === "new-site") openNewSite();
     else if (a === "ns-close") closeNewSite();
