@@ -12,6 +12,7 @@ use tauri::{
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(build_state())
         .invoke_handler(tauri::generate_handler![
             commands::stack_status,
