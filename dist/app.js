@@ -543,7 +543,7 @@
               '<div class="card site-row"><div class="site-tile">' + I.folder18 + "</div>" +
               '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
               '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" target="_blank" rel="noreferrer">' + esc(url) + "</a>" +
-              '<span class="site-root">' + esc(s.root) + "</span></div></div>" +
+              '<span class="site-root" title="' + esc(s.root) + '">' + esc(s.root) + "</span></div></div>" +
               (s.source === "Linked" ? '<span class="site-badge">linked</span>' : "") +
               '<button class="icon-btn sq32" data-action="copy-site" data-name="' + esc(s.name) + '" aria-label="Copy URL">' + I.copy + "</button>" +
               (s.source === "Linked"
