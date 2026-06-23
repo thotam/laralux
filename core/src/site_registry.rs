@@ -16,6 +16,14 @@ pub enum RegistryError {
     RootNotFound(String),
     #[error("site already registered: {0}")]
     Duplicate(String),
+    #[error("invalid upstream: {0}")]
+    InvalidUpstream(String),
+    #[error("invalid route: {0}")]
+    InvalidRoute(String),
+    #[error("a proxy needs at least one route")]
+    NoRoutes,
+    #[error("not found: {0}")]
+    NotFound(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,10 +32,70 @@ pub struct RegisteredSite {
     pub root: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxyRoute {
+    pub path: String,
+    pub upstream: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxySite {
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub websocket: bool,
+    pub routes: Vec<ProxyRoute>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SiteRegistry {
     #[serde(default)]
     sites: Vec<RegisteredSite>,
+    #[serde(default)]
+    proxies: Vec<ProxySite>,
+}
+
+/// Normalize a user-typed target into `host:port` (default host 127.0.0.1).
+pub fn normalize_upstream(input: &str) -> Result<String, RegistryError> {
+    let s = input.trim();
+    if s.is_empty() {
+        return Err(RegistryError::InvalidUpstream(input.to_string()));
+    }
+    let (host, port) = match s.rsplit_once(':') {
+        Some((h, p)) => (if h.is_empty() { "127.0.0.1" } else { h }, p),
+        None => ("127.0.0.1", s),
+    };
+    let port: u16 = port
+        .parse()
+        .map_err(|_| RegistryError::InvalidUpstream(input.to_string()))?;
+    if port == 0 {
+        return Err(RegistryError::InvalidUpstream(input.to_string()));
+    }
+    Ok(format!("{host}:{port}"))
+}
+
+/// Validate routes (≥1, each path starts with `/`, no duplicate paths) and
+/// return them with normalized upstreams.
+pub fn validate_routes(routes: &[ProxyRoute]) -> Result<Vec<ProxyRoute>, RegistryError> {
+    if routes.is_empty() {
+        return Err(RegistryError::NoRoutes);
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(routes.len());
+    for r in routes {
+        if !r.path.starts_with('/') {
+            return Err(RegistryError::InvalidRoute(r.path.clone()));
+        }
+        if !seen.insert(r.path.clone()) {
+            return Err(RegistryError::InvalidRoute(format!("duplicate path {}", r.path)));
+        }
+        let upstream = normalize_upstream(&r.upstream)?;
+        out.push(ProxyRoute { path: r.path.clone(), upstream });
+    }
+    Ok(out)
 }
 
 impl SiteRegistry {
@@ -51,6 +119,10 @@ impl SiteRegistry {
         &self.sites
     }
 
+    pub fn proxies(&self) -> &[ProxySite] {
+        &self.proxies
+    }
+
     pub fn add(&mut self, name: &str, root: &Path) -> Result<(), RegistryError> {
         validate_site_name(name).map_err(|_| RegistryError::InvalidName(name.to_string()))?;
         if !root.is_dir() {
@@ -64,10 +136,43 @@ impl SiteRegistry {
         Ok(())
     }
 
+    pub fn add_proxy(
+        &mut self,
+        name: &str,
+        routes: &[ProxyRoute],
+        websocket: bool,
+    ) -> Result<(), RegistryError> {
+        validate_site_name(name).map_err(|_| RegistryError::InvalidName(name.to_string()))?;
+        if self.sites.iter().any(|s| s.name == name) || self.proxies.iter().any(|p| p.name == name) {
+            return Err(RegistryError::Duplicate(name.to_string()));
+        }
+        let routes = validate_routes(routes)?;
+        self.proxies.push(ProxySite { name: name.to_string(), websocket, routes });
+        Ok(())
+    }
+
+    pub fn update_proxy(
+        &mut self,
+        name: &str,
+        routes: &[ProxyRoute],
+        websocket: bool,
+    ) -> Result<(), RegistryError> {
+        let routes = validate_routes(routes)?;
+        let p = self
+            .proxies
+            .iter_mut()
+            .find(|p| p.name == name)
+            .ok_or_else(|| RegistryError::NotFound(name.to_string()))?;
+        p.routes = routes;
+        p.websocket = websocket;
+        Ok(())
+    }
+
     pub fn remove(&mut self, name: &str) -> bool {
-        let before = self.sites.len();
+        let before = self.sites.len() + self.proxies.len();
         self.sites.retain(|s| s.name != name);
-        self.sites.len() != before
+        self.proxies.retain(|p| p.name != name);
+        self.sites.len() + self.proxies.len() != before
     }
 }
 
@@ -132,6 +237,83 @@ mod tests {
         reg.add("gone", &proj).unwrap();
         assert!(reg.remove("gone"));
         assert!(!reg.remove("gone"));
+        std::fs::remove_dir_all(&r).ok();
+    }
+
+    #[test]
+    fn normalize_upstream_variants() {
+        assert_eq!(normalize_upstream("3000").unwrap(), "127.0.0.1:3000");
+        assert_eq!(normalize_upstream("127.0.0.1:5173").unwrap(), "127.0.0.1:5173");
+        assert_eq!(normalize_upstream("localhost:8080").unwrap(), "localhost:8080");
+        assert_eq!(normalize_upstream(":3000").unwrap(), "127.0.0.1:3000");
+        for bad in ["", "0", "99999", "abc", "127.0.0.1:abc"] {
+            assert!(normalize_upstream(bad).is_err(), "expected error for {bad:?}");
+        }
+    }
+
+    #[test]
+    fn validate_routes_checks_path_dupes_and_normalizes() {
+        assert!(matches!(validate_routes(&[]), Err(RegistryError::NoRoutes)));
+        let bad_path = vec![ProxyRoute { path: "api".into(), upstream: "3000".into() }];
+        assert!(matches!(validate_routes(&bad_path), Err(RegistryError::InvalidRoute(_))));
+        let dupe = vec![
+            ProxyRoute { path: "/".into(), upstream: "3000".into() },
+            ProxyRoute { path: "/".into(), upstream: "3001".into() },
+        ];
+        assert!(matches!(validate_routes(&dupe), Err(RegistryError::InvalidRoute(_))));
+        let ok = validate_routes(&[ProxyRoute { path: "/".into(), upstream: "3000".into() }]).unwrap();
+        assert_eq!(ok[0].upstream, "127.0.0.1:3000");
+    }
+
+    #[test]
+    fn add_proxy_rejects_duplicate_across_lists() {
+        let r = root();
+        let proj = r.join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        let mut reg = SiteRegistry::default();
+        reg.add("folder", &proj).unwrap();
+        let routes = vec![ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+
+        assert!(matches!(reg.add_proxy("folder", &routes, true), Err(RegistryError::Duplicate(_))));
+        assert!(matches!(reg.add_proxy("Bad Name", &routes, true), Err(RegistryError::InvalidName(_))));
+        reg.add_proxy("api", &routes, true).unwrap();
+        assert!(matches!(reg.add_proxy("api", &routes, true), Err(RegistryError::Duplicate(_))));
+        assert_eq!(reg.proxies().len(), 1);
+        assert_eq!(reg.proxies()[0].routes[0].upstream, "127.0.0.1:3000");
+        std::fs::remove_dir_all(&r).ok();
+    }
+
+    #[test]
+    fn update_proxy_replaces_or_errors_not_found() {
+        let mut reg = SiteRegistry::default();
+        let routes = vec![ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+        reg.add_proxy("api", &routes, true).unwrap();
+
+        let new_routes = vec![ProxyRoute { path: "/".into(), upstream: "4000".into() }];
+        reg.update_proxy("api", &new_routes, false).unwrap();
+        assert_eq!(reg.proxies()[0].routes[0].upstream, "127.0.0.1:4000");
+        assert!(!reg.proxies()[0].websocket);
+
+        assert!(matches!(reg.update_proxy("ghost", &new_routes, true), Err(RegistryError::NotFound(_))));
+    }
+
+    #[test]
+    fn remove_handles_proxies_and_old_file_loads() {
+        // remove a proxy
+        let mut reg = SiteRegistry::default();
+        let routes = vec![ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+        reg.add_proxy("api", &routes, true).unwrap();
+        assert!(reg.remove("api"));
+        assert!(!reg.remove("api"));
+
+        // a sites.toml with only [[sites]] still loads, proxies empty
+        let r = root();
+        std::fs::create_dir_all(&r).unwrap();
+        let file = r.join("sites.toml");
+        std::fs::write(&file, "[[sites]]\nname = \"blog\"\nroot = \"/tmp/blog\"\n").unwrap();
+        let loaded = SiteRegistry::load(&file).unwrap();
+        assert_eq!(loaded.sites().len(), 1);
+        assert!(loaded.proxies().is_empty());
         std::fs::remove_dir_all(&r).ok();
     }
 }
