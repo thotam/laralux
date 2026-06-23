@@ -6,6 +6,7 @@ use laragon_core::{
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
 use std::sync::Mutex;
+use tauri::Manager;
 
 /// Shared, app-lifetime state. The orchestrator owns the running child
 /// processes, so it must live as long as the app and be stopped on exit.
@@ -36,26 +37,31 @@ pub fn stack_status(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus>,
 }
 
 #[tauri::command]
-pub fn stack_start_all(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus>, String> {
-    // Sync sites (per-site vhosts + mkcert certs + /etc/hosts) BEFORE starting,
-    // so nginx loads the vhosts on start and <name>.<tld> resolves. Best-effort:
-    // a sync failure (e.g. the user cancels the pkexec prompt) must not block start.
-    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
-    let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-    let issuer = MkcertIssuer::new(state.paths.ssl());
-    let privileged = PkexecPrivileged;
-    let _ = sync_sites(
-        &state.paths,
-        &config.tld,
-        &php_socket,
-        std::path::Path::new("/etc/hosts"),
-        &issuer,
-        &privileged,
-    );
+pub async fn stack_start_all(app: tauri::AppHandle) -> Result<Vec<ServiceStatus>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
+        let state = app.state::<AppState>();
+        // Sync sites (per-site vhosts + mkcert certs + /etc/hosts) BEFORE starting,
+        // so nginx loads the vhosts on start and <name>.<tld> resolves. Best-effort:
+        // a sync failure (e.g. the user cancels the pkexec prompt) must not block start.
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let privileged = PkexecPrivileged;
+        let _ = sync_sites(
+            &state.paths,
+            &config.tld,
+            &php_socket,
+            std::path::Path::new("/etc/hosts"),
+            &issuer,
+            &privileged,
+        );
 
-    let mut orch = state.orch.lock().map_err(lock_err)?;
-    orch.start_all().map_err(|e| e.to_string())?;
-    Ok(orch.snapshot())
+        let mut orch = state.orch.lock().map_err(lock_err)?;
+        orch.start_all().map_err(|e| e.to_string())?;
+        Ok(orch.snapshot())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -96,57 +102,67 @@ pub fn setup_status(state: tauri::State<AppState>) -> Result<Vec<ComponentStatus
 }
 
 #[tauri::command]
-pub fn run_setup_cmd(state: tauri::State<AppState>) -> Result<SetupReport, String> {
-    let privileged = PkexecPrivileged;
-    let downloader = CurlDownloader;
-    Ok(run_setup(&state.paths, &privileged, &downloader))
+pub async fn run_setup_cmd(app: tauri::AppHandle) -> Result<SetupReport, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<SetupReport, String> {
+        let state = app.state::<AppState>();
+        let privileged = PkexecPrivileged;
+        let downloader = CurlDownloader;
+        Ok(run_setup(&state.paths, &privileged, &downloader))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn create_site(
-    state: tauri::State<AppState>,
+pub async fn create_site(
+    app: tauri::AppHandle,
     name: String,
     template: SiteTemplate,
 ) -> Result<CreateReport, String> {
-    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || -> Result<CreateReport, String> {
+        let state = app.state::<AppState>();
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
 
-    // Read whether MariaDB is currently running (brief lock).
-    let mariadb_running = {
-        let orch = state.orch.lock().map_err(|_| "internal lock poisoned".to_string())?;
-        orch.state(ServiceKind::Mariadb) == ServiceState::Running
-    };
+        // Read whether MariaDB is currently running (brief lock).
+        let mariadb_running = {
+            let orch = state.orch.lock().map_err(|_| "internal lock poisoned".to_string())?;
+            orch.state(ServiceKind::Mariadb) == ServiceState::Running
+        };
 
-    // Scaffold (slow; no orchestrator lock held).
-    let report = core_create_site(
-        &state.paths,
-        &name,
-        &config.tld,
-        template,
-        mariadb_running,
-        &RealCommandRunner,
-        &CurlDownloader,
-    )
-    .map_err(|e| e.to_string())?;
+        // Scaffold (slow; no orchestrator lock held).
+        let report = core_create_site(
+            &state.paths,
+            &name,
+            &config.tld,
+            template,
+            mariadb_running,
+            &RealCommandRunner,
+            &CurlDownloader,
+        )
+        .map_err(|e| e.to_string())?;
 
-    // Make it reachable: sync vhost+cert+/etc/hosts, then reload nginx if running.
-    let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-    let issuer = MkcertIssuer::new(state.paths.ssl());
-    let privileged = PkexecPrivileged;
-    let _ = sync_sites(
-        &state.paths,
-        &config.tld,
-        &php_socket,
-        std::path::Path::new("/etc/hosts"),
-        &issuer,
-        &privileged,
-    );
-    {
-        let mut orch = state.orch.lock().map_err(|_| "internal lock poisoned".to_string())?;
-        if orch.state(ServiceKind::Nginx) == ServiceState::Running {
-            let _ = orch.stop(ServiceKind::Nginx);
-            let _ = orch.start(ServiceKind::Nginx);
+        // Make it reachable: sync vhost+cert+/etc/hosts, then reload nginx if running.
+        let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let privileged = PkexecPrivileged;
+        let _ = sync_sites(
+            &state.paths,
+            &config.tld,
+            &php_socket,
+            std::path::Path::new("/etc/hosts"),
+            &issuer,
+            &privileged,
+        );
+        {
+            let mut orch = state.orch.lock().map_err(|_| "internal lock poisoned".to_string())?;
+            if orch.state(ServiceKind::Nginx) == ServiceState::Running {
+                let _ = orch.stop(ServiceKind::Nginx);
+                let _ = orch.start(ServiceKind::Nginx);
+            }
         }
-    }
 
-    Ok(report)
+        Ok(report)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
