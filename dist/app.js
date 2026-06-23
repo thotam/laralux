@@ -84,6 +84,7 @@
     newSite: { name: "", template: "Blank", busy: false, error: "" },
     linkSite: { root: "", name: "", busy: false, error: "" },
     confirmRemove: null,
+    proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
   };
 
   // ---- helpers ----
@@ -336,6 +337,60 @@
     }
   }
 
+  function openProxy(site) {
+    if (site && site.proxy) {
+      state.proxy = {
+        mode: "edit", name: site.name, websocket: !!site.proxy.websocket,
+        routes: (site.proxy.routes || []).map((r) => ({ path: r.path, upstream: r.upstream })),
+        busy: false, error: "",
+      };
+      if (!state.proxy.routes.length) state.proxy.routes = [{ path: "/", upstream: "" }];
+    } else {
+      state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" };
+    }
+    state.modal = "proxy";
+    render();
+    requestAnimationFrame(() => { const inp = document.getElementById("px-name"); if (inp && !inp.readOnly) inp.focus(); });
+  }
+
+  function closeProxy() {
+    if (state.proxy.busy) return;
+    state.modal = null;
+    render();
+  }
+
+  function addProxyRoute() { state.proxy.routes.push({ path: "", upstream: "" }); render(); }
+  function delProxyRoute(i) { state.proxy.routes.splice(i, 1); if (!state.proxy.routes.length) state.proxy.routes.push({ path: "/", upstream: "" }); render(); }
+
+  async function submitProxy() {
+    const p = state.proxy;
+    if (!validName(p.name)) { p.error = "Use lowercase letters, digits, hyphens (e.g. my-app)"; render(); return; }
+    if (!p.routes.length) { p.error = "Add at least one route"; render(); return; }
+    for (const r of p.routes) {
+      if (!r.path.startsWith("/")) { p.error = "Each path must start with /"; render(); return; }
+      if (!String(r.upstream).trim()) { p.error = "Each route needs a target (host:port)"; render(); return; }
+    }
+    p.busy = true; p.error = ""; render();
+    try {
+      const cmd = p.mode === "edit" ? "update_proxy" : "add_proxy";
+      const site = await invoke(cmd, {
+        name: p.name, websocket: p.websocket,
+        routes: p.routes.map((r) => ({ path: r.path, upstream: r.upstream })),
+      });
+      toast({ type: "success", title: (p.mode === "edit" ? "Updated " : "Proxy ") + site.name, msg: "https://" + site.hostname });
+      state.modal = null;
+      state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" };
+      try { const sites = await invoke("list_sites"); state.sites = Array.isArray(sites) ? sites : []; } catch (_) {}
+      render();
+    } catch (e) {
+      p.error = String(e); p.busy = false;
+      toast({ type: "error", title: "Proxy failed", msg: String(e) });
+      render();
+    } finally {
+      if (p.busy) { p.busy = false; render(); }
+    }
+  }
+
   async function removeSite(name) {
     if (state.confirmRemove !== name) { state.confirmRemove = name; render(); return; }
     state.confirmRemove = null;
@@ -537,6 +592,7 @@
       '<div class="sites-head"><div><h1 class="h1">Sites</h1>' +
       '<p class="subtitle">Projects under <code class="chip-code">~/laragon/www</code></p></div>' +
       '<div class="sites-actions">' +
+      '<button class="btn-newsite ghost" data-action="proxy-site">' + I.navSites + "Reverse proxy</button>" +
       '<button class="btn-newsite ghost" data-action="link-site">' + I.folder18 + "Add existing folder</button>" +
       '<button class="btn-newsite" data-action="new-site">' + I.plus + "New site</button></div></div>";
     let bodyHtml;
@@ -552,17 +608,30 @@
         state.sites
           .map((s) => {
             const url = "https://" + s.hostname;
+            const isProxy = s.source === "Proxy";
+            const isLinked = s.source === "Linked";
+            const target = isProxy && s.proxy && s.proxy.routes && s.proxy.routes.length
+              ? s.proxy.routes[0].upstream + (s.proxy.routes.length > 1 ? " +" + (s.proxy.routes.length - 1) : "")
+              : "";
+            const badge = isProxy
+              ? '<span class="site-badge">proxy → ' + esc(target) + "</span>"
+              : (isLinked ? '<span class="site-badge">linked</span>' : "");
+            const subRight = isProxy ? "" : '<span class="site-root" title="' + esc(s.root) + '">' + esc(s.root) + "</span>";
+            const editBtn = isProxy
+              ? '<button class="btn-sm" data-action="edit-proxy" data-name="' + esc(s.name) + '">Edit</button>'
+              : "";
+            const removeBtn = (isProxy || isLinked)
+              ? '<button class="btn-sm danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
+                (state.confirmRemove === s.name ? "Confirm?" : "Remove") + "</button>"
+              : "";
             return (
               '<div class="card site-row"><div class="site-tile">' + I.folder18 + "</div>" +
               '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
               '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a>" +
-              '<span class="site-root" title="' + esc(s.root) + '">' + esc(s.root) + "</span></div></div>" +
-              (s.source === "Linked" ? '<span class="site-badge">linked</span>' : "") +
+              subRight + "</div></div>" +
+              badge +
               '<button class="icon-btn sq32" data-action="copy-site" data-name="' + esc(s.name) + '" aria-label="Copy URL">' + I.copy + "</button>" +
-              (s.source === "Linked"
-                ? '<button class="btn-sm danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
-                  (state.confirmRemove === s.name ? "Confirm?" : "Remove") + "</button>"
-                : "") +
+              editBtn + removeBtn +
               '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + I.external + "Open</a></div>"
             );
           })
@@ -736,6 +805,45 @@
     );
   }
 
+  function proxyModal() {
+    const p = state.proxy;
+    const ok = validName(p.name) && p.routes.length > 0;
+    const isEdit = p.mode === "edit";
+    const preview = p.name ? '<span class="ns-preview">→ https://' + esc(p.name) + '.dev</span>' : '<span class="ns-preview muted">→ https://&lt;name&gt;.dev</span>';
+    const errorHtml = p.error ? '<div class="ns-error">' + esc(p.error) + '</div>' : '';
+    const d = p.busy ? ' disabled' : '';
+    const rows = p.routes.map((r, i) =>
+      '<div class="pr-row">' +
+      '<input class="ns-input pr-path" type="text" placeholder="/" value="' + esc(r.path) + '" autocomplete="off" spellcheck="false" data-action="pr-path" data-idx="' + i + '"' + d + ' />' +
+      '<input class="ns-input pr-up" type="text" placeholder="3000 or 127.0.0.1:5173" value="' + esc(r.upstream) + '" autocomplete="off" spellcheck="false" data-action="pr-upstream" data-idx="' + i + '"' + d + ' />' +
+      (p.routes.length > 1 ? '<button class="icon-btn sq32" data-action="pr-del" data-idx="' + i + '" aria-label="Remove route"' + d + '>' + I.close + '</button>' : '') +
+      '</div>'
+    ).join('');
+    const submitLabel = p.busy
+      ? '<span class="spin spinner on-primary"></span>' + (isEdit ? 'Saving…' : 'Creating…')
+      : (isEdit ? 'Save' : 'Create proxy');
+    return (
+      '<div class="ns-overlay" data-action="px-overlay-click" role="dialog" aria-modal="true" aria-labelledby="px-title">' +
+      '<div class="ns-card" role="document">' +
+      '<div class="ns-head"><h2 class="ns-title" id="px-title">' + (isEdit ? 'Edit reverse proxy' : 'Reverse proxy') + '</h2>' +
+      '<button class="icon-btn" data-action="px-close" aria-label="Close"' + d + '>' + I.close + '</button></div>' +
+      '<div class="ns-body">' +
+      '<label class="ns-label" for="px-name">Site name</label>' +
+      '<input class="ns-input" type="text" id="px-name" placeholder="my-app" value="' + esc(p.name) + '" autocomplete="off" spellcheck="false" maxlength="63"' + (isEdit ? ' readonly' : '') + d + ' data-action="px-name-input" />' +
+      preview +
+      '<label class="ns-label">Routes</label>' +
+      rows +
+      '<button class="link-btn" data-action="pr-add"' + d + '>+ Add route</button>' +
+      '<label class="ns-check"><input type="checkbox" data-action="px-ws"' + (p.websocket ? ' checked' : '') + d + ' /> WebSocket support</label>' +
+      errorHtml +
+      '</div>' +
+      '<div class="ns-foot">' +
+      '<button class="btn btn-outline" data-action="px-close"' + d + '>Cancel</button>' +
+      '<button class="btn btn-primary' + (!ok || p.busy ? ' btn-dim' : '') + '" data-action="px-submit"' + (!ok || p.busy ? ' disabled' : '') + '>' + submitLabel + '</button>' +
+      '</div></div></div>'
+    );
+  }
+
   // ---- render ----
   const app = document.getElementById("app");
   let lastSig = "";
@@ -748,7 +856,10 @@
     else if (state.view === "setup") main = setupView();
     else main = settingsView();
 
-    const modalHtml = state.modal === "newsite" ? newSiteModal() : state.modal === "linksite" ? linkSiteModal() : "";
+    const modalHtml = state.modal === "newsite" ? newSiteModal()
+      : state.modal === "linksite" ? linkSiteModal()
+      : state.modal === "proxy" ? proxyModal()
+      : "";
     const html =
       '<div class="root" data-compact="' + state.compact + '">' +
       header() +
@@ -793,6 +904,13 @@
     else if (a === "ls-submit") submitLinkSite();
     else if (a === "ls-browse") browseFolder();
     else if (a === "ls-overlay-click") { if (e.target === el) closeLinkSite(); }
+    else if (a === "proxy-site") openProxy();
+    else if (a === "edit-proxy") openProxy(state.sites.find((s) => s.name === el.getAttribute("data-name")));
+    else if (a === "px-close") closeProxy();
+    else if (a === "px-submit") submitProxy();
+    else if (a === "pr-add") addProxyRoute();
+    else if (a === "pr-del") delProxyRoute(parseInt(el.getAttribute("data-idx"), 10));
+    else if (a === "px-overlay-click") { if (e.target === el) closeProxy(); }
   });
 
   // ---- modal input events (delegated on app) ----
@@ -838,6 +956,19 @@
       const submitBtn = document.querySelector('[data-action="ls-submit"]');
       if (submitBtn) { const ok = state.linkSite.root && validName(el.value); submitBtn.disabled = !ok; submitBtn.classList.toggle("btn-dim", !ok); }
     }
+    if (el.dataset.action === "px-name-input") {
+      state.proxy.name = el.value;
+      state.proxy.error = "";
+      const preview = document.querySelector(".ns-preview");
+      if (preview) {
+        if (el.value) { preview.classList.remove("muted"); preview.textContent = "→ https://" + el.value + ".dev"; }
+        else { preview.classList.add("muted"); preview.innerHTML = "→ https://&lt;name&gt;.dev"; }
+      }
+      const submitBtn = document.querySelector('[data-action="px-submit"]');
+      if (submitBtn) { const ok = validName(el.value) && state.proxy.routes.length > 0; submitBtn.disabled = !ok; submitBtn.classList.toggle("btn-dim", !ok); }
+    }
+    if (el.dataset.action === "pr-path") { state.proxy.routes[parseInt(el.dataset.idx, 10)].path = el.value; }
+    if (el.dataset.action === "pr-upstream") { state.proxy.routes[parseInt(el.dataset.idx, 10)].upstream = el.value; }
   });
 
   app.addEventListener("change", (e) => {
@@ -845,17 +976,19 @@
     if (el.dataset.action === "ns-template-change") {
       state.newSite.template = el.value;
     }
+    if (el.dataset.action === "px-ws") { state.proxy.websocket = el.checked; }
   });
 
   // ---- Esc closes modal ----
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state.modal === "newsite") closeNewSite();
     else if (e.key === "Escape" && state.modal === "linksite") closeLinkSite();
+    else if (e.key === "Escape" && state.modal === "proxy") closeProxy();
   });
 
   // ---- focus-trap inside modal ----
   app.addEventListener("keydown", (e) => {
-    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite")) return;
+    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite" && state.modal !== "proxy")) return;
     const card = document.querySelector(".ns-card");
     if (!card) return;
     const focusable = Array.from(card.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'));

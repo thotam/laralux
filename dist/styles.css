@@ -374,3 +374,7 @@ button:disabled { cursor:not-allowed; }
 .site-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--chip-bg, #eef); color: var(--chip-fg, #446); align-self: center; }
 .btn-sm.danger { color: #b42318; border-color: #f3c9c4; }
 .btn-newsite.ghost { background: transparent; border: 1px solid var(--border, #d7d7e0); color: inherit; }
+.pr-row { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
+.pr-row .pr-path { flex:0 0 96px; }
+.pr-row .pr-up { flex:1 1 auto; min-width:0; }
+.ns-check { display:flex; align-items:center; gap:8px; font-size:13px; margin-top:10px; cursor:pointer; }
