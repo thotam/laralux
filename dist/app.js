@@ -347,6 +347,7 @@
       render();
     } catch (e) {
       toast({ type: "error", title: "Remove failed", msg: String(e) });
+      render();
     }
   }
 
@@ -362,6 +363,7 @@
 
   function setView(v) {
     state.view = v;
+    state.confirmRemove = null;
     render();
   }
   function toggleDark() {
@@ -808,6 +810,8 @@
     if (el.dataset.action === "ls-root-input") {
       state.linkSite.root = el.value;
       state.linkSite.error = "";
+      const submitBtn = document.querySelector('[data-action="ls-submit"]');
+      if (submitBtn) { const ok = el.value && validName(state.linkSite.name); submitBtn.disabled = !ok; submitBtn.classList.toggle("btn-dim", !ok); }
     }
     if (el.dataset.action === "ls-name-input") {
       state.linkSite.name = el.value;
