@@ -71,11 +71,20 @@ Named `site_registry` (not `registry`) to avoid confusion with the existing `cor
   3. Reload nginx if Running.
 - Register both in `main.rs` `generate_handler!`.
 
-### 3.5 Frontend — `dist/` (modal + linked badge + remove)
+### 3.5 Native folder picker — `tauri-plugin-dialog`
+
+Add the official dialog plugin so the modal can open a **native folder chooser** instead of relying solely on a typed path.
+
+- `src-tauri/Cargo.toml`: add `tauri-plugin-dialog = "2"`.
+- `src-tauri/src/main.rs`: `.plugin(tauri_plugin_dialog::init())` in the builder.
+- `src-tauri/capabilities/default.json`: add `"dialog:allow-open"` to `permissions`.
+- Frontend (with `withGlobalTauri: true`) calls `window.__TAURI__.dialog.open({ directory: true, multiple: false, title: "Choose project folder" })`. It resolves to the selected absolute path (or `null` if cancelled). No new Rust command is needed — folder selection happens entirely in the webview via the plugin; `link_site` still receives `{ name, root }`.
+
+### 3.6 Frontend — `dist/` (modal + linked badge + remove)
 
 - **Sites view**: add a second action button **"Add existing folder"** beside "New site" (header and empty-state).
 - **Add-existing modal** (reuses the New Site modal's tokens/a11y: focus-trap, Esc, `:focus-visible`, `prefers-reduced-motion`):
-  - **Folder path** text input (absolute path, e.g. `/home/me/projects/foo`).
+  - **Folder path** row: a read-only-ish text input + a **"Browse…"** button that opens the native folder picker (§3.5). The user may also type/paste a path. Selecting a folder fills the input and auto-derives the name.
   - **Site name** input, prefilled by sanitizing the path's basename to a valid DNS label, editable; realtime validation (same rule as `validate_site_name`); live preview `→ https://<name>.dev`.
   - Submit: disable form + spinner ("Linking…"); `invoke("link_site", { name, root })`; success toast (e.g. "Linked <name> · https://<name>.dev"), close, refresh sites; error toast keeps modal open. No `alert()`.
 - **Linked rows**: show a small "linked" badge and a **Remove** (unlink) button with an inline confirm (two-step click or confirm state); on confirm `invoke("unlink_site", { name })`, toast, refresh. **Scanned rows** have no Remove button (a `www/` site is removed by deleting its folder) — explain via the badge/absence.
@@ -105,4 +114,3 @@ Named `site_registry` (not `registry`) to avoid confusion with the existing `cor
 
 - Reverse proxy sites (Slice 3).
 - Editing an existing site's path/name (re-link); per-site PHP/Node version; open terminal/DB/folder.
-- A native folder-picker dialog (v1 uses a path text input; Tauri dialog plugin is a future enhancement).
