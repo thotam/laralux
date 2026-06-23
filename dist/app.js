@@ -82,6 +82,8 @@
     tId: 1,
     modal: null,
     newSite: { name: "", template: "Blank", busy: false, error: "" },
+    linkSite: { root: "", name: "", busy: false, error: "" },
+    confirmRemove: null,
   };
 
   // ---- helpers ----
@@ -229,6 +231,11 @@
   const SITE_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
   function validName(n) { return n.length >= 1 && n.length <= 63 && SITE_NAME_RE.test(n); }
 
+  function deriveName(path) {
+    const base = (path || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
+    return base.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
+  }
+
   function openNewSite() {
     state.modal = "newsite";
     state.newSite = { name: "", template: "Blank", busy: false, error: "" };
@@ -269,6 +276,77 @@
       render();
     } finally {
       if (state.newSite.busy) { state.newSite.busy = false; render(); }
+    }
+  }
+
+  function openLinkSite() {
+    state.modal = "linksite";
+    state.linkSite = { root: "", name: "", busy: false, error: "" };
+    render();
+    requestAnimationFrame(() => {
+      const inp = document.getElementById("ls-name");
+      if (inp) inp.focus();
+    });
+  }
+
+  function closeLinkSite() {
+    if (state.linkSite.busy) return;
+    state.modal = null;
+    render();
+  }
+
+  async function browseFolder() {
+    try {
+      const dlg = window.__TAURI__ && window.__TAURI__.dialog;
+      if (!dlg) { toast({ type: "error", title: "Folder picker unavailable" }); return; }
+      const picked = await dlg.open({ directory: true, multiple: false, title: "Choose project folder" });
+      if (!picked) return; // cancelled
+      const path = Array.isArray(picked) ? picked[0] : picked;
+      state.linkSite.root = path;
+      if (!state.linkSite.name) state.linkSite.name = deriveName(path);
+      state.linkSite.error = "";
+      render();
+    } catch (e) {
+      toast({ type: "error", title: "Folder picker failed", msg: String(e) });
+    }
+  }
+
+  async function submitLinkSite() {
+    const { root, name } = state.linkSite;
+    if (!root) { state.linkSite.error = "Choose a folder first"; render(); return; }
+    if (!validName(name)) { state.linkSite.error = "Use lowercase letters, digits, hyphens (e.g. my-app)"; render(); return; }
+    state.linkSite.busy = true; state.linkSite.error = ""; render();
+    try {
+      const site = await invoke("link_site", { name, root });
+      toast({ type: "success", title: "Linked " + site.name, msg: "https://" + site.hostname });
+      state.modal = null;
+      state.linkSite = { root: "", name: "", busy: false, error: "" };
+      try {
+        const sites = await invoke("list_sites");
+        state.sites = Array.isArray(sites) ? sites : [];
+      } catch (_) {}
+      render();
+    } catch (e) {
+      state.linkSite.error = String(e);
+      state.linkSite.busy = false;
+      toast({ type: "error", title: "Link failed", msg: String(e) });
+      render();
+    } finally {
+      if (state.linkSite.busy) { state.linkSite.busy = false; render(); }
+    }
+  }
+
+  async function removeSite(name) {
+    if (state.confirmRemove !== name) { state.confirmRemove = name; render(); return; }
+    state.confirmRemove = null;
+    try {
+      await invoke("unlink_site", { name });
+      toast({ type: "success", title: "Removed " + name });
+      const sites = await invoke("list_sites");
+      state.sites = Array.isArray(sites) ? sites : [];
+      render();
+    } catch (e) {
+      toast({ type: "error", title: "Remove failed", msg: String(e) });
     }
   }
 
@@ -444,6 +522,7 @@
       '<div class="sites-head"><div><h1 class="h1">Sites</h1>' +
       '<p class="subtitle">Projects under <code class="chip-code">~/laragon/www</code></p></div>' +
       '<div class="sites-actions">' +
+      '<button class="btn-newsite ghost" data-action="link-site">' + I.folder18 + "Add existing folder</button>" +
       '<button class="btn-newsite" data-action="new-site">' + I.plus + "New site</button></div></div>";
     let bodyHtml;
     if (empty) {
@@ -463,8 +542,12 @@
               '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
               '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" target="_blank" rel="noreferrer">' + esc(url) + "</a>" +
               '<span class="site-root">' + esc(s.root) + "</span></div></div>" +
+              (s.source === "Linked" ? '<span class="site-badge">linked</span>' : "") +
               '<button class="icon-btn sq32" data-action="copy-site" data-name="' + esc(s.name) + '" aria-label="Copy URL">' + I.copy + "</button>" +
-              '<button class="icon-btn sq32" disabled aria-label="More" title="Open folder · terminal · DB — coming soon" style="opacity:.55">' + I.kebab + "</button>" +
+              (s.source === "Linked"
+                ? '<button class="btn-sm danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
+                  (state.confirmRemove === s.name ? "Confirm?" : "Remove") + "</button>"
+                : "") +
               '<a class="btn-sm" href="' + esc(url) + '" target="_blank" rel="noreferrer">' + I.external + "Open</a></div>"
             );
           })
@@ -606,6 +689,38 @@
     );
   }
 
+  function linkSiteModal() {
+    const ls = state.linkSite;
+    const ok = ls.root && validName(ls.name);
+    const preview = ls.name ? '<span class="ns-preview">→ https://' + esc(ls.name) + '.dev</span>' : '<span class="ns-preview muted">→ https://&lt;name&gt;.dev</span>';
+    const errorHtml = ls.error ? '<div class="ns-error">' + esc(ls.error) + '</div>' : '';
+    const d = ls.busy ? ' disabled' : '';
+    const submitLabel = ls.busy ? '<span class="spin spinner on-primary"></span>Linking…' : 'Add site';
+    return (
+      '<div class="ns-overlay" data-action="ls-overlay-click" role="dialog" aria-modal="true" aria-labelledby="ls-title">' +
+      '<div class="ns-card" role="document">' +
+      '<div class="ns-head"><h2 class="ns-title" id="ls-title">Add existing folder</h2>' +
+      '<button class="icon-btn" data-action="ls-close" aria-label="Close"' + d + '>' + I.close + '</button></div>' +
+      '<div class="ns-body">' +
+      '<label class="ns-label" for="ls-root">Folder</label>' +
+      '<div class="ls-row">' +
+      '<input class="ns-input grow" type="text" id="ls-root" placeholder="/home/me/projects/my-app"' +
+      ' value="' + esc(ls.root) + '" autocomplete="off" spellcheck="false"' + d + ' data-action="ls-root-input" />' +
+      '<button class="btn btn-outline" data-action="ls-browse"' + d + '>Browse…</button>' +
+      '</div>' +
+      '<label class="ns-label" for="ls-name">Site name</label>' +
+      '<input class="ns-input" type="text" id="ls-name" placeholder="my-app"' +
+      ' value="' + esc(ls.name) + '" autocomplete="off" spellcheck="false" maxlength="63"' + d + ' data-action="ls-name-input" />' +
+      preview + errorHtml +
+      '</div>' +
+      '<div class="ns-foot">' +
+      '<button class="btn btn-outline" data-action="ls-close"' + d + '>Cancel</button>' +
+      '<button class="btn btn-primary' + (!ok || ls.busy ? ' btn-dim' : '') + '" data-action="ls-submit"' +
+      (!ok || ls.busy ? ' disabled' : '') + '>' + submitLabel + '</button>' +
+      '</div></div></div>'
+    );
+  }
+
   // ---- render ----
   const app = document.getElementById("app");
   let lastSig = "";
@@ -618,7 +733,7 @@
     else if (state.view === "setup") main = setupView();
     else main = settingsView();
 
-    const modalHtml = state.modal === "newsite" ? newSiteModal() : "";
+    const modalHtml = state.modal === "newsite" ? newSiteModal() : state.modal === "linksite" ? linkSiteModal() : "";
     const html =
       '<div class="root" data-compact="' + state.compact + '">' +
       header() +
@@ -656,6 +771,12 @@
       // close only if click is directly on the overlay (not the card inside it)
       if (e.target === el) closeNewSite();
     }
+    else if (a === "link-site") openLinkSite();
+    else if (a === "remove-site") removeSite(el.getAttribute("data-name"));
+    else if (a === "ls-close") closeLinkSite();
+    else if (a === "ls-submit") submitLinkSite();
+    else if (a === "ls-browse") browseFolder();
+    else if (a === "ls-overlay-click") { if (e.target === el) closeLinkSite(); }
   });
 
   // ---- modal input events (delegated on app) ----
@@ -684,6 +805,21 @@
       const errEl = document.querySelector(".ns-error");
       if (errEl) errEl.remove();
     }
+    if (el.dataset.action === "ls-root-input") {
+      state.linkSite.root = el.value;
+      state.linkSite.error = "";
+    }
+    if (el.dataset.action === "ls-name-input") {
+      state.linkSite.name = el.value;
+      state.linkSite.error = "";
+      const preview = document.querySelector(".ns-preview");
+      if (preview) {
+        if (el.value) { preview.classList.remove("muted"); preview.textContent = "→ https://" + el.value + ".dev"; }
+        else { preview.classList.add("muted"); preview.innerHTML = "→ https://&lt;name&gt;.dev"; }
+      }
+      const submitBtn = document.querySelector('[data-action="ls-submit"]');
+      if (submitBtn) { const ok = state.linkSite.root && validName(el.value); submitBtn.disabled = !ok; submitBtn.classList.toggle("btn-dim", !ok); }
+    }
   });
 
   app.addEventListener("change", (e) => {
@@ -696,11 +832,12 @@
   // ---- Esc closes modal ----
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state.modal === "newsite") closeNewSite();
+    else if (e.key === "Escape" && state.modal === "linksite") closeLinkSite();
   });
 
   // ---- focus-trap inside modal ----
   app.addEventListener("keydown", (e) => {
-    if (e.key !== "Tab" || state.modal !== "newsite") return;
+    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite")) return;
     const card = document.querySelector(".ns-card");
     if (!card) return;
     const focusable = Array.from(card.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'));

@@ -365,3 +365,10 @@ button:disabled { cursor:not-allowed; }
   border:none; background:transparent; color:var(--text-muted); cursor:pointer; flex:none; border-radius:5px;
 }
 .toast .close:hover { background:var(--surface-2); color:var(--text); }
+
+/* ---- Link-site modal & site badges ---- */
+.ls-row { display: flex; gap: 8px; align-items: center; }
+.ls-row .grow { flex: 1 1 auto; }
+.site-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--chip-bg, #eef); color: var(--chip-fg, #446); align-self: center; }
+.btn-sm.danger { color: #b42318; border-color: #f3c9c4; }
+.btn-newsite.ghost { background: transparent; border: 1px solid var(--border, #d7d7e0); color: inherit; }
