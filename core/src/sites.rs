@@ -6,6 +6,14 @@ use std::path::PathBuf;
 pub enum SiteSource {
     Scanned,
     Linked,
+    Proxy,
+}
+
+/// The proxy view of a site, sent to the frontend (routes + websocket flag).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ProxySpec {
+    pub routes: Vec<crate::site_registry::ProxyRoute>,
+    pub websocket: bool,
 }
 
 /// A project under `www/` exposed at `<name>.<tld>`.
@@ -15,6 +23,7 @@ pub struct Site {
     pub root: PathBuf,
     pub hostname: String,
     pub source: SiteSource,
+    pub proxy: Option<ProxySpec>,
 }
 
 impl Site {
@@ -96,6 +105,7 @@ pub fn scan_sites(paths: &LaragonPaths, tld: &str) -> std::io::Result<Vec<Site>>
             root: entry.path(),
             name,
             source: SiteSource::Scanned,
+            proxy: None,
         });
     }
     sites.sort_by(|a, b| a.name.cmp(&b.name));
@@ -141,6 +151,21 @@ pub fn list_all_sites(
             root: entry.root.clone(),
             name: entry.name.clone(),
             source: SiteSource::Linked,
+            proxy: None,
+        });
+    }
+
+    for p in registry.proxies() {
+        if sites.iter().any(|s| s.name == p.name) {
+            warnings.push(format!("proxy site `{}` is shadowed by another site", p.name));
+            continue;
+        }
+        sites.push(Site {
+            hostname: format!("{}.{}", p.name, tld),
+            root: std::path::PathBuf::new(),
+            name: p.name.clone(),
+            source: SiteSource::Proxy,
+            proxy: Some(ProxySpec { routes: p.routes.clone(), websocket: p.websocket }),
         });
     }
 
@@ -292,6 +317,46 @@ mod tests {
         let dups: Vec<&Site> = sites.iter().filter(|s| s.name == "dup").collect();
         assert_eq!(dups.len(), 1);
         assert_eq!(dups[0].source, SiteSource::Scanned); // scan wins
+        assert_eq!(warnings.len(), 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn list_all_includes_proxy_sites() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+        reg.add_proxy("api", &routes, true).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
+        let api = sites.iter().find(|s| s.name == "api").unwrap();
+        assert_eq!(api.source, SiteSource::Proxy);
+        assert_eq!(api.hostname, "api.dev");
+        let spec = api.proxy.as_ref().expect("proxy spec");
+        assert!(spec.websocket);
+        assert_eq!(spec.routes[0].upstream, "127.0.0.1:3000");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn list_all_scanned_shadows_proxy_of_same_name() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("api")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+        reg.add_proxy("api", &routes, true).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let (sites, warnings) = list_all_sites(&paths, "dev").unwrap();
+        let apis: Vec<&Site> = sites.iter().filter(|s| s.name == "api").collect();
+        assert_eq!(apis.len(), 1);
+        assert_eq!(apis[0].source, SiteSource::Scanned);
         assert_eq!(warnings.len(), 1);
         std::fs::remove_dir_all(&root).ok();
     }
