@@ -1,12 +1,20 @@
 use crate::paths::LaragonPaths;
 use std::path::PathBuf;
 
+/// Where a site came from: the `www/` scan, or the explicit registry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum SiteSource {
+    Scanned,
+    Linked,
+}
+
 /// A project under `www/` exposed at `<name>.<tld>`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Site {
     pub name: String,
     pub root: PathBuf,
     pub hostname: String,
+    pub source: SiteSource,
 }
 
 impl Site {
@@ -87,10 +95,57 @@ pub fn scan_sites(paths: &LaragonPaths, tld: &str) -> std::io::Result<Vec<Site>>
             hostname: format!("{name}.{tld}"),
             root: entry.path(),
             name,
+            source: SiteSource::Scanned,
         });
     }
     sites.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(sites)
+}
+
+/// Merge auto-discovered `www/` sites with the explicit registry.
+/// Scanned sites shadow registry entries of the same name; registry entries
+/// whose folder is missing are skipped. Returns `(sites, warnings)`.
+pub fn list_all_sites(
+    paths: &LaragonPaths,
+    tld: &str,
+) -> std::io::Result<(Vec<Site>, Vec<String>)> {
+    let mut sites = scan_sites(paths, tld)?;
+    let mut warnings = Vec::new();
+
+    let registry = match crate::site_registry::SiteRegistry::load(&paths.sites_file()) {
+        Ok(r) => r,
+        Err(e) => {
+            warnings.push(format!("sites.toml ignored ({e})"));
+            crate::site_registry::SiteRegistry::default()
+        }
+    };
+
+    for entry in registry.sites() {
+        if sites.iter().any(|s| s.name == entry.name) {
+            warnings.push(format!(
+                "linked site `{}` is shadowed by a folder in www/",
+                entry.name
+            ));
+            continue;
+        }
+        if !entry.root.is_dir() {
+            warnings.push(format!(
+                "linked site `{}`: folder `{}` not found",
+                entry.name,
+                entry.root.display()
+            ));
+            continue;
+        }
+        sites.push(Site {
+            hostname: format!("{}.{}", entry.name, tld),
+            root: entry.root.clone(),
+            name: entry.name.clone(),
+            source: SiteSource::Linked,
+        });
+    }
+
+    sites.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok((sites, warnings))
 }
 
 #[cfg(test)]
@@ -166,6 +221,78 @@ mod tests {
         assert!(conf.contains(&format!("root {};", www.join("app").join("public").display())));
         assert!(conf.contains(&format!("fastcgi_pass unix:{};", sock.display())));
         assert!(conf.contains("fastcgi_param HTTPS on;"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn scan_marks_sites_as_scanned() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("a")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+        let sites = scan_sites(&paths, "dev").unwrap();
+        assert_eq!(sites[0].source, SiteSource::Scanned);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn list_all_merges_scanned_and_linked_sorted() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("zeta")).unwrap();
+        let external = root.join("external").join("alpha");
+        std::fs::create_dir_all(&external).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        reg.add("alpha", &external).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let (sites, warnings) = list_all_sites(&paths, "dev").unwrap();
+        let names: Vec<&str> = sites.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha", "zeta"]); // sorted
+        let alpha = sites.iter().find(|s| s.name == "alpha").unwrap();
+        assert_eq!(alpha.source, SiteSource::Linked);
+        assert_eq!(alpha.hostname, "alpha.dev");
+        assert!(warnings.is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn list_all_skips_stale_root_with_warning() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+
+        // Write a registry entry pointing at a folder that does not exist.
+        let toml = format!(
+            "[[sites]]\nname = \"ghost\"\nroot = \"{}\"\n",
+            root.join("missing").display()
+        );
+        std::fs::write(paths.sites_file(), toml).unwrap();
+
+        let (sites, warnings) = list_all_sites(&paths, "dev").unwrap();
+        assert!(sites.iter().all(|s| s.name != "ghost"));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("ghost"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn list_all_scanned_shadows_duplicate_registry_entry() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("dup")).unwrap();
+        let external = root.join("external").join("dup");
+        std::fs::create_dir_all(&external).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        reg.add("dup", &external).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let (sites, warnings) = list_all_sites(&paths, "dev").unwrap();
+        let dups: Vec<&Site> = sites.iter().filter(|s| s.name == "dup").collect();
+        assert_eq!(dups.len(), 1);
+        assert_eq!(dups[0].source, SiteSource::Scanned); // scan wins
+        assert_eq!(warnings.len(), 1);
         std::fs::remove_dir_all(&root).ok();
     }
 }
