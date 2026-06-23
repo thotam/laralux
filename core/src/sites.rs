@@ -6,6 +6,14 @@ use std::path::PathBuf;
 pub enum SiteSource {
     Scanned,
     Linked,
+    Proxy,
+}
+
+/// The proxy view of a site, sent to the frontend (routes + websocket flag).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ProxySpec {
+    pub routes: Vec<crate::site_registry::ProxyRoute>,
+    pub websocket: bool,
 }
 
 /// A project under `www/` exposed at `<name>.<tld>`.
@@ -15,6 +23,7 @@ pub struct Site {
     pub root: PathBuf,
     pub hostname: String,
     pub source: SiteSource,
+    pub proxy: Option<ProxySpec>,
 }
 
 impl Site {
@@ -36,6 +45,51 @@ impl Site {
         cert: &std::path::Path,
         key: &std::path::Path,
     ) -> String {
+        if let Some(spec) = &self.proxy {
+            let mut locations = String::new();
+            for r in &spec.routes {
+                locations.push_str(&format!(
+                    "\x20 location {path} {{\n\
+                     \x20   proxy_pass http://{up};\n\
+                     \x20   proxy_http_version 1.1;\n\
+                     \x20   proxy_set_header Host $host;\n\
+                     \x20   proxy_set_header X-Real-IP $remote_addr;\n\
+                     \x20   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+                     \x20   proxy_set_header X-Forwarded-Proto $scheme;\n",
+                    path = r.path,
+                    up = r.upstream,
+                ));
+                if spec.websocket {
+                    locations.push_str(
+                        "\x20   proxy_set_header Upgrade $http_upgrade;\n\
+                         \x20   proxy_set_header Connection $connection_upgrade;\n",
+                    );
+                }
+                locations.push_str("\x20 }\n");
+            }
+            return format!(
+                "server {{\n\
+                 \x20 listen 80;\n\
+                 \x20 server_name {host};\n\
+                 \x20 return 301 https://$host$request_uri;\n\
+                 }}\n\
+                 server {{\n\
+                 \x20 listen 443 ssl;\n\
+                 \x20 server_name {host};\n\
+                 \x20 ssl_certificate {cert};\n\
+                 \x20 ssl_certificate_key {key};\n\
+                 \x20 access_log {alog};\n\
+                 \x20 error_log {elog};\n\
+                 {locations}\
+                 }}\n",
+                host = self.hostname,
+                cert = cert.display(),
+                key = key.display(),
+                alog = paths.log().join(format!("{}-access.log", self.name)).display(),
+                elog = paths.log().join(format!("{}-error.log", self.name)).display(),
+                locations = locations,
+            );
+        }
         format!(
             "server {{\n\
              \x20 listen 80;\n\
@@ -96,6 +150,7 @@ pub fn scan_sites(paths: &LaragonPaths, tld: &str) -> std::io::Result<Vec<Site>>
             root: entry.path(),
             name,
             source: SiteSource::Scanned,
+            proxy: None,
         });
     }
     sites.sort_by(|a, b| a.name.cmp(&b.name));
@@ -141,6 +196,21 @@ pub fn list_all_sites(
             root: entry.root.clone(),
             name: entry.name.clone(),
             source: SiteSource::Linked,
+            proxy: None,
+        });
+    }
+
+    for p in registry.proxies() {
+        if sites.iter().any(|s| s.name == p.name) {
+            warnings.push(format!("proxy site `{}` is shadowed by another site", p.name));
+            continue;
+        }
+        sites.push(Site {
+            hostname: format!("{}.{}", p.name, tld),
+            root: std::path::PathBuf::new(),
+            name: p.name.clone(),
+            source: SiteSource::Proxy,
+            proxy: Some(ProxySpec { routes: p.routes.clone(), websocket: p.websocket }),
         });
     }
 
@@ -294,5 +364,97 @@ mod tests {
         assert_eq!(dups[0].source, SiteSource::Scanned); // scan wins
         assert_eq!(warnings.len(), 1);
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn list_all_includes_proxy_sites() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+        reg.add_proxy("api", &routes, true).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
+        let api = sites.iter().find(|s| s.name == "api").unwrap();
+        assert_eq!(api.source, SiteSource::Proxy);
+        assert_eq!(api.hostname, "api.dev");
+        let spec = api.proxy.as_ref().expect("proxy spec");
+        assert!(spec.websocket);
+        assert_eq!(spec.routes[0].upstream, "127.0.0.1:3000");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn list_all_scanned_shadows_proxy_of_same_name() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("api")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+        reg.add_proxy("api", &routes, true).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let (sites, warnings) = list_all_sites(&paths, "dev").unwrap();
+        let apis: Vec<&Site> = sites.iter().filter(|s| s.name == "api").collect();
+        assert_eq!(apis.len(), 1);
+        assert_eq!(apis[0].source, SiteSource::Scanned);
+        assert_eq!(warnings.len(), 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn proxy_site(name: &str, routes: Vec<crate::site_registry::ProxyRoute>, websocket: bool) -> Site {
+        Site {
+            name: name.to_string(),
+            root: std::path::PathBuf::new(),
+            hostname: format!("{name}.dev"),
+            source: SiteSource::Proxy,
+            proxy: Some(ProxySpec { routes, websocket }),
+        }
+    }
+
+    #[test]
+    fn proxy_vhost_has_proxy_pass_and_ws_headers() {
+        let root = temp_root();
+        let paths = LaragonPaths::new(root.clone());
+        let route = crate::site_registry::ProxyRoute { path: "/".into(), upstream: "127.0.0.1:3000".into() };
+        let site = proxy_site("app", vec![route], true);
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("app.dev.pem");
+        let key = paths.ssl().join("app.dev-key.pem");
+
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+        assert!(conf.contains("server_name app.dev;"));
+        assert!(conf.contains("listen 443 ssl;"));
+        assert!(conf.contains("location / {"));
+        assert!(conf.contains("proxy_pass http://127.0.0.1:3000;"));
+        assert!(conf.contains("proxy_set_header X-Forwarded-Proto $scheme;"));
+        assert!(conf.contains("proxy_set_header Upgrade $http_upgrade;"));
+        assert!(conf.contains("proxy_set_header Connection $connection_upgrade;"));
+        assert!(!conf.contains("fastcgi_pass"));
+    }
+
+    #[test]
+    fn proxy_vhost_without_ws_omits_upgrade_and_supports_multiroute() {
+        let root = temp_root();
+        let paths = LaragonPaths::new(root.clone());
+        let routes = vec![
+            crate::site_registry::ProxyRoute { path: "/api".into(), upstream: "127.0.0.1:3001".into() },
+            crate::site_registry::ProxyRoute { path: "/".into(), upstream: "127.0.0.1:3000".into() },
+        ];
+        let site = proxy_site("app", routes, false);
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("app.dev.pem");
+        let key = paths.ssl().join("app.dev-key.pem");
+
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+        assert!(conf.contains("location /api {"));
+        assert!(conf.contains("location / {"));
+        assert!(conf.contains("proxy_pass http://127.0.0.1:3001;"));
+        assert!(conf.contains("proxy_pass http://127.0.0.1:3000;"));
+        assert!(!conf.contains("Upgrade $http_upgrade"));
     }
 }

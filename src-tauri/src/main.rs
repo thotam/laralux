@@ -27,6 +27,8 @@ fn main() {
             commands::create_site,
             commands::link_site,
             commands::unlink_site,
+            commands::add_proxy,
+            commands::update_proxy,
         ])
         .setup(|app| {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;

@@ -1,8 +1,8 @@
 use laragon_core::{
     build_services, create_site as core_create_site, detect_components, list_all_sites, run_setup,
     sync_sites, Config, CreateReport, LaragonPaths, MkcertIssuer, Orchestrator, PkexecPrivileged,
-    RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site, SiteRegistry,
-    SiteTemplate,
+    ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site,
+    SiteRegistry, SiteTemplate,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
@@ -264,6 +264,84 @@ pub async fn unlink_site(app: tauri::AppHandle, name: String) -> Result<(), Stri
             }
         }
         Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Re-sync vhosts/certs/hosts and reload nginx if it is running. Best-effort,
+/// matching `link_site`/`create_site` (a sync failure must not fail the call).
+fn sync_and_reload(state: &AppState, config: &Config) {
+    let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+    let issuer = MkcertIssuer::new(state.paths.ssl());
+    let privileged = PkexecPrivileged;
+    let _ = sync_sites(
+        &state.paths,
+        &config.tld,
+        &php_socket,
+        std::path::Path::new("/etc/hosts"),
+        &issuer,
+        &privileged,
+    );
+    if let Ok(mut orch) = state.orch.lock() {
+        if orch.state(ServiceKind::Nginx) == ServiceState::Running {
+            let _ = orch.stop(ServiceKind::Nginx);
+            let _ = orch.start(ServiceKind::Nginx);
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn add_proxy(
+    app: tauri::AppHandle,
+    name: String,
+    routes: Vec<ProxyRoute>,
+    websocket: bool,
+) -> Result<Site, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Site, String> {
+        let state = app.state::<AppState>();
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+
+        let mut registry =
+            SiteRegistry::load(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+        registry.add_proxy(&name, &routes, websocket).map_err(|e| e.to_string())?;
+        registry.save(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+
+        sync_and_reload(&state, &config);
+
+        let (sites, _w) = list_all_sites(&state.paths, &config.tld).map_err(|e| e.to_string())?;
+        sites
+            .into_iter()
+            .find(|s| s.name == name)
+            .ok_or_else(|| format!("proxy `{name}` not found after sync"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn update_proxy(
+    app: tauri::AppHandle,
+    name: String,
+    routes: Vec<ProxyRoute>,
+    websocket: bool,
+) -> Result<Site, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Site, String> {
+        let state = app.state::<AppState>();
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+
+        let mut registry =
+            SiteRegistry::load(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+        registry.update_proxy(&name, &routes, websocket).map_err(|e| e.to_string())?;
+        registry.save(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+
+        sync_and_reload(&state, &config);
+
+        let (sites, _w) = list_all_sites(&state.paths, &config.tld).map_err(|e| e.to_string())?;
+        sites
+            .into_iter()
+            .find(|s| s.name == name)
+            .ok_or_else(|| format!("proxy `{name}` not found after sync"))
     })
     .await
     .map_err(|e| e.to_string())?
