@@ -53,6 +53,10 @@ impl LaragonPaths {
         self.root.join("laragon.toml")
     }
 
+    pub fn sites_file(&self) -> PathBuf {
+        self.root.join("sites.toml")
+    }
+
     pub fn ensure_dirs(&self) -> std::io::Result<()> {
         for dir in [self.www(), self.etc(), self.data(), self.log(), self.tmp(), self.ssl(), self.bin()] {
             std::fs::create_dir_all(dir)?;

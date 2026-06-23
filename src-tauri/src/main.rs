@@ -12,6 +12,8 @@ use tauri::{
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(build_state())
         .invoke_handler(tauri::generate_handler![
             commands::stack_status,
@@ -23,6 +25,8 @@ fn main() {
             commands::setup_status,
             commands::run_setup_cmd,
             commands::create_site,
+            commands::link_site,
+            commands::unlink_site,
         ])
         .setup(|app| {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;

@@ -1,7 +1,7 @@
 use crate::hosts::apply_block;
 use crate::paths::LaragonPaths;
 use crate::privileged::Privileged;
-use crate::sites::{scan_sites, Site};
+use crate::sites::{list_all_sites, Site};
 use crate::ssl::CertIssuer;
 use std::path::Path;
 
@@ -24,8 +24,8 @@ pub fn sync_sites(
     hosts_path: &Path,
     issuer: &dyn CertIssuer,
     privileged: &dyn Privileged,
-) -> Result<Vec<Site>, SyncError> {
-    let sites = scan_sites(paths, tld)?;
+) -> Result<(Vec<Site>, Vec<String>), SyncError> {
+    let (sites, warnings) = list_all_sites(paths, tld)?;
     let sites_dir = paths.etc_for("nginx").join("sites");
     std::fs::create_dir_all(&sites_dir)?;
 
@@ -46,7 +46,7 @@ pub fn sync_sites(
         privileged.write_etc_hosts(&updated)?;
     }
 
-    Ok(sites)
+    Ok((sites, warnings))
 }
 
 #[cfg(test)]
@@ -80,7 +80,7 @@ mod tests {
         let writes = priv_.hosts_writes();
         let sock = paths.tmp().join("php-fpm.sock");
 
-        let sites = sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
+        let (sites, _warnings) = sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
 
         assert_eq!(sites.len(), 2);
         // vhost files written
@@ -118,6 +118,30 @@ mod tests {
 
         // No write because the managed block is already correct.
         assert_eq!(writes.lock().unwrap().len(), 0);
+        std::fs::remove_dir_all(&r).ok();
+    }
+
+    #[test]
+    fn writes_vhost_for_linked_site_outside_www() {
+        let r = root();
+        std::fs::create_dir_all(r.join("www")).unwrap();
+        let external = r.join("ext").join("linked");
+        std::fs::create_dir_all(&external).unwrap();
+        let paths = LaragonPaths::new(r.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        reg.add("linked", &external).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let hosts_path = r.join("hosts");
+        std::fs::write(&hosts_path, "127.0.0.1 localhost\n").unwrap();
+        let issuer = FakeCertIssuer::new(paths.ssl());
+        let priv_ = FakePrivileged::new();
+        let sock = paths.tmp().join("php-fpm.sock");
+
+        let (sites, _w) = sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
+        assert!(sites.iter().any(|s| s.name == "linked"));
+        assert!(paths.etc_for("nginx").join("sites").join("linked.conf").is_file());
         std::fs::remove_dir_all(&r).ok();
     }
 }
