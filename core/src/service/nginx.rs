@@ -37,6 +37,7 @@ impl Service for NginxService {
              error_log {errlog};\n\
              events {{ worker_connections 1024; }}\n\
              http {{\n\
+             \x20 map $http_upgrade $connection_upgrade {{ default upgrade; '' close; }}\n\
              \x20 access_log {acclog};\n\
              \x20 client_body_temp_path {tmp}/nginx-client;\n\
              \x20 proxy_temp_path {tmp}/nginx-proxy;\n\
@@ -130,6 +131,17 @@ mod tests {
         assert!(conf.contains("sites/*.conf"));
         // sites dir must exist so the glob include doesn't error.
         assert!(p.etc_for("nginx").join("sites").is_dir());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn write_config_includes_websocket_map() {
+        let tmp = std::env::temp_dir().join(format!("lara-nginx-ws-{}", std::process::id()));
+        let p = LaragonPaths::new(tmp.clone());
+        let svc = NginxService::new(p.tmp().join("php-fpm.sock"));
+        svc.write_config(&p).unwrap();
+        let conf = std::fs::read_to_string(p.etc_for("nginx").join("nginx.conf")).unwrap();
+        assert!(conf.contains("map $http_upgrade $connection_upgrade"));
         std::fs::remove_dir_all(&tmp).ok();
     }
 }
