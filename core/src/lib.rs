@@ -17,7 +17,7 @@ pub mod scaffold;
 pub mod php_versions;
 pub mod php_static;
 
-pub use bin::list_php_fpm_versions;
+pub use bin::{ensure_nginx_bind_cap, list_php_fpm_versions};
 pub use config::Config;
 pub use orchestrator::{Orchestrator, ServiceStatus};
 pub use paths::LaragonPaths;

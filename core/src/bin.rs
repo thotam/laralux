@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+use crate::paths::LaragonPaths;
+use crate::privileged::Privileged;
 
 const FALLBACK_DIRS: [&str; 6] = [
     "/usr/local/sbin",
@@ -121,6 +123,31 @@ pub fn list_php_fpm_versions(extra_dirs: &[PathBuf]) -> Vec<String> {
     list_php_fpm_versions_in(&dirs)
 }
 
+/// True iff `getcap` output reports the net-bind capability.
+pub fn getcap_indicates_cap(output: &str) -> bool {
+    output.contains("cap_net_bind_service")
+}
+
+/// Whether the nginx binary already has `cap_net_bind_service`. Uses the
+/// unprivileged `getcap`; if `getcap` can't be run, assume present (don't nag).
+pub fn nginx_has_bind_cap(nginx_bin: &std::path::Path) -> bool {
+    match std::process::Command::new("getcap").arg(nginx_bin).output() {
+        Ok(out) => getcap_indicates_cap(&String::from_utf8_lossy(&out.stdout)),
+        Err(_) => true,
+    }
+}
+
+/// Preflight before starting nginx: if the resolved nginx binary lacks the
+/// net-bind capability, re-apply it via `setcap` (best-effort; a failure does
+/// not block startup). No-op (no prompt) when the capability is already present.
+pub fn ensure_nginx_bind_cap(paths: &LaragonPaths, privileged: &dyn Privileged) {
+    if let Some(nginx) = resolve_bin("nginx", &[paths.bin()]) {
+        if !nginx_has_bind_cap(&nginx) {
+            let _ = privileged.setcap_nginx(&nginx);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +226,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         assert!(list_php_fpm_versions_in(&[dir.clone()]).is_empty());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn getcap_output_detects_bind_cap() {
+        assert!(getcap_indicates_cap("/usr/sbin/nginx cap_net_bind_service=ep"));
+        assert!(getcap_indicates_cap("/usr/sbin/nginx cap_net_bind_service+ep"));
+        assert!(!getcap_indicates_cap(""));
+        assert!(!getcap_indicates_cap("/usr/sbin/nginx cap_chown=ep"));
     }
 }
