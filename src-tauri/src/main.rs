@@ -50,6 +50,10 @@ fn main() {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "start_all" => {
                         if let Some(state) = app.try_state::<AppState>() {
+                            laragon_core::ensure_nginx_bind_cap(
+                                &state.paths,
+                                &laragon_core::PkexecPrivileged,
+                            );
                             if let Ok(mut orch) = state.orch.lock() {
                                 let _ = orch.start_all();
                             }
