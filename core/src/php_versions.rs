@@ -64,10 +64,41 @@ pub fn apt_packages_for_php(version: &str) -> Vec<String> {
     .collect()
 }
 
-/// Install a PHP version via the ondrej PPA, then disable its distro fpm unit.
+/// Ubuntu LTS codenames the ondrej/php PPA publishes for (newest last).
+const ONDREJ_LTS: [&str; 3] = ["focal", "jammy", "noble"];
+
+/// Pick the ondrej suite for a running Ubuntu codename: use it if the PPA
+/// supports it, else fall back to the newest supported LTS — so a brand-new
+/// release the PPA hasn't published for yet (e.g. `resolute`) installs the
+/// newest-LTS (`noble`) builds instead of 404-ing.
+pub fn ondrej_suite_for(codename: &str) -> &'static str {
+    ONDREJ_LTS
+        .iter()
+        .copied()
+        .find(|&c| c == codename)
+        .unwrap_or(ONDREJ_LTS[ONDREJ_LTS.len() - 1])
+}
+
+/// Read the running Ubuntu codename from `/etc/os-release` and map it to an
+/// ondrej-supported suite (falls back to the newest LTS when unknown).
+pub fn ondrej_suite() -> String {
+    let codename = std::fs::read_to_string("/etc/os-release")
+        .ok()
+        .and_then(|s| {
+            s.lines().find_map(|l| {
+                l.strip_prefix("UBUNTU_CODENAME=")
+                    .map(|v| v.trim().trim_matches('"').to_string())
+            })
+        })
+        .unwrap_or_default();
+    ondrej_suite_for(&codename).to_string()
+}
+
+/// Install a PHP version via the ondrej PPA (pinned to a supported LTS suite),
+/// then disable its distro fpm unit.
 pub fn install_php(version: &str, privileged: &dyn Privileged) -> Result<(), PhpVersionError> {
     privileged
-        .add_apt_repository("ppa:ondrej/php")
+        .add_ondrej_php(&ondrej_suite())
         .map_err(|e| PhpVersionError::Repo(e.to_string()))?;
     privileged
         .apt_install(&apt_packages_for_php(version))
@@ -120,13 +151,21 @@ mod tests {
     }
 
     #[test]
-    fn install_php_adds_ppa_installs_and_disables_unit() {
+    fn ondrej_suite_falls_back_to_newest_lts() {
+        assert_eq!(ondrej_suite_for("noble"), "noble");
+        assert_eq!(ondrej_suite_for("jammy"), "jammy");
+        assert_eq!(ondrej_suite_for("resolute"), "noble"); // unsupported → newest LTS
+        assert_eq!(ondrej_suite_for(""), "noble");
+    }
+
+    #[test]
+    fn install_php_adds_ondrej_installs_and_disables_unit() {
         let p = FakePrivileged::new();
-        let repos = p.add_repos();
+        let suites = p.ondrej_suites();
         let installs = p.apt_installs();
         let disabled = p.disabled_services();
         install_php("8.3", &p).unwrap();
-        assert_eq!(repos.lock().unwrap().as_slice(), &["ppa:ondrej/php".to_string()]);
+        assert_eq!(suites.lock().unwrap().len(), 1); // ondrej PPA added once (pinned suite)
         assert_eq!(installs.lock().unwrap()[0], apt_packages_for_php("8.3"));
         assert_eq!(disabled.lock().unwrap()[0], vec!["php8.3-fpm".to_string()]);
     }
