@@ -5,6 +5,8 @@ use serde::Serialize;
 
 pub const KNOWN_PHP_VERSIONS: [&str; 7] = ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"];
 
+pub const DEFAULT_PHP_VERSION: &str = "8.5";
+
 #[derive(Debug, thiserror::Error)]
 pub enum PhpVersionError {
     #[error("add ondrej PPA failed: {0}")]

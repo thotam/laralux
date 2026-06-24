@@ -113,7 +113,7 @@ pub async fn run_setup_cmd(app: tauri::AppHandle) -> Result<SetupReport, String>
         let state = app.state::<AppState>();
         let privileged = PkexecPrivileged;
         let downloader = CurlDownloader;
-        Ok(run_setup(&state.paths, &privileged, &downloader))
+        Ok(run_setup(&state.paths, &privileged, &downloader, &RealCommandRunner))
     })
     .await
     .map_err(|e| e.to_string())?

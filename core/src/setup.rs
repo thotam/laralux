@@ -77,14 +77,7 @@ pub fn detect(paths: &LaragonPaths) -> Vec<ComponentStatus> {
 pub fn apt_packages_for(component: Component) -> Vec<String> {
     match component {
         Component::Nginx => vec!["nginx".to_string()],
-        Component::Php => vec![
-            "php-fpm".to_string(),
-            "php-cli".to_string(),
-            "php-mysql".to_string(),
-            "php-curl".to_string(),
-            "php-mbstring".to_string(),
-            "php-xml".to_string(),
-        ],
+        Component::Php => Vec::new(),
         Component::Mariadb => vec!["mariadb-server".to_string()],
         Component::Redis => vec!["redis-server".to_string()],
         Component::Mkcert => vec!["mkcert".to_string(), "libnss3-tools".to_string()],
@@ -93,14 +86,6 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
     }
 }
 
-/// Split a missing-component set into (core apt packages, php apt packages).
-fn classify_apt(missing: &[Component]) -> (Vec<String>, Vec<String>) {
-    let core = missing.iter().filter(|c| !matches!(c, Component::Php))
-        .flat_map(|&c| apt_packages_for(c)).collect();
-    let php = missing.iter().filter(|c| matches!(c, Component::Php))
-        .flat_map(|&c| apt_packages_for(c)).collect();
-    (core, php)
-}
 
 use crate::privileged::Privileged;
 use std::path::Path;
@@ -176,14 +161,9 @@ pub struct SetupReport {
     pub errors: Vec<String>,
 }
 
-/// Distro systemd stack units to disable: always nginx/mariadb/redis-server,
-/// plus the versioned php-fpm unit when a php-fpm version is known.
-fn stack_units_to_disable(php_version: Option<&str>) -> Vec<String> {
-    let mut units = vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()];
-    if let Some(ver) = php_version {
-        units.push(format!("php{ver}-fpm"));
-    }
-    units
+/// Distro systemd stack units to disable: nginx, mariadb, redis-server.
+fn stack_units_to_disable() -> Vec<String> {
+    vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()]
 }
 
 /// Install missing components, fetch mailpit, install the mkcert CA, and setcap nginx.
@@ -192,6 +172,7 @@ pub fn run_setup(
     paths: &LaragonPaths,
     privileged: &dyn Privileged,
     downloader: &dyn Downloader,
+    runner: &dyn crate::scaffold::CommandRunner,
 ) -> SetupReport {
     let mut report = SetupReport {
         apt_packages: Vec::new(),
@@ -206,43 +187,44 @@ pub fn run_setup(
     let missing: Vec<Component> =
         statuses.iter().filter(|s| !s.present).map(|s| s.component).collect();
 
-    // 1. Install missing apt components: core stack in one call, PHP (unversioned
-    //    distro meta) in a separate call so one failing package can't block the rest.
-    let (other_packages, php_packages) = classify_apt(&missing);
-    report.apt_packages = other_packages.iter().chain(php_packages.iter()).cloned().collect();
-
-    if !other_packages.is_empty() {
-        if let Err(e) = privileged.apt_install(&other_packages) {
-            report.errors.push(format!("apt_install (core): {e}"));
+    // 1. Install missing apt components (core stack only; PHP is static, below).
+    let apt_packages: Vec<String> =
+        missing.iter().flat_map(|&c| apt_packages_for(c)).collect();
+    report.apt_packages = apt_packages.clone();
+    if !apt_packages.is_empty() {
+        if let Err(e) = privileged.apt_install(&apt_packages) {
+            report.errors.push(format!("apt_install: {e}"));
         }
     }
-    if !php_packages.is_empty() {
-        if let Err(e) = privileged.apt_install(&php_packages) {
-            report.errors.push(format!("apt_install (php): {e}"));
-        }
-        // Detect the version that actually got installed and persist it.
-        match crate::bin::detect_php_fpm_version(&[paths.bin()]) {
-            Some(ver) => {
-                report.php_version = Some(ver.clone());
-                let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
-                cfg.php_version = ver;
-                if let Err(e) = cfg.save(&paths.config_file()) {
-                    report.errors.push(format!("persist php version: {e}"));
+
+    // 1b. Install PHP from a static build (no apt/distro PHP) when missing.
+    if missing.contains(&Component::Php) {
+        match crate::php_static::install_php_static(
+            paths,
+            crate::php_versions::DEFAULT_PHP_VERSION,
+            downloader,
+            runner,
+        ) {
+            Ok(()) => match crate::bin::detect_php_fpm_version(&[paths.bin()]) {
+                Some(ver) => {
+                    report.php_version = Some(ver.clone());
+                    let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+                    cfg.php_version = ver;
+                    if let Err(e) = cfg.save(&paths.config_file()) {
+                        report.errors.push(format!("persist php version: {e}"));
+                    }
                 }
-            }
-            None => {
-                report.errors.push(
-                    "php-fpm binary not found after install; Config php_version not updated".to_string(),
-                );
-            }
+                None => report
+                    .errors
+                    .push("php-fpm binary not found after static install".to_string()),
+            },
+            Err(e) => report.errors.push(format!("install php (static): {e}")),
         }
     }
 
     // apt auto-starts + enables the distro nginx/mariadb/redis systemd units, which
     // hold ports 80/3306/6379. Disable them so the app-managed processes can bind.
-    // Also disable the versioned php-fpm unit when detected.
-    let php_ver = crate::bin::detect_php_fpm_version(&[paths.bin()]);
-    let stack_units = stack_units_to_disable(php_ver.as_deref());
+    let stack_units = stack_units_to_disable();
     if let Err(e) = privileged.disable_system_services(&stack_units) {
         report.errors.push(format!("disable system services: {e}"));
     }
@@ -303,11 +285,16 @@ mod tests {
     use crate::privileged::FakePrivileged;
 
     #[test]
-    fn php_packages_are_unversioned_meta() {
-        let pkgs = apt_packages_for(Component::Php);
-        assert!(pkgs.contains(&"php-fpm".to_string()));
-        assert!(pkgs.contains(&"php-mysql".to_string()));
-        assert!(!pkgs.iter().any(|p| p.contains('8'))); // no hardcoded version
+    fn apt_packages_for_php_is_empty() {
+        assert!(apt_packages_for(Component::Php).is_empty());
+    }
+
+    #[test]
+    fn stack_units_exclude_php() {
+        assert_eq!(
+            stack_units_to_disable(),
+            vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()]
+        );
     }
 
     #[test]
@@ -331,17 +318,6 @@ mod tests {
     }
 
     #[test]
-    fn classify_apt_splits_core_and_php() {
-        let (core, php) = classify_apt(&[Component::Nginx, Component::Php, Component::Mailpit]);
-        assert!(core.contains(&"nginx".to_string()));
-        assert!(!core.iter().any(|p| p.starts_with("php")));
-        assert!(php.contains(&"php-fpm".to_string()));
-        assert!(php.iter().all(|p| p.starts_with("php")));
-        // mailpit contributes no apt packages
-        assert!(!core.iter().any(|p| p.contains("mailpit")));
-    }
-
-    #[test]
     fn run_setup_disables_distro_stack_services() {
         let root = std::env::temp_dir().join(format!("lara-disable-{}", std::process::id()));
         std::fs::create_dir_all(root.join("bin")).unwrap();
@@ -349,8 +325,9 @@ mod tests {
         let priv_ = FakePrivileged::new();
         let disabled = priv_.disabled_services();
         let dl = FakeDownloader::new();
+        let runner = crate::scaffold::FakeCommandRunner::new();
 
-        let _ = run_setup(&paths, &priv_, &dl);
+        let _ = run_setup(&paths, &priv_, &dl, &runner);
 
         let calls = disabled.lock().unwrap();
         assert_eq!(calls.len(), 1);
@@ -362,15 +339,6 @@ mod tests {
     }
 
     #[test]
-    fn stack_units_includes_php_when_version_known() {
-        let none = stack_units_to_disable(None);
-        assert_eq!(none, vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()]);
-        let some = stack_units_to_disable(Some("8.4"));
-        assert!(some.contains(&"php8.4-fpm".to_string()));
-        assert_eq!(some.len(), 4);
-    }
-
-    #[test]
     fn run_setup_adds_no_ppa() {
         let root = std::env::temp_dir().join(format!("lara-runsetup-{}", std::process::id()));
         std::fs::create_dir_all(root.join("bin")).unwrap();
@@ -378,7 +346,8 @@ mod tests {
         let priv_ = FakePrivileged::new();
         let add_repos = priv_.add_repos();
         let dl = FakeDownloader::new();
-        let _ = run_setup(&paths, &priv_, &dl);
+        let runner = crate::scaffold::FakeCommandRunner::new();
+        let _ = run_setup(&paths, &priv_, &dl, &runner);
         // Hermetic: regardless of what's installed, we never add a PPA.
         assert!(add_repos.lock().unwrap().is_empty());
         std::fs::remove_dir_all(&root).ok();
@@ -391,7 +360,8 @@ mod tests {
         let paths = LaragonPaths::new(root.clone());
         let priv_ = FakePrivileged::new();
         let dl = FakeDownloader::new();
-        let _ = run_setup(&paths, &priv_, &dl);
+        let runner = crate::scaffold::FakeCommandRunner::new();
+        let _ = run_setup(&paths, &priv_, &dl, &runner);
         assert!(priv_.mariadb_apparmor_configured());
         std::fs::remove_dir_all(&root).ok();
     }
