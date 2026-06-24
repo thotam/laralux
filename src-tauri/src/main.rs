@@ -29,6 +29,9 @@ fn main() {
             commands::unlink_site,
             commands::add_proxy,
             commands::update_proxy,
+            commands::php_versions,
+            commands::install_php_version,
+            commands::set_php_version,
         ])
         .setup(|app| {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;
