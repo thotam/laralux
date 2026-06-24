@@ -1,21 +1,10 @@
 use crate::bin::list_php_fpm_versions;
 use crate::paths::LaragonPaths;
-use crate::privileged::Privileged;
 use serde::Serialize;
 
-pub const KNOWN_PHP_VERSIONS: [&str; 7] = ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"];
+pub const KNOWN_PHP_VERSIONS: [&str; 6] = ["8.0", "8.1", "8.2", "8.3", "8.4", "8.5"];
 
 pub const DEFAULT_PHP_VERSION: &str = "8.5";
-
-#[derive(Debug, thiserror::Error)]
-pub enum PhpVersionError {
-    #[error("add ondrej PPA failed: {0}")]
-    Repo(String),
-    #[error("apt install failed: {0}")]
-    Apt(String),
-    #[error("php {0} is not installed")]
-    NotInstalled(String),
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PhpVersionInfo {
@@ -55,65 +44,9 @@ pub fn php_versions(paths: &LaragonPaths, active: &str) -> Vec<PhpVersionInfo> {
     php_versions_from(&list_php_fpm_versions(&[paths.bin()]), active)
 }
 
-/// The Laragon-parity, version-pinned apt package set for a PHP version.
-pub fn apt_packages_for_php(version: &str) -> Vec<String> {
-    [
-        "fpm", "cli", "curl", "gd", "intl", "imagick", "mbstring", "mysql", "sqlite3", "xml",
-        "xsl", "zip", "redis",
-    ]
-    .iter()
-    .map(|ext| format!("php{version}-{ext}"))
-    .collect()
-}
-
-/// Ubuntu LTS codenames the ondrej/php PPA publishes for (newest last).
-const ONDREJ_LTS: [&str; 3] = ["focal", "jammy", "noble"];
-
-/// Pick the ondrej suite for a running Ubuntu codename: use it if the PPA
-/// supports it, else fall back to the newest supported LTS — so a brand-new
-/// release the PPA hasn't published for yet (e.g. `resolute`) installs the
-/// newest-LTS (`noble`) builds instead of 404-ing.
-pub fn ondrej_suite_for(codename: &str) -> &'static str {
-    ONDREJ_LTS
-        .iter()
-        .copied()
-        .find(|&c| c == codename)
-        .unwrap_or(ONDREJ_LTS[ONDREJ_LTS.len() - 1])
-}
-
-/// Read the running Ubuntu codename from `/etc/os-release` and map it to an
-/// ondrej-supported suite (falls back to the newest LTS when unknown).
-pub fn ondrej_suite() -> String {
-    let codename = std::fs::read_to_string("/etc/os-release")
-        .ok()
-        .and_then(|s| {
-            s.lines().find_map(|l| {
-                l.strip_prefix("UBUNTU_CODENAME=")
-                    .map(|v| v.trim().trim_matches('"').to_string())
-            })
-        })
-        .unwrap_or_default();
-    ondrej_suite_for(&codename).to_string()
-}
-
-/// Install a PHP version via the ondrej PPA (pinned to a supported LTS suite),
-/// then disable its distro fpm unit.
-pub fn install_php(version: &str, privileged: &dyn Privileged) -> Result<(), PhpVersionError> {
-    privileged
-        .add_ondrej_php(&ondrej_suite())
-        .map_err(|e| PhpVersionError::Repo(e.to_string()))?;
-    privileged
-        .apt_install(&apt_packages_for_php(version))
-        .map_err(|e| PhpVersionError::Apt(e.to_string()))?;
-    // Best-effort: keep the app in charge of php-fpm; the distro unit is just noise.
-    let _ = privileged.disable_system_services(&[format!("php{version}-fpm")]);
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::privileged::FakePrivileged;
 
     #[test]
     fn php_versions_marks_installed_and_active() {
@@ -142,40 +75,4 @@ mod tests {
         assert!(infos.iter().any(|i| i.version == "8.9" && i.installed));
     }
 
-    #[test]
-    fn apt_packages_are_laragon_parity() {
-        let pkgs = apt_packages_for_php("8.3");
-        assert_eq!(pkgs.len(), 13);
-        assert_eq!(pkgs[0], "php8.3-fpm");
-        for ext in ["php8.3-gd", "php8.3-imagick", "php8.3-redis", "php8.3-xsl", "php8.3-zip", "php8.3-sqlite3", "php8.3-mysql"] {
-            assert!(pkgs.contains(&ext.to_string()), "missing {ext}");
-        }
-    }
-
-    #[test]
-    fn ondrej_suite_falls_back_to_newest_lts() {
-        assert_eq!(ondrej_suite_for("noble"), "noble");
-        assert_eq!(ondrej_suite_for("jammy"), "jammy");
-        assert_eq!(ondrej_suite_for("resolute"), "noble"); // unsupported → newest LTS
-        assert_eq!(ondrej_suite_for(""), "noble");
-    }
-
-    #[test]
-    fn install_php_adds_ondrej_installs_and_disables_unit() {
-        let p = FakePrivileged::new();
-        let suites = p.ondrej_suites();
-        let installs = p.apt_installs();
-        let disabled = p.disabled_services();
-        install_php("8.3", &p).unwrap();
-        assert_eq!(suites.lock().unwrap().len(), 1); // ondrej PPA added once (pinned suite)
-        assert_eq!(installs.lock().unwrap()[0], apt_packages_for_php("8.3"));
-        assert_eq!(disabled.lock().unwrap()[0], vec!["php8.3-fpm".to_string()]);
-    }
-
-    #[test]
-    fn install_php_surfaces_apt_error() {
-        let p = FakePrivileged::new();
-        p.set_fail_apt(true);
-        assert!(matches!(install_php("8.3", &p), Err(PhpVersionError::Apt(_))));
-    }
 }
