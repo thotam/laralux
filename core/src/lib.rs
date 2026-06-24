@@ -15,6 +15,7 @@ pub mod sync;
 pub mod setup;
 pub mod scaffold;
 pub mod php_versions;
+pub mod php_static;
 
 pub use bin::list_php_fpm_versions;
 pub use config::Config;
@@ -31,3 +32,4 @@ pub use sync::sync_sites;
 pub use setup::{detect as detect_components, run_setup, Component, ComponentStatus, CurlDownloader, SetupReport};
 pub use scaffold::{CommandRunner, RealCommandRunner, SiteTemplate, ScaffoldError, create_site, CreateReport};
 pub use php_versions::{install_php, php_versions, PhpVersionError, PhpVersionInfo};
+pub use php_static::{install_php_static, PhpStaticError};
