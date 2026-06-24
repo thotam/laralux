@@ -48,7 +48,9 @@ Rejected:
   - `installed = list_php_fpm_versions(&[paths.bin()])`.
   - Start from `KNOWN_PHP_VERSIONS`; **union** in any installed version not in the known list (so a manually-installed odd version still shows). Sort ascending by `(maj, min)`.
   - For each: `installed = installed_set.contains(v)`, `active = (v == active)`.
-- `pub fn apt_packages_for_php(version: &str) -> Vec<String>` → `["php<v>-fpm","php<v>-cli","php<v>-mysql","php<v>-curl","php<v>-mbstring","php<v>-xml"]` (the same extension baseline the setup wizard's unversioned `apt_packages_for(Php)` uses, but version-pinned).
+- `pub fn apt_packages_for_php(version: &str) -> Vec<String>` → the **Laragon-parity** baseline, version-pinned (in this order):
+  `["php<v>-fpm","php<v>-cli","php<v>-curl","php<v>-gd","php<v>-intl","php<v>-imagick","php<v>-mbstring","php<v>-mysql","php<v>-sqlite3","php<v>-xml","php<v>-xsl","php<v>-zip","php<v>-redis"]`.
+  This mirrors the extensions Laragon enables by default (curl, fileinfo, gd, intl, imagick, mbstring, exif, mysqli, openssl, pdo_mysql, pdo_sqlite, redis, sodium, xsl, zip): `php<v>-mysql` provides mysqli+pdo_mysql, `php<v>-sqlite3` provides pdo_sqlite, `php<v>-xml` provides dom/xml. `openssl`, `fileinfo`, `exif`, and `sodium` are bundled in `php<v>-common` (pulled in transitively by `-cli`/`-fpm`), so they need no separate package.
 - `pub fn install_php(version: &str, privileged: &dyn Privileged) -> Result<(), PhpVersionError>`:
   1. `privileged.add_apt_repository("ppa:ondrej/php")` — on failure return `PhpVersionError::Repo`.
   2. `privileged.apt_install(&apt_packages_for_php(version))` — on failure return `PhpVersionError::Apt` (this is where a 404/unavailable PPA surfaces).
@@ -92,7 +94,7 @@ Rejected:
 - **Switching to a non-installed version is rejected** (the UI only offers "Use" for installed versions, and the command double-checks).
 - **Install does not auto-switch.** After installing, the user explicitly clicks "Use" to activate it (clear, predictable). The list refresh shows the new version as installed.
 - **PPA unavailable (resolute):** `install_php` returns `PhpVersionError::Apt(...)` with the apt error → error toast; the rest of the feature (switching installed versions) is unaffected.
-- **Extension baseline** on install: fpm, cli, mysql, curl, mbstring, xml (matches the existing setup baseline).
+- **Extension baseline** on install: the Laragon-parity set (fpm, cli, curl, gd, intl, imagick, mbstring, mysql, sqlite3, xml, xsl, zip, redis — see §3.2), which is a superset of the setup wizard's unversioned baseline. `php<v>-imagick` comes from the ondrej PPA; if a particular package is unavailable for a version, apt fails the whole install and the error is surfaced (no partial cherry-picking in this slice).
 
 ## 5. Error handling
 
@@ -105,8 +107,8 @@ Rejected:
 
 - `bin::list_php_fpm_versions`: a temp dir with `php-fpm8.3` + `php-fpm8.4` (and a non-matching file) → `["8.3","8.4"]` sorted; empty dir → `[]`.
 - `php_versions`: with installed `{"8.4"}` and active `"8.4"` → every known version present; `8.4` is `installed && active`; `8.3` is `!installed`; an installed-but-unknown version (e.g. `"8.2"` present) is included; list sorted ascending.
-- `apt_packages_for_php("8.3")` == the 6 `php8.3-*` packages.
-- `install_php("8.3", &FakePrivileged)`: records one `add_apt_repository("ppa:ondrej/php")`, one `apt_install` with the 6 `php8.3-*` packages, and one `disable_system_services(["php8.3-fpm"])`; a `FakePrivileged` configured to fail apt yields `PhpVersionError::Apt`.
+- `apt_packages_for_php("8.3")` == the 13 Laragon-parity `php8.3-*` packages in the specified order (asserts `php8.3-fpm` first and that `php8.3-gd`, `php8.3-imagick`, `php8.3-redis`, `php8.3-xsl`, `php8.3-zip`, `php8.3-sqlite3` are present).
+- `install_php("8.3", &FakePrivileged)`: records one `add_apt_repository("ppa:ondrej/php")`, one `apt_install` with the 13 `php8.3-*` packages, and one `disable_system_services(["php8.3-fpm"])`; a `FakePrivileged` configured to fail apt yields `PhpVersionError::Apt`.
 - `Orchestrator::replace_php_version` (FakeSpawner): when php-fpm is running, returns `Ok(true)` and the service is running afterward on the new version; when stopped, returns `Ok(false)` and does not start it; the swapped service spawns `php-fpm<newversion>` (assert via the fake spawner's recorded program).
 
 ## 7. Out of scope (backlog)
