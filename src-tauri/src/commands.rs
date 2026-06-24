@@ -6,6 +6,10 @@ use laragon_core::{
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
+use laragon_core::{
+    install_php, list_php_fpm_versions, php_versions as core_php_versions, PhpVersionError,
+    PhpVersionInfo,
+};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -342,6 +346,49 @@ pub async fn update_proxy(
             .into_iter()
             .find(|s| s.name == name)
             .ok_or_else(|| format!("proxy `{name}` not found after sync"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn php_versions(state: tauri::State<AppState>) -> Result<Vec<PhpVersionInfo>, String> {
+    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    Ok(core_php_versions(&state.paths, &config.php_version))
+}
+
+#[tauri::command]
+pub async fn install_php_version(
+    app: tauri::AppHandle,
+    version: String,
+) -> Result<Vec<PhpVersionInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PhpVersionInfo>, String> {
+        let state = app.state::<AppState>();
+        install_php(&version, &PkexecPrivileged).map_err(|e| e.to_string())?;
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        Ok(core_php_versions(&state.paths, &config.php_version))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_php_version(
+    app: tauri::AppHandle,
+    version: String,
+) -> Result<Vec<ServiceStatus>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
+        let state = app.state::<AppState>();
+        if !list_php_fpm_versions(&[state.paths.bin()]).contains(&version) {
+            return Err(PhpVersionError::NotInstalled(version).to_string());
+        }
+        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        config.php_version = version.clone();
+        config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
+
+        let mut orch = state.orch.lock().map_err(lock_err)?;
+        orch.replace_php_version(&version).map_err(|e| e.to_string())?;
+        Ok(orch.snapshot())
     })
     .await
     .map_err(|e| e.to_string())?

@@ -85,6 +85,8 @@
     linkSite: { root: "", name: "", busy: false, error: "" },
     confirmRemove: null,
     proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
+    phpVersions: [],
+    phpBusy: false,
   };
 
   // ---- helpers ----
@@ -119,6 +121,43 @@
   }
 
   // ---- actions ----
+  async function loadPhpVersions() {
+    try {
+      const v = await invoke("php_versions");
+      state.phpVersions = Array.isArray(v) ? v : [];
+      render();
+    } catch (_) { /* settings-only; stay quiet */ }
+  }
+
+  async function usePhp(version) {
+    if (state.phpBusy) return;
+    state.phpBusy = true; render();
+    try {
+      const arr = await invoke("set_php_version", { version });
+      applyServices(arr);
+      toast({ type: "success", title: "PHP " + version + " is now active" });
+      await loadPhpVersions();
+    } catch (e) {
+      toast({ type: "error", title: "Switch failed", msg: String(e) });
+    } finally {
+      state.phpBusy = false; render();
+    }
+  }
+
+  async function installPhp(version) {
+    if (state.phpBusy) return;
+    state.phpBusy = true; render();
+    try {
+      const v = await invoke("install_php_version", { version });
+      state.phpVersions = Array.isArray(v) ? v : [];
+      toast({ type: "success", title: "PHP " + version + " installed", msg: "Click Use to activate it" });
+    } catch (e) {
+      toast({ type: "error", title: "Install failed", msg: String(e) });
+    } finally {
+      state.phpBusy = false; render();
+    }
+  }
+
   async function refresh() {
     if (state.busy) return;
     try {
@@ -436,6 +475,7 @@
     state.view = v;
     state.confirmRemove = null;
     render();
+    if (v === "settings") loadPhpVersions();
   }
   function toggleDark() {
     state.dark = !state.dark;
@@ -702,6 +742,19 @@
   }
 
   function settingsView() {
+    const phpRows = state.phpVersions.map((p) => {
+      let right;
+      if (p.active) right = '<span class="tag ok">Active</span>';
+      else if (p.installed) right = '<button class="btn-sm" data-action="use-php" data-version="' + esc(p.version) + '"' + (state.phpBusy ? " disabled" : "") + ">Use</button>";
+      else right = '<button class="btn-sm" data-action="install-php" data-version="' + esc(p.version) + '"' + (state.phpBusy ? " disabled" : "") + ">Install</button>";
+      return '<div class="set-row"><div class="grow"><div class="t">PHP ' + esc(p.version) + '</div><div class="h">' + (p.installed ? "Installed" : "Not installed") + "</div></div>" + right + "</div>";
+    }).join("");
+    const phpCard =
+      '<div class="card settings-card">' +
+      '<div class="set-row"><div class="grow"><div class="t">PHP version</div>' +
+      '<div class="h">Active version for the stack · install via ondrej PPA (apt)</div></div></div>' +
+      (phpRows || '<div class="set-row"><div class="h">Loading…</div></div>') +
+      "</div>";
     return (
       '<div class="view narrow-620">' +
       '<div><h1 class="h1">Settings</h1><p class="subtitle">Appearance and environment defaults.</p></div>' +
@@ -715,6 +768,7 @@
       '<div class="set-row"><div class="grow"><div class="t">Start on login</div><div class="h">Autostart in system tray — coming soon</div></div>' +
       '<span class="toggle-off"><span class="knob"></span></span></div>' +
       "</div>" +
+      phpCard +
       '<div class="settings-foot">Laragon Linux · window 900×600 · min 720×480 · tray: Start All · Stop All · Dashboard · Quit</div>' +
       "</div>"
     );
@@ -920,6 +974,8 @@
     else if (a === "svc-logs") viewLogs(el.getAttribute("data-kind"));
     else if (a === "copy-site") copySite(el.getAttribute("data-name"));
     else if (a === "open-url") { e.preventDefault(); openExternal(el.getAttribute("data-url")); }
+    else if (a === "use-php") usePhp(el.getAttribute("data-version"));
+    else if (a === "install-php") installPhp(el.getAttribute("data-version"));
     else if (a === "toast-dismiss") dismiss(parseInt(el.getAttribute("data-id"), 10));
     else if (a === "new-site") openNewSite();
     else if (a === "ns-close") closeNewSite();

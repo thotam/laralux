@@ -16,6 +16,9 @@ pub trait Privileged: Send + Sync {
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError>;
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError>;
     fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError>;
+    /// Add the ondrej/php PPA pinned to `suite` (an Ubuntu LTS codename), so
+    /// brand-new releases the PPA doesn't publish for can install LTS-built PHP.
+    fn add_ondrej_php(&self, suite: &str) -> Result<(), PrivError>;
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError>;
     fn allow_mariadb_apparmor(&self) -> Result<(), PrivError>;
 }
@@ -36,6 +39,20 @@ fn setcap_argv(bin: &Path) -> Vec<String> {
 
 fn add_repo_argv(repo: &str) -> Vec<String> {
     vec!["add-apt-repository".to_string(), "-y".to_string(), repo.to_string()]
+}
+
+/// Add the ondrej/php PPA without running update (avoids a 404 on releases the
+/// PPA hasn't published yet), then pin its `Suites:` to the chosen LTS codename
+/// so the subsequent `apt-get install` resolves the php<v>-* packages.
+fn ondrej_php_argv(suite: &str) -> Vec<String> {
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "add-apt-repository -y --no-update ppa:ondrej/php && \
+             sed -i 's/^Suites:.*/Suites: {suite}/' /etc/apt/sources.list.d/ondrej-ubuntu-php-*.sources"
+        ),
+    ]
 }
 
 fn systemctl_disable_argv(units: &[String]) -> Vec<String> {
@@ -104,6 +121,9 @@ impl Privileged for SudoPrivileged {
     fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
         run_escalated("sudo", &add_repo_argv(repo))
     }
+    fn add_ondrej_php(&self, suite: &str) -> Result<(), PrivError> {
+        run_escalated("sudo", &ondrej_php_argv(suite))
+    }
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {
         run_escalated("sudo", &systemctl_disable_argv(units))
     }
@@ -135,6 +155,9 @@ impl Privileged for PkexecPrivileged {
     fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
         run_escalated("pkexec", &add_repo_argv(repo))
     }
+    fn add_ondrej_php(&self, suite: &str) -> Result<(), PrivError> {
+        run_escalated("pkexec", &ondrej_php_argv(suite))
+    }
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {
         run_escalated("pkexec", &systemctl_disable_argv(units))
     }
@@ -152,8 +175,10 @@ pub struct FakePrivileged {
     setcap_done: Arc<Mutex<bool>>,
     apt_installs: Arc<Mutex<Vec<Vec<String>>>>,
     add_repos: Arc<Mutex<Vec<String>>>,
+    ondrej_suites: Arc<Mutex<Vec<String>>>,
     disabled_services: Arc<Mutex<Vec<Vec<String>>>>,
     apparmor_configured: Arc<Mutex<bool>>,
+    fail_apt: Arc<Mutex<bool>>,
 }
 
 impl FakePrivileged {
@@ -172,11 +197,17 @@ impl FakePrivileged {
     pub fn add_repos(&self) -> Arc<Mutex<Vec<String>>> {
         self.add_repos.clone()
     }
+    pub fn ondrej_suites(&self) -> Arc<Mutex<Vec<String>>> {
+        self.ondrej_suites.clone()
+    }
     pub fn disabled_services(&self) -> Arc<Mutex<Vec<Vec<String>>>> {
         self.disabled_services.clone()
     }
     pub fn mariadb_apparmor_configured(&self) -> bool {
         *self.apparmor_configured.lock().unwrap()
+    }
+    pub fn set_fail_apt(&self, fail: bool) {
+        *self.fail_apt.lock().unwrap() = fail;
     }
 }
 
@@ -194,11 +225,18 @@ impl Privileged for FakePrivileged {
         Ok(())
     }
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
+        if *self.fail_apt.lock().unwrap() {
+            return Err(PrivError::Command("apt failed (test)".to_string()));
+        }
         self.apt_installs.lock().unwrap().push(packages.to_vec());
         Ok(())
     }
     fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
         self.add_repos.lock().unwrap().push(repo.to_string());
+        Ok(())
+    }
+    fn add_ondrej_php(&self, suite: &str) -> Result<(), PrivError> {
+        self.ondrej_suites.lock().unwrap().push(suite.to_string());
         Ok(())
     }
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {

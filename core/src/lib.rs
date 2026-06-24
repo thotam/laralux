@@ -14,7 +14,9 @@ pub mod privileged;
 pub mod sync;
 pub mod setup;
 pub mod scaffold;
+pub mod php_versions;
 
+pub use bin::list_php_fpm_versions;
 pub use config::Config;
 pub use orchestrator::{Orchestrator, ServiceStatus};
 pub use paths::LaragonPaths;
@@ -28,3 +30,4 @@ pub use ssl::MkcertIssuer;
 pub use sync::sync_sites;
 pub use setup::{detect as detect_components, run_setup, Component, ComponentStatus, CurlDownloader, SetupReport};
 pub use scaffold::{CommandRunner, RealCommandRunner, SiteTemplate, ScaffoldError, create_site, CreateReport};
+pub use php_versions::{install_php, php_versions, PhpVersionError, PhpVersionInfo};
