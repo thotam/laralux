@@ -1,8 +1,8 @@
 use laragon_core::{
-    build_services, create_site as core_create_site, detect_components, list_all_sites, run_setup,
-    sync_sites, Config, CreateReport, LaragonPaths, MkcertIssuer, Orchestrator, PkexecPrivileged,
-    ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site,
-    SiteRegistry, SiteTemplate,
+    build_services, create_site as core_create_site, detect_components, ensure_nginx_bind_cap,
+    list_all_sites, run_setup, sync_sites, Config, CreateReport, LaragonPaths, MkcertIssuer,
+    Orchestrator, PkexecPrivileged, ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind,
+    ServiceState, ServiceStatus, Site, SiteRegistry, SiteTemplate,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
@@ -61,6 +61,9 @@ pub async fn stack_start_all(app: tauri::AppHandle) -> Result<Vec<ServiceStatus>
             &privileged,
         );
 
+        // Ensure nginx can bind :80/:443 (re-setcap if a binary upgrade cleared it).
+        ensure_nginx_bind_cap(&state.paths, &PkexecPrivileged);
+
         let mut orch = state.orch.lock().map_err(lock_err)?;
         orch.start_all().map_err(|e| e.to_string())?;
         Ok(orch.snapshot())
@@ -81,6 +84,9 @@ pub fn service_start(
     state: tauri::State<AppState>,
     kind: ServiceKind,
 ) -> Result<Vec<ServiceStatus>, String> {
+    if kind == ServiceKind::Nginx {
+        ensure_nginx_bind_cap(&state.paths, &PkexecPrivileged);
+    }
     let mut orch = state.orch.lock().map_err(lock_err)?;
     orch.start(kind).map_err(|e| e.to_string())?;
     Ok(orch.snapshot())
