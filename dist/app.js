@@ -752,7 +752,7 @@
     const phpCard =
       '<div class="card settings-card">' +
       '<div class="set-row"><div class="grow"><div class="t">PHP version</div>' +
-      '<div class="h">Active version for the stack · install via ondrej PPA (apt)</div></div></div>' +
+      '<div class="h">Active version for the stack · downloaded static build (no root)</div></div></div>' +
       (phpRows || '<div class="set-row"><div class="h">Loading…</div></div>') +
       "</div>";
     return (

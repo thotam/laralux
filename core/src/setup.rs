@@ -86,7 +86,6 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
     }
 }
 
-
 use crate::privileged::Privileged;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
