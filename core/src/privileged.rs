@@ -154,6 +154,7 @@ pub struct FakePrivileged {
     add_repos: Arc<Mutex<Vec<String>>>,
     disabled_services: Arc<Mutex<Vec<Vec<String>>>>,
     apparmor_configured: Arc<Mutex<bool>>,
+    fail_apt: Arc<Mutex<bool>>,
 }
 
 impl FakePrivileged {
@@ -178,6 +179,9 @@ impl FakePrivileged {
     pub fn mariadb_apparmor_configured(&self) -> bool {
         *self.apparmor_configured.lock().unwrap()
     }
+    pub fn set_fail_apt(&self, fail: bool) {
+        *self.fail_apt.lock().unwrap() = fail;
+    }
 }
 
 impl Privileged for FakePrivileged {
@@ -194,6 +198,9 @@ impl Privileged for FakePrivileged {
         Ok(())
     }
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
+        if *self.fail_apt.lock().unwrap() {
+            return Err(PrivError::Command("apt failed (test)".to_string()));
+        }
         self.apt_installs.lock().unwrap().push(packages.to_vec());
         Ok(())
     }
