@@ -1,7 +1,7 @@
 use laragon_core::service::php_fpm::PhpFpmService;
 use laragon_core::{
     build_services, detect_components, scan_sites, sync_sites, Config, CurlDownloader, LaragonPaths,
-    MkcertIssuer, Orchestrator, Privileged, RealSpawner, run_setup, SudoPrivileged,
+    MkcertIssuer, Orchestrator, Privileged, RealCommandRunner, RealSpawner, run_setup, SudoPrivileged,
 };
 
 fn main() {
@@ -50,7 +50,7 @@ fn main() {
                 &issuer,
                 &privileged,
             ) {
-                Ok(sites) => println!("Synced {} site(s).", sites.len()),
+                Ok(sites) => println!("Synced {} site(s).", sites.0.len()),
                 Err(e) => {
                     eprintln!("site sync failed: {e}");
                     std::process::exit(1);
@@ -89,7 +89,7 @@ fn main() {
                 println!("  {:?}: {}", s.component, if s.present { "installed" } else { "missing" });
             }
             println!("Running setup (may prompt for sudo)...");
-            let report = run_setup(&paths, &SudoPrivileged, &CurlDownloader);
+            let report = run_setup(&paths, &SudoPrivileged, &CurlDownloader, &RealCommandRunner);
             println!(
                 "apt: {}\nmailpit fetched: {}\nmkcert CA: {}\nnginx setcap: {}",
                 if report.apt_packages.is_empty() { "none".to_string() } else { report.apt_packages.join(" ") },

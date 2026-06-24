@@ -150,7 +150,7 @@
     try {
       const v = await invoke("install_php_version", { version });
       state.phpVersions = Array.isArray(v) ? v : [];
-      toast({ type: "success", title: "PHP " + version + " installed", msg: "Click Use to activate it" });
+      toast({ type: "success", title: "PHP " + version + " installed", msg: "Downloaded · click Use to activate" });
     } catch (e) {
       toast({ type: "error", title: "Install failed", msg: String(e) });
     } finally {
@@ -752,7 +752,7 @@
     const phpCard =
       '<div class="card settings-card">' +
       '<div class="set-row"><div class="grow"><div class="t">PHP version</div>' +
-      '<div class="h">Active version for the stack · install via ondrej PPA (apt)</div></div></div>' +
+      '<div class="h">Active version for the stack · downloaded static build (no root)</div></div></div>' +
       (phpRows || '<div class="set-row"><div class="h">Loading…</div></div>') +
       "</div>";
     return (

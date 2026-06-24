@@ -7,7 +7,7 @@ use laragon_core::{
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
 use laragon_core::{
-    install_php, list_php_fpm_versions, php_versions as core_php_versions, PhpVersionError,
+    install_php_static, list_php_fpm_versions, php_versions as core_php_versions,
     PhpVersionInfo,
 };
 use std::sync::Mutex;
@@ -113,7 +113,7 @@ pub async fn run_setup_cmd(app: tauri::AppHandle) -> Result<SetupReport, String>
         let state = app.state::<AppState>();
         let privileged = PkexecPrivileged;
         let downloader = CurlDownloader;
-        Ok(run_setup(&state.paths, &privileged, &downloader))
+        Ok(run_setup(&state.paths, &privileged, &downloader, &RealCommandRunner))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -364,7 +364,8 @@ pub async fn install_php_version(
 ) -> Result<Vec<PhpVersionInfo>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PhpVersionInfo>, String> {
         let state = app.state::<AppState>();
-        install_php(&version, &PkexecPrivileged).map_err(|e| e.to_string())?;
+        install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner)
+            .map_err(|e| e.to_string())?;
         let config = Config::load(&state.paths.config_file()).unwrap_or_default();
         Ok(core_php_versions(&state.paths, &config.php_version))
     })
@@ -380,7 +381,7 @@ pub async fn set_php_version(
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
         let state = app.state::<AppState>();
         if !list_php_fpm_versions(&[state.paths.bin()]).contains(&version) {
-            return Err(PhpVersionError::NotInstalled(version).to_string());
+            return Err(format!("PHP {version} is not installed"));
         }
         let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
         config.php_version = version.clone();
