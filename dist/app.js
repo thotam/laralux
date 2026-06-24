@@ -150,7 +150,7 @@
     try {
       const v = await invoke("install_php_version", { version });
       state.phpVersions = Array.isArray(v) ? v : [];
-      toast({ type: "success", title: "PHP " + version + " installed", msg: "Click Use to activate it" });
+      toast({ type: "success", title: "PHP " + version + " installed", msg: "Downloaded · click Use to activate" });
     } catch (e) {
       toast({ type: "error", title: "Install failed", msg: String(e) });
     } finally {
