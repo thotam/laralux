@@ -15,6 +15,7 @@ pub mod sync;
 pub mod setup;
 pub mod scaffold;
 
+pub use bin::list_php_fpm_versions;
 pub use config::Config;
 pub use orchestrator::{Orchestrator, ServiceStatus};
 pub use paths::LaragonPaths;

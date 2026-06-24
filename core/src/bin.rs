@@ -85,6 +85,42 @@ pub fn detect_php_fpm_version(extra_dirs: &[PathBuf]) -> Option<String> {
     detect_php_fpm_version_in(&dirs)
 }
 
+/// Scan exactly `dirs` for all `php-fpm<maj>.<min>` binaries; sorted unique versions.
+fn list_php_fpm_versions_in(dirs: &[PathBuf]) -> Vec<String> {
+    let mut found: Vec<(u32, u32)> = Vec::new();
+    for dir in dirs {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            if !entry.path().is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(ver) = name.strip_prefix("php-fpm") {
+                if let Some((maj, min)) = parse_php_version(ver) {
+                    if !found.contains(&(maj, min)) {
+                        found.push((maj, min));
+                    }
+                }
+            }
+        }
+    }
+    found.sort();
+    found.into_iter().map(|(maj, min)| format!("{maj}.{min}")).collect()
+}
+
+/// All installed php-fpm versions across `extra_dirs` + PATH + system bin dirs.
+pub fn list_php_fpm_versions(extra_dirs: &[PathBuf]) -> Vec<String> {
+    let mut dirs: Vec<PathBuf> = extra_dirs.to_vec();
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path));
+    }
+    dirs.extend(FALLBACK_DIRS.iter().map(PathBuf::from));
+    list_php_fpm_versions_in(&dirs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,6 +177,27 @@ mod tests {
         let dir = tmp();
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(detect_php_fpm_version_in(&[dir.clone()]), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn lists_all_php_fpm_versions_sorted() {
+        let dir = std::env::temp_dir().join(format!("lara-phplist-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("php-fpm8.4"), "x").unwrap();
+        std::fs::write(dir.join("php-fpm8.3"), "x").unwrap();
+        std::fs::write(dir.join("php-fpm"), "x").unwrap();      // no version → ignored
+        std::fs::write(dir.join("nginx"), "x").unwrap();        // unrelated → ignored
+        let got = list_php_fpm_versions_in(&[dir.clone()]);
+        assert_eq!(got, vec!["8.3".to_string(), "8.4".to_string()]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn lists_empty_when_none() {
+        let dir = std::env::temp_dir().join(format!("lara-phplist-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(list_php_fpm_versions_in(&[dir.clone()]).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
