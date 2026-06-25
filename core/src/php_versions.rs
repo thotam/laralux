@@ -1,4 +1,4 @@
-use crate::bin::list_php_fpm_versions;
+use crate::layout::installed_versions;
 use crate::paths::LaragonPaths;
 use serde::Serialize;
 
@@ -39,9 +39,30 @@ pub fn php_versions_from(installed: &[String], active: &str) -> Vec<PhpVersionIn
         .collect()
 }
 
-/// Version catalog using the live filesystem (PATH + ~/laragon/bin + system dirs).
+/// Reduce full patch versions to sorted unique major.minor strings.
+pub fn installed_minors(full_versions: &[String]) -> Vec<String> {
+    let mut minors: Vec<String> = Vec::new();
+    for v in full_versions {
+        let mut it = v.split('.');
+        if let (Some(maj), Some(min)) = (it.next(), it.next()) {
+            let m = format!("{maj}.{min}");
+            if !minors.contains(&m) {
+                minors.push(m);
+            }
+        }
+    }
+    minors.sort_by_key(|v| vkey(v));
+    minors
+}
+
+/// Version catalog using the live filesystem layout (bin/php/*/).
 pub fn php_versions(paths: &LaragonPaths, active: &str) -> Vec<PhpVersionInfo> {
-    php_versions_from(&list_php_fpm_versions(&[paths.bin()]), active)
+    let full = installed_versions(paths, "php");
+    let installed = installed_minors(&full);
+    // `active` may be a full version ("8.3.31") or a minor ("8.3"); compare on minor.
+    let active_minor = installed_minors(std::slice::from_ref(&active.to_string()))
+        .into_iter().next().unwrap_or_else(|| active.to_string());
+    php_versions_from(&installed, &active_minor)
 }
 
 #[cfg(test)]
@@ -73,6 +94,13 @@ mod tests {
     fn php_versions_includes_unknown_installed() {
         let infos = php_versions_from(&["8.9".to_string()], "8.4");
         assert!(infos.iter().any(|i| i.version == "8.9" && i.installed));
+    }
+
+    #[test]
+    fn installed_minors_dedupes_patches() {
+        // 8.3.31 and 8.3.40 both count as installed minor "8.3"
+        let minors = installed_minors(&["8.3.31".to_string(), "8.3.40".to_string(), "8.4.10".to_string()]);
+        assert_eq!(minors, vec!["8.3".to_string(), "8.4".to_string()]);
     }
 
 }

@@ -62,7 +62,7 @@ pub fn detect(paths: &LaragonPaths) -> Vec<ComponentStatus> {
         .iter()
         .map(|&component| {
             let present = match component {
-                Component::Php => crate::bin::detect_php_fpm_version(&[paths.bin()]).is_some(),
+                Component::Php => crate::bin::resolve_bin("php-fpm", &crate::layout::managed_bin_dirs(paths)).is_some(),
                 other => {
                     let name = detect_binary(other);
                     resolve_bin(&name, &[paths.bin()]).is_some()
