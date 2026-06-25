@@ -30,7 +30,7 @@ pub fn sync_sites(
     std::fs::create_dir_all(&sites_dir)?;
 
     for site in &sites {
-        let certs = issuer.ensure_cert(&site.hostname)?;
+        let certs = issuer.ensure_cert(&site.name, &[site.hostname.clone()])?;
         let conf = site.vhost_config(paths, php_socket, &certs.cert, &certs.key);
         std::fs::write(sites_dir.join(format!("{}.conf", site.name)), conf)?;
     }
