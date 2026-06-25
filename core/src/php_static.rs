@@ -61,24 +61,22 @@ fn fetch_index(paths: &LaragonPaths, downloader: &dyn Downloader) -> Result<Stri
     Ok(std::fs::read_to_string(&index)?)
 }
 
-/// Download one SAPI tarball for `version`, extract `member`, install it as
-/// `<dest_dir>/<dest_name>` (0755). Returns the full resolved version.
+/// Download one SAPI tarball from `url`, extract `member`, install it as
+/// `<dest_dir>/<dest_name>` (0755). The caller pre-resolves the full version
+/// so both SAPIs always share the same patch level.
 fn download_static_php(
     paths: &LaragonPaths,
-    version: &str,
-    arch: &str,
+    full: &str,
     sapi: &str,
     member: &str,
     dest_dir: &std::path::Path,
     dest_name: &str,
-    listing_json: &str,
+    url: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
-) -> Result<String, PhpStaticError> {
-    let (full, url) = latest_patch(version, arch, sapi, listing_json)
-        .ok_or_else(|| PhpStaticError::Unavailable(version.to_string()))?;
+) -> Result<(), PhpStaticError> {
     let tarball = paths.tmp().join(format!("php-{full}-{sapi}.tar.gz"));
-    downloader.fetch(&url, &tarball).map_err(|e| PhpStaticError::Download(e.to_string()))?;
+    downloader.fetch(url, &tarball).map_err(|e| PhpStaticError::Download(e.to_string()))?;
     std::fs::create_dir_all(dest_dir)?;
     runner.run("tar", &[
         "-xzf".to_string(), tarball.display().to_string(),
@@ -94,7 +92,7 @@ fn download_static_php(
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
     }
-    Ok(full)
+    Ok(())
 }
 
 /// Install both the php-fpm and php (cli) static binaries for `version`.
@@ -107,12 +105,14 @@ pub fn install_php_static(
 ) -> Result<String, PhpStaticError> {
     let arch = arch_tag().ok_or_else(|| PhpStaticError::Arch(std::env::consts::ARCH.to_string()))?;
     let json = fetch_index(paths, downloader)?;
-    // Resolve the full version once (from the fpm entry) so both SAPIs share a dir.
-    let (full, _) = latest_patch(requested, arch, "fpm", &json)
+    // Resolve the full version ONCE from the fpm entry so both SAPIs share the same patch.
+    let (full, url_fpm) = latest_patch(requested, arch, "fpm", &json)
         .ok_or_else(|| PhpStaticError::Unavailable(requested.to_string()))?;
+    // Build the cli URL for the identical patch — no second index lookup that could drift.
+    let url_cli = format!("{STATIC_PHP_BASE}/php-{full}-cli-linux-{arch}.tar.gz");
     let dir = paths.version_dir("php", &full);
-    download_static_php(paths, requested, arch, "fpm", "php-fpm", &dir, "php-fpm", &json, downloader, runner)?;
-    download_static_php(paths, requested, arch, "cli", "php", &dir, "php", &json, downloader, runner)?;
+    download_static_php(paths, &full, "fpm", "php-fpm", &dir, "php-fpm", &url_fpm, downloader, runner)?;
+    download_static_php(paths, &full, "cli", "php", &dir, "php", &url_cli, downloader, runner)?;
     crate::layout::set_current(paths, "php", &full)?;
     Ok(full)
 }
@@ -126,10 +126,9 @@ pub fn install_php_cli(
 ) -> Result<String, PhpStaticError> {
     let arch = arch_tag().ok_or_else(|| PhpStaticError::Arch(std::env::consts::ARCH.to_string()))?;
     let json = fetch_index(paths, downloader)?;
-    let (full, _) = latest_patch(requested, arch, "cli", &json)
+    let (full, url_cli) = latest_patch(requested, arch, "cli", &json)
         .ok_or_else(|| PhpStaticError::Unavailable(requested.to_string()))?;
-    let dir = paths.version_dir("php", &full);
-    download_static_php(paths, requested, arch, "cli", "php", &dir, "php", &json, downloader, runner)?;
+    download_static_php(paths, &full, "cli", "php", &paths.version_dir("php", &full), "php", &url_cli, downloader, runner)?;
     crate::layout::set_current(paths, "php", &full)?;
     Ok(full)
 }

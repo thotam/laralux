@@ -26,7 +26,7 @@ pub fn ensure_active_php_cli(
     runner: &dyn CommandRunner,
 ) -> Result<(), PhpStaticError> {
     if !paths.bin().join(format!("php{version}")).exists() {
-        let _ = install_php_cli(paths, version, downloader, runner)?;
+        install_php_cli(paths, version, downloader, runner)?;
     }
     set_active_php(paths, version)?;
     Ok(())
