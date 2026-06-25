@@ -54,6 +54,21 @@ fn main() {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "start_all" => {
                         if let Some(state) = app.try_state::<AppState>() {
+                            // Shares the re-entrancy guard with stack_start_all so a
+                            // tray click during startup can't spawn a duplicate stack.
+                            if state.starting.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                                return;
+                            }
+                            // Clear the flag on every exit path, even a panic in the
+                            // privileged preflight or start_all (a manual reset would
+                            // leave Start All wedged forever).
+                            struct ResetGuard<'a>(&'a std::sync::atomic::AtomicBool);
+                            impl Drop for ResetGuard<'_> {
+                                fn drop(&mut self) {
+                                    self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+                                }
+                            }
+                            let _reset = ResetGuard(&state.starting);
                             laragon_core::ensure_nginx_bind_cap(
                                 &state.paths,
                                 &laragon_core::PkexecPrivileged,

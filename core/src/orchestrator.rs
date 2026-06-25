@@ -43,6 +43,18 @@ impl Orchestrator {
     }
 
     pub fn start(&mut self, kind: ServiceKind) -> Result<(), ServiceError> {
+        // Idempotent: a service already Running with a live process is left
+        // untouched, so a repeated Start All (e.g. the tray firing it again
+        // while the UI's start is mid-flight) never spawns a duplicate that
+        // fights for the same port and orphans the original process.
+        if self.state(kind) == ServiceState::Running {
+            if let Some(h) = self.handles.get_mut(&kind) {
+                if h.is_alive() {
+                    return Ok(());
+                }
+            }
+        }
+
         let svc = self
             .find(kind)
             .ok_or_else(|| ServiceError::Config(format!("no such service: {kind:?}")))?;
@@ -438,5 +450,19 @@ mod tests {
         assert_eq!(orch.state(ServiceKind::PhpFpm), ServiceState::Stopped);
         assert!(log.lock().unwrap().is_empty()); // nothing spawned
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn start_is_idempotent_for_running_service() {
+        let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-idem-{}", std::process::id())));
+        let spawner = FakeSpawner::new();
+        let log = spawner.log();
+        let services: Vec<Box<dyn Service>> =
+            vec![Box::new(Dummy { kind: ServiceKind::Mailpit, name: "mailpit" })];
+        let mut orch = Orchestrator::new(paths, services, Box::new(spawner));
+        orch.start(ServiceKind::Mailpit).unwrap();
+        orch.start(ServiceKind::Mailpit).unwrap();
+        assert_eq!(log.lock().unwrap().len(), 1, "second start must not spawn a duplicate");
+        assert_eq!(orch.state(ServiceKind::Mailpit), ServiceState::Running);
     }
 }
