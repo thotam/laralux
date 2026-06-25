@@ -595,20 +595,46 @@
     const pct = byteKnown ? Math.round(byteFrac * 100) + "%"
       : (d.step.total > 0 ? d.step.done + "/" + d.step.total : "");
     const off = (frac, C) => C * (1 - frac);
-    const inner = byteKnown
-      ? '<circle class="ring-fg" cx="32" cy="32" r="' + R2 + '" stroke-dasharray="' + C2 + '" stroke-dashoffset="' + off(byteFrac, C2) + '"/>'
-      : '<circle class="ring-spin spin" cx="32" cy="32" r="' + R2 + '" stroke-dasharray="' + (C2 * 0.25) + ' ' + C2 + '"/>';
+    // Stable DOM structure: BOTH inner circles are always present and toggled via
+    // `.ring-hide`, so progress ticks can update the ring in place (see updateRing)
+    // without a full re-render that would reset the user's scroll position.
     return (
       '<div class="ring" role="status" aria-label="Downloading">' +
       '<svg width="64" height="64" viewBox="0 0 64 64">' +
       '<circle class="ring-bg" cx="32" cy="32" r="' + R1 + '"/>' +
       '<circle class="ring-fg outer" cx="32" cy="32" r="' + R1 + '" stroke-dasharray="' + C1 + '" stroke-dashoffset="' + off(stepFrac, C1) + '"/>' +
-      '<circle class="ring-bg" cx="32" cy="32" r="' + R2 + '"/>' + inner +
+      '<circle class="ring-bg" cx="32" cy="32" r="' + R2 + '"/>' +
+      '<circle class="ring-fg inner' + (byteKnown ? '' : ' ring-hide') + '" cx="32" cy="32" r="' + R2 + '" stroke-dasharray="' + C2 + '" stroke-dashoffset="' + off(byteFrac, C2) + '"/>' +
+      '<circle class="ring-spin spin' + (byteKnown ? ' ring-hide' : '') + '" cx="32" cy="32" r="' + R2 + '" stroke-dasharray="' + (C2 * 0.25) + ' ' + C2 + '"/>' +
       '<text class="ring-pct" x="32" y="36" text-anchor="middle">' + esc(pct) + '</text>' +
       '</svg>' +
-      (d.label ? '<span class="ring-label">' + esc(d.label) + '</span>' : '') +
+      '<span class="ring-label">' + esc(d.label || "") + '</span>' +
       '</div>'
     );
+  }
+
+  // Update the on-screen ring in place from state.download — no innerHTML churn,
+  // so the page scroll/focus is preserved during rapid byte-progress ticks. Falls
+  // back to a full render() only when the ring isn't mounted yet.
+  function updateRing() {
+    const ring = document.querySelector(".ring");
+    if (!ring) { render(); return; }
+    const d = state.download;
+    const R1 = 26, R2 = 18, C1 = 2 * Math.PI * R1, C2 = 2 * Math.PI * R2;
+    const stepFrac = d.step.total > 0 ? d.step.done / d.step.total : 0;
+    const byteKnown = d.bytes.total > 0;
+    const byteFrac = byteKnown ? Math.min(1, d.bytes.current / d.bytes.total) : 0;
+    const off = (frac, C) => C * (1 - frac);
+    const outer = ring.querySelector(".ring-fg.outer");
+    if (outer) outer.setAttribute("stroke-dashoffset", off(stepFrac, C1));
+    const inner = ring.querySelector(".ring-fg.inner");
+    if (inner) { inner.setAttribute("stroke-dashoffset", off(byteFrac, C2)); inner.classList.toggle("ring-hide", !byteKnown); }
+    const spin = ring.querySelector(".ring-spin");
+    if (spin) spin.classList.toggle("ring-hide", byteKnown);
+    const pct = ring.querySelector(".ring-pct");
+    if (pct) pct.textContent = byteKnown ? Math.round(byteFrac * 100) + "%" : (d.step.total > 0 ? d.step.done + "/" + d.step.total : "");
+    const label = ring.querySelector(".ring-label");
+    if (label) label.textContent = d.label || "";
   }
 
   function header() {
@@ -1283,7 +1309,7 @@
 
   // ---- boot ----
   if (TAURI && TAURI.event && TAURI.event.listen) {
-    TAURI.event.listen("download-progress", (e) => { applyProgress(e.payload); render(); });
+    TAURI.event.listen("download-progress", (e) => { applyProgress(e.payload); updateRing(); });
   }
   render();
   refresh();
