@@ -210,25 +210,32 @@ impl SiteRegistry {
     }
 
     pub fn set_domains(&mut self, name: &str, domains: &[String]) -> Result<(), RegistryError> {
-        if domains.is_empty() {
-            return Err(RegistryError::NoDomains);
-        }
+        // Normalize (trim + lowercase) and de-duplicate, preserving first-seen order
+        // so domains[0] stays the leftmost the user intended.
+        let mut norm: Vec<String> = Vec::new();
         for d in domains {
-            validate_domain(d)?;
+            let d = d.trim().to_ascii_lowercase();
+            validate_domain(&d)?;
+            if !norm.iter().any(|x| x == &d) {
+                norm.push(d);
+            }
+        }
+        if norm.is_empty() {
+            return Err(RegistryError::NoDomains);
         }
         // reject a domain claimed by a *different* site
         for other in &self.domains {
             if other.name == name {
                 continue;
             }
-            for d in domains {
+            for d in &norm {
                 if other.domains.iter().any(|x| x == d) {
                     return Err(RegistryError::DomainTaken(d.clone()));
                 }
             }
         }
         self.domains.retain(|d| d.name != name);
-        self.domains.push(SiteDomains { name: name.to_string(), domains: domains.to_vec() });
+        self.domains.push(SiteDomains { name: name.to_string(), domains: norm });
         Ok(())
     }
 
@@ -389,6 +396,13 @@ mod tests {
         assert_eq!(reg.domains_for("a").unwrap(), &["a.dev".to_string(), "*.a.dev".to_string()]);
         assert!(reg.remove("a"));
         assert!(reg.domains_for("a").is_none());
+    }
+
+    #[test]
+    fn set_domains_normalizes_and_dedups() {
+        let mut reg = SiteRegistry::default();
+        reg.set_domains("a", &["  Demo.DEV ".to_string(), "demo.dev".to_string(), "*.Demo.dev".to_string()]).unwrap();
+        assert_eq!(reg.domains_for("a").unwrap(), &["demo.dev".to_string(), "*.demo.dev".to_string()]);
     }
 
     #[test]
