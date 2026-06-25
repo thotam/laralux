@@ -35,6 +35,7 @@
     folder18: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
     folderBig: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
     copy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+    terminal: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
     kebab: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
     plus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
     setupItem: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/></svg>',
@@ -487,6 +488,14 @@
     }
   }
 
+  async function openTerminal(path) {
+    try {
+      await invoke("open_terminal", { path });
+    } catch (e) {
+      toast({ type: "error", title: "Couldn't open terminal", msg: String(e) });
+    }
+  }
+
   // Open a URL in the system browser. In the Tauri webview, <a target="_blank">
   // does nothing, so route through the opener plugin (fallback to window.open for dev).
   async function openExternal(url) {
@@ -696,12 +705,16 @@
               ? '<button class="btn-sm danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
                 (state.confirmRemove === s.name ? "Confirm?" : "Remove") + "</button>"
               : "";
+            const termBtn = isProxy
+              ? ""
+              : '<button class="icon-btn sq32" data-action="open-terminal" data-path="' + esc(s.root) + '" aria-label="Open terminal" title="Open terminal here">' + I.terminal + "</button>";
             return (
               '<div class="card site-row"><div class="site-tile">' + I.folder18 + "</div>" +
               '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
               '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a>" +
               subRight + "</div></div>" +
               badge +
+              termBtn +
               '<button class="icon-btn sq32" data-action="copy-site" data-name="' + esc(s.name) + '" aria-label="Copy URL">' + I.copy + "</button>" +
               editBtn + removeBtn +
               '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + I.external + "Open</a></div>"
@@ -1006,6 +1019,7 @@
     else if (a === "svc-toggle") toggleService(el.getAttribute("data-kind"));
     else if (a === "svc-logs") viewLogs(el.getAttribute("data-kind"));
     else if (a === "copy-site") copySite(el.getAttribute("data-name"));
+    else if (a === "open-terminal") openTerminal(el.getAttribute("data-path"));
     else if (a === "open-url") { e.preventDefault(); openExternal(el.getAttribute("data-url")); }
     else if (a === "use-php") usePhp(el.getAttribute("data-version"));
     else if (a === "install-php") installPhp(el.getAttribute("data-version"));
