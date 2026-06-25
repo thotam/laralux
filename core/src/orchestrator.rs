@@ -102,18 +102,17 @@ impl Orchestrator {
         Ok(())
     }
 
-    /// Swap the active php-fpm version. Stops php-fpm if running, replaces the
-    /// service with the new version, and restarts it iff it had been running.
-    /// Returns whether php-fpm had been running. The socket is version-independent,
-    /// so nginx/vhosts are unaffected.
+    /// Swap the active php-fpm version. Stops php-fpm if running, repoints
+    /// `bin/php/current` at the new version, and restarts it iff it had been
+    /// running. Returns whether php-fpm had been running. The socket is
+    /// version-independent, so nginx/vhosts are unaffected.
     pub fn replace_php_version(&mut self, version: &str) -> Result<bool, ServiceError> {
         let was_running = self.state(ServiceKind::PhpFpm) == ServiceState::Running;
         if was_running {
             let _ = self.stop(ServiceKind::PhpFpm);
         }
-        self.services.retain(|s| s.kind() != ServiceKind::PhpFpm);
-        self.services
-            .push(Box::new(crate::service::php_fpm::PhpFpmService::new(version)));
+        crate::layout::set_current(&self.paths, "php", version)
+            .map_err(|e| ServiceError::Config(format!("set php current: {e}")))?;
         if was_running {
             self.start(ServiceKind::PhpFpm)?;
         }
@@ -399,6 +398,10 @@ mod tests {
     fn replace_php_version_restarts_when_running() {
         let tmp = std::env::temp_dir().join(format!("lara-orch-php-{}", std::process::id()));
         let paths = LaragonPaths::new(tmp.clone());
+        // Seed bin/php/8.3/ and bin/php/8.4/ so set_current has a target dir
+        std::fs::create_dir_all(paths.version_dir("php", "8.4")).unwrap();
+        std::fs::create_dir_all(paths.version_dir("php", "8.3")).unwrap();
+        crate::layout::set_current(&paths, "php", "8.4").unwrap();
         let spawner = crate::process::FakeSpawner::new();
         let log = spawner.log();
         let mut orch = Orchestrator::new(
@@ -412,9 +415,9 @@ mod tests {
         let was_running = orch.replace_php_version("8.3").unwrap();
         assert!(was_running);
         assert_eq!(orch.state(ServiceKind::PhpFpm), ServiceState::Running);
-        // the most recent spawn used the new version's binary
+        // the spawned program is now the constant "php-fpm" (resolved via bin/php/current)
         let progs: Vec<String> = log.lock().unwrap().iter().map(|s| s.program.clone()).collect();
-        assert_eq!(progs.last().unwrap(), "php-fpm8.3");
+        assert_eq!(progs.last().unwrap(), "php-fpm");
         std::fs::remove_dir_all(&tmp).ok();
     }
 
@@ -439,6 +442,8 @@ mod tests {
     fn replace_php_version_does_not_start_when_stopped() {
         let tmp = std::env::temp_dir().join(format!("lara-orch-php2-{}", std::process::id()));
         let paths = LaragonPaths::new(tmp.clone());
+        // Seed bin/php/8.3/ so set_current has a target dir
+        std::fs::create_dir_all(paths.version_dir("php", "8.3")).unwrap();
         let spawner = crate::process::FakeSpawner::new();
         let log = spawner.log();
         let mut orch = Orchestrator::new(

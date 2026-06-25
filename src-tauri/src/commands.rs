@@ -421,6 +421,7 @@ pub async fn set_php_version(
         if !installed.iter().any(|p| p.version == version && p.installed) {
             return Err(format!("PHP {version} is not installed"));
         }
+        config.versions.insert("php".to_string(), version.clone());
         config.php_version = version.clone();
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
 

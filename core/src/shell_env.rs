@@ -4,7 +4,7 @@ pub const SHELL_BEGIN: &str = "# >>> laragon >>>";
 pub const SHELL_END: &str = "# <<< laragon <<<";
 
 pub const SHELL_BLOCK: &str =
-    "# >>> laragon >>>\nexport PATH=\"$HOME/laragon/bin:$PATH\"\n# <<< laragon <<<\n";
+    "# >>> laragon >>>\nexport PATH=\"$HOME/laragon/bin/php/current:$HOME/laragon/bin/composer/current:$PATH\"\n# <<< laragon <<<\n";
 
 /// `.zshrc` for a zsh login shell, else `.bashrc`.
 pub fn rc_filename_for_shell(shell: &str) -> &'static str {
@@ -99,7 +99,7 @@ mod tests {
     fn apply_is_idempotent_and_remove_restores() {
         let base = "export EDITOR=vim\n";
         let once = apply_shell_block(base);
-        assert!(once.contains("export PATH=\"$HOME/laragon/bin:$PATH\""));
+        assert!(once.contains("export PATH=\"$HOME/laragon/bin/php/current:$HOME/laragon/bin/composer/current:$PATH\""));
         assert!(once.contains(SHELL_BEGIN) && once.contains(SHELL_END));
         assert!(once.contains("export EDITOR=vim"));
         let twice = apply_shell_block(&once);
@@ -115,7 +115,7 @@ mod tests {
         std::fs::create_dir_all(&home).unwrap();
         enable_shell_path(&home, "/bin/bash").unwrap();
         let bashrc = std::fs::read_to_string(home.join(".bashrc")).unwrap();
-        assert!(bashrc.contains("$HOME/laragon/bin"));
+        assert!(bashrc.contains("$HOME/laragon/bin/php/current"));
         assert!(!home.join(".zshrc").exists(), "no zshrc for a bash user");
         std::fs::remove_dir_all(&home).ok();
     }

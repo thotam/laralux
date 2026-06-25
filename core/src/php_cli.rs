@@ -4,52 +4,59 @@ use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
 
 pub const COMPOSER_URL: &str = "https://getcomposer.org/composer.phar";
+pub const COMPOSER_FALLBACK_VERSION: &str = "2.8.9";
 
-/// Point `~/laragon/bin/php` at `php<version>` (replace any existing symlink/file).
+/// Point `bin/php/current` at `<version>` (via layout::set_current).
 pub fn set_active_php(paths: &LaragonPaths, version: &str) -> std::io::Result<()> {
-    std::fs::create_dir_all(paths.bin())?;
-    let link = paths.bin().join("php");
-    let _ = std::fs::remove_file(&link); // remove stale symlink/file if present
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(format!("php{version}"), &link)?;
-    }
-    Ok(())
+    crate::layout::set_current(paths, "php", version)
 }
 
 /// Ensure the active version's cli binary exists (download if missing), then
-/// point `~/laragon/bin/php` at it.
+/// point `bin/php/current` at it.
 pub fn ensure_active_php_cli(
     paths: &LaragonPaths,
     version: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
 ) -> Result<(), PhpStaticError> {
-    if !paths.bin().join(format!("php{version}")).exists() {
-        install_php_cli(paths, version, downloader, runner)?;
+    if !paths.version_dir("php", version).join("php").is_file() {
+        let _ = install_php_cli(paths, version, downloader, runner)?;
     }
-    set_active_php(paths, version)?;
+    set_active_php(paths, version).map_err(PhpStaticError::Io)?;
     Ok(())
 }
 
-/// Download composer.phar and write a `composer` wrapper that runs it under the
-/// active `~/laragon/bin/php`.
+/// Download composer.phar, probe its version, place it into `bin/composer/<version>/`,
+/// write a wrapper script, and point `bin/composer/current` at the version dir.
 pub fn install_composer(paths: &LaragonPaths, downloader: &dyn Downloader) -> std::io::Result<()> {
-    std::fs::create_dir_all(paths.bin())?;
-    let phar = paths.bin().join("composer.phar");
+    // Download to tmp, read its version, then place into bin/composer/<version>/.
+    let tmp_phar = paths.tmp().join("composer.phar");
+    std::fs::create_dir_all(paths.tmp())?;
     downloader
-        .fetch(COMPOSER_URL, &phar)
+        .fetch(COMPOSER_URL, &tmp_phar)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    let wrapper = paths.bin().join("composer");
+    let php = paths.current_link("php").join("php");
+    let version = crate::layout::probe_version(&php, &[tmp_phar.to_string_lossy().as_ref(), "--version"])
+        .unwrap_or_else(|| COMPOSER_FALLBACK_VERSION.to_string());
+    let dir = paths.version_dir("composer", &version);
+    std::fs::create_dir_all(&dir)?;
+    let phar = dir.join("composer.phar");
+    std::fs::rename(&tmp_phar, &phar).or_else(|_| {
+        std::fs::copy(&tmp_phar, &phar)
+            .map(|_| ())
+            .and_then(|_| std::fs::remove_file(&tmp_phar))
+    })?;
+    let wrapper = dir.join("composer");
     std::fs::write(
         &wrapper,
-        "#!/bin/sh\nexec \"$(dirname \"$0\")/php\" \"$(dirname \"$0\")/composer.phar\" \"$@\"\n",
+        "#!/bin/sh\nexec \"$HOME/laragon/bin/php/current/php\" \"$HOME/laragon/bin/composer/current/composer.phar\" \"$@\"\n",
     )?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755))?;
     }
+    crate::layout::set_current(paths, "composer", &version)?;
     Ok(())
 }
 
@@ -72,27 +79,33 @@ mod tests {
     #[test]
     fn set_active_php_points_php_to_versioned_binary() {
         let paths = root();
-        std::fs::write(paths.bin().join("php8.4"), b"x").unwrap();
-        std::fs::write(paths.bin().join("php8.3"), b"x").unwrap();
+        // Create version dirs so set_current has targets
+        std::fs::create_dir_all(paths.version_dir("php", "8.4.10")).unwrap();
+        std::fs::write(paths.version_dir("php", "8.4.10").join("php"), b"x").unwrap();
+        std::fs::create_dir_all(paths.version_dir("php", "8.3.31")).unwrap();
+        std::fs::write(paths.version_dir("php", "8.3.31").join("php"), b"x").unwrap();
 
-        set_active_php(&paths, "8.4").unwrap();
-        let link = paths.bin().join("php");
-        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("php8.4"));
+        set_active_php(&paths, "8.4.10").unwrap();
+        let link = paths.current_link("php");
+        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("8.4.10"));
 
         // re-point
-        set_active_php(&paths, "8.3").unwrap();
-        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("php8.3"));
+        set_active_php(&paths, "8.3.31").unwrap();
+        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("8.3.31"));
         std::fs::remove_dir_all(paths.root()).ok();
     }
 
     #[test]
     fn ensure_active_php_cli_symlinks_without_download_when_present() {
         let paths = root();
-        std::fs::write(paths.bin().join("php8.4"), b"x").unwrap();
+        // Create version dir with php binary
+        std::fs::create_dir_all(paths.version_dir("php", "8.4.10")).unwrap();
+        std::fs::write(paths.version_dir("php", "8.4.10").join("php"), b"x").unwrap();
         let dl = FakeDownloader::new(); // would write "fake"; must NOT be called
         let runner = crate::scaffold::FakeCommandRunner::new();
-        ensure_active_php_cli(&paths, "8.4", &dl, &runner).unwrap();
-        assert_eq!(std::fs::read_link(paths.bin().join("php")).unwrap(), Path::new("php8.4"));
+        ensure_active_php_cli(&paths, "8.4.10", &dl, &runner).unwrap();
+        let link = paths.current_link("php");
+        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("8.4.10"));
         assert!(dl.requested().lock().unwrap().is_empty(), "no download when cli present");
         std::fs::remove_dir_all(paths.root()).ok();
     }
@@ -100,17 +113,27 @@ mod tests {
     #[test]
     fn install_composer_writes_phar_and_wrapper() {
         let paths = root();
+        // Seed bin/php/current/php so probe_version has a target (will fail → fallback)
+        std::fs::create_dir_all(paths.current_link("php")).unwrap();
+        std::fs::write(paths.current_link("php").join("php"), b"x").unwrap();
         let dl = FakeDownloader::new();
         install_composer(&paths, &dl).unwrap();
-        assert!(paths.bin().join("composer.phar").is_file());
-        let wrapper = std::fs::read_to_string(paths.bin().join("composer")).unwrap();
+        // composer.phar lands in the fallback version dir
+        let dir = paths.version_dir("composer", COMPOSER_FALLBACK_VERSION);
+        assert!(dir.join("composer.phar").is_file());
+        let wrapper = std::fs::read_to_string(dir.join("composer")).unwrap();
         assert!(wrapper.contains("exec"));
         assert!(wrapper.contains("composer.phar"));
-        assert!(wrapper.contains("/php\""));
+        assert!(wrapper.contains("$HOME/laragon/bin/php/current/php"));
+        // current symlink points at the fallback version
+        assert_eq!(
+            std::fs::read_link(paths.current_link("composer")).unwrap(),
+            Path::new(COMPOSER_FALLBACK_VERSION)
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(paths.bin().join("composer")).unwrap().permissions().mode();
+            let mode = std::fs::metadata(dir.join("composer")).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o755);
         }
         std::fs::remove_dir_all(paths.root()).ok();
