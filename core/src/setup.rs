@@ -230,7 +230,9 @@ pub fn run_setup(
     privileged: &dyn Privileged,
     downloader: &dyn Downloader,
     runner: &dyn crate::scaffold::CommandRunner,
+    sink: &dyn crate::progress::ProgressSink,
 ) -> SetupReport {
+    use crate::progress::ProgressEvent;
     let mut report = SetupReport {
         apt_packages: Vec::new(),
         mailpit_fetched: false,
@@ -245,6 +247,9 @@ pub fn run_setup(
     let missing: Vec<Component> =
         statuses.iter().filter(|s| !s.present).map(|s| s.component).collect();
 
+    let total = missing.len();
+    let mut done = 0usize;
+
     // 1. Install missing apt components (core stack only; PHP is static, below).
     let apt_packages: Vec<String> =
         missing.iter().flat_map(|&c| apt_packages_for(c)).collect();
@@ -257,7 +262,8 @@ pub fn run_setup(
 
     // 1b. Install PHP from a static build (no apt/distro PHP) when missing.
     if missing.contains(&Component::Php) {
-        match crate::php_static::install_php_static(paths, crate::php_versions::DEFAULT_PHP_VERSION, downloader, runner) {
+        sink.emit(ProgressEvent::Step { done, total, label: Component::Php.label().to_string() });
+        match crate::php_static::install_php_static(paths, crate::php_versions::DEFAULT_PHP_VERSION, downloader, runner, sink) {
             Ok(full) => {
                 report.php_version = Some(full.clone());
                 let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
@@ -269,16 +275,19 @@ pub fn run_setup(
             }
             Err(e) => report.errors.push(format!("install php (static): {e}")),
         }
+        done += 1;
     }
 
     // 1c. Install composer (downloaded, not apt) when missing. Must run after PHP so
     // the PHP binary is available for probing the composer version.
     if missing.contains(&Component::Composer) {
-        if let Err(e) = crate::php_cli::install_composer(paths, downloader) {
+        sink.emit(ProgressEvent::Step { done, total, label: Component::Composer.label().to_string() });
+        if let Err(e) = crate::php_cli::install_composer(paths, downloader, sink) {
             report.errors.push(format!("install composer: {e}"));
         } else {
             report.composer_fetched = true;
         }
+        done += 1;
     }
 
     // apt auto-starts + enables the distro nginx/mariadb/redis systemd units, which
@@ -290,8 +299,9 @@ pub fn run_setup(
 
     // 2. Fetch + extract mailpit into ~/laragon/bin/<version>/ when missing.
     if missing.contains(&Component::Mailpit) {
+        sink.emit(ProgressEvent::Step { done, total, label: Component::Mailpit.label().to_string() });
         let tarball = paths.tmp().join("mailpit.tar.gz");
-        match downloader.fetch(MAILPIT_URL, &tarball) {
+        match downloader.fetch_with_progress(MAILPIT_URL, &tarball, sink) {
             Ok(()) => {
                 report.mailpit_fetched = true;
                 let extract_dir = paths.tmp().join("mailpit-extract");
@@ -330,6 +340,8 @@ pub fn run_setup(
             }
             Err(e) => report.errors.push(format!("mailpit download: {e}")),
         }
+        done += 1;
+        let _ = done; // no further steps read `done`; suppress unused-assignment lint
     }
 
     // 3. Install the mkcert local CA (idempotent).
@@ -417,7 +429,7 @@ mod tests {
         let dl = FakeDownloader::new();
         let runner = crate::scaffold::FakeCommandRunner::new();
 
-        let _ = run_setup(&paths, &priv_, &dl, &runner);
+        let _ = run_setup(&paths, &priv_, &dl, &runner, &crate::progress::NullProgress);
 
         let calls = disabled.lock().unwrap();
         assert_eq!(calls.len(), 1);
@@ -437,7 +449,7 @@ mod tests {
         let add_repos = priv_.add_repos();
         let dl = FakeDownloader::new();
         let runner = crate::scaffold::FakeCommandRunner::new();
-        let _ = run_setup(&paths, &priv_, &dl, &runner);
+        let _ = run_setup(&paths, &priv_, &dl, &runner, &crate::progress::NullProgress);
         // Hermetic: regardless of what's installed, we never add a PPA.
         assert!(add_repos.lock().unwrap().is_empty());
         std::fs::remove_dir_all(&root).ok();
@@ -451,7 +463,7 @@ mod tests {
         let priv_ = FakePrivileged::new();
         let dl = FakeDownloader::new();
         let runner = crate::scaffold::FakeCommandRunner::new();
-        let _ = run_setup(&paths, &priv_, &dl, &runner);
+        let _ = run_setup(&paths, &priv_, &dl, &runner, &crate::progress::NullProgress);
         assert!(priv_.mariadb_apparmor_configured());
         std::fs::remove_dir_all(&root).ok();
     }
@@ -461,5 +473,31 @@ mod tests {
         assert!(Component::ALL.contains(&Component::Composer));
         assert!(apt_packages_for(Component::Composer).is_empty());
         assert_eq!(Component::Composer.label(), "composer");
+    }
+
+    struct FakeProgress(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+    impl crate::progress::ProgressSink for FakeProgress {
+        fn emit(&self, ev: crate::progress::ProgressEvent) {
+            if let crate::progress::ProgressEvent::Step { done, total, label } = ev {
+                self.0.lock().unwrap().push(format!("{done}/{total}:{label}"));
+            }
+        }
+    }
+
+    #[test]
+    fn run_setup_emits_a_step_per_missing_component() {
+        let root = std::env::temp_dir().join(format!("lara-setup-prog-{}", std::process::id()));
+        let paths = LaragonPaths::new(root.clone());
+        paths.ensure_dirs().unwrap();
+        let priv_ = FakePrivileged::new();
+        let dl = FakeDownloader::new();
+        let runner = crate::scaffold::FakeCommandRunner::new();
+        let steps = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = FakeProgress(steps.clone());
+        let _ = run_setup(&paths, &priv_, &dl, &runner, &sink);
+        // At least the PHP/mailpit/composer steps fire (all components are missing on a fresh root).
+        assert!(!steps.lock().unwrap().is_empty(), "expected Step events");
+        assert!(steps.lock().unwrap().iter().all(|s| s.contains('/')));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

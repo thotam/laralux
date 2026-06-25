@@ -74,9 +74,10 @@ fn download_static_php(
     url: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
+    sink: &dyn crate::progress::ProgressSink,
 ) -> Result<(), PhpStaticError> {
     let tarball = paths.tmp().join(format!("php-{full}-{sapi}.tar.gz"));
-    downloader.fetch(url, &tarball).map_err(|e| PhpStaticError::Download(e.to_string()))?;
+    downloader.fetch_with_progress(url, &tarball, sink).map_err(|e| PhpStaticError::Download(e.to_string()))?;
     std::fs::create_dir_all(dest_dir)?;
     runner.run("tar", &[
         "-xzf".to_string(), tarball.display().to_string(),
@@ -102,6 +103,7 @@ pub fn install_php_static(
     requested: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
+    sink: &dyn crate::progress::ProgressSink,
 ) -> Result<String, PhpStaticError> {
     let arch = arch_tag().ok_or_else(|| PhpStaticError::Arch(std::env::consts::ARCH.to_string()))?;
     let json = fetch_index(paths, downloader)?;
@@ -111,8 +113,8 @@ pub fn install_php_static(
     // Build the cli URL for the identical patch — no second index lookup that could drift.
     let url_cli = format!("{STATIC_PHP_BASE}/php-{full}-cli-linux-{arch}.tar.gz");
     let dir = paths.version_dir("php", &full);
-    download_static_php(paths, &full, "fpm", "php-fpm", &dir, "php-fpm", &url_fpm, downloader, runner)?;
-    download_static_php(paths, &full, "cli", "php", &dir, "php", &url_cli, downloader, runner)?;
+    download_static_php(paths, &full, "fpm", "php-fpm", &dir, "php-fpm", &url_fpm, downloader, runner, sink)?;
+    download_static_php(paths, &full, "cli", "php", &dir, "php", &url_cli, downloader, runner, sink)?;
     crate::layout::set_current(paths, "php", &full)?;
     Ok(full)
 }
@@ -123,12 +125,13 @@ pub fn install_php_cli(
     requested: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
+    sink: &dyn crate::progress::ProgressSink,
 ) -> Result<String, PhpStaticError> {
     let arch = arch_tag().ok_or_else(|| PhpStaticError::Arch(std::env::consts::ARCH.to_string()))?;
     let json = fetch_index(paths, downloader)?;
     let (full, url_cli) = latest_patch(requested, arch, "cli", &json)
         .ok_or_else(|| PhpStaticError::Unavailable(requested.to_string()))?;
-    download_static_php(paths, &full, "cli", "php", &paths.version_dir("php", &full), "php", &url_cli, downloader, runner)?;
+    download_static_php(paths, &full, "cli", "php", &paths.version_dir("php", &full), "php", &url_cli, downloader, runner, sink)?;
     crate::layout::set_current(paths, "php", &full)?;
     Ok(full)
 }
@@ -227,7 +230,7 @@ mod tests {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let runner = TarRunner { calls: calls.clone() };
 
-        let full = install_php_static(&paths, "8.4", &dl, &runner).unwrap();
+        let full = install_php_static(&paths, "8.4", &dl, &runner, &crate::progress::NullProgress).unwrap();
         assert_eq!(full, "8.4.22");
         assert!(paths.version_dir("php", "8.4.22").join("php-fpm").is_file());
         assert!(paths.version_dir("php", "8.4.22").join("php").is_file());
@@ -250,7 +253,7 @@ mod tests {
         let dl = StubDownloader { index_json: "[]".to_string(), fetched: Arc::new(Mutex::new(Vec::new())) };
         let runner = TarRunner { calls: Arc::new(Mutex::new(Vec::new())) };
         assert!(matches!(
-            install_php_static(&paths, "8.4", &dl, &runner),
+            install_php_static(&paths, "8.4", &dl, &runner, &crate::progress::NullProgress),
             Err(PhpStaticError::Unavailable(_))
         ));
         std::fs::remove_dir_all(&root).ok();

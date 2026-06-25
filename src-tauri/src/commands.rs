@@ -152,7 +152,7 @@ pub async fn run_setup_cmd(app: tauri::AppHandle) -> Result<SetupReport, String>
         let state = app.state::<AppState>();
         let privileged = PkexecPrivileged;
         let downloader = CurlDownloader;
-        Ok(run_setup(&state.paths, &privileged, &downloader, &RealCommandRunner))
+        Ok(run_setup(&state.paths, &privileged, &downloader, &RealCommandRunner, &laragon_core::NullProgress))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -183,6 +183,7 @@ pub async fn create_site(
             mariadb_running,
             &RealCommandRunner,
             &CurlDownloader,
+            &laragon_core::NullProgress,
         )
         .map_err(|e| e.to_string())?;
 
@@ -403,7 +404,7 @@ pub async fn install_php_version(
 ) -> Result<Vec<PhpVersionInfo>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PhpVersionInfo>, String> {
         let state = app.state::<AppState>();
-        let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner)
+        let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &laragon_core::NullProgress)
             .map_err(|e| e.to_string())?;
         // install_php_static repoints bin/php/current to the just-installed version;
         // restore the configured active version so a non-active install never
@@ -440,7 +441,7 @@ pub async fn set_php_version(
 
         // Point the CLI `php` (and composer) at the new active version; download
         // the cli binary if a pre-static-cli version only had php-fpm.
-        let _ = ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner);
+        let _ = ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &laragon_core::NullProgress);
 
         Ok(snapshot)
     })
@@ -466,9 +467,9 @@ pub async fn set_terminal_integration(
         let home = std::path::PathBuf::from(home);
 
         if enabled {
-            ensure_active_php_cli(&state.paths, &config.php_version, &CurlDownloader, &RealCommandRunner)
+            ensure_active_php_cli(&state.paths, &config.php_version, &CurlDownloader, &RealCommandRunner, &laragon_core::NullProgress)
                 .map_err(|e| e.to_string())?;
-            install_composer(&state.paths, &CurlDownloader).map_err(|e| e.to_string())?;
+            install_composer(&state.paths, &CurlDownloader, &laragon_core::NullProgress).map_err(|e| e.to_string())?;
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
             enable_shell_path(&home, &shell).map_err(|e| e.to_string())?;
         } else {
@@ -524,7 +525,7 @@ fn apply_wildcard_dns(state: &AppState, bases: &[String]) -> Vec<String> {
         }
         return warnings;
     }
-    if let Err(e) = ensure_coredns(&state.paths, &CurlDownloader, &RealCommandRunner) {
+    if let Err(e) = ensure_coredns(&state.paths, &CurlDownloader, &RealCommandRunner, &laragon_core::NullProgress) {
         warnings.push(format!("Wildcard DNS unavailable (CoreDNS download failed): {e}"));
         return warnings;
     }

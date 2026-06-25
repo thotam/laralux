@@ -60,6 +60,7 @@ pub fn ensure_coredns(
     paths: &LaragonPaths,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
+    sink: &dyn crate::progress::ProgressSink,
 ) -> Result<(), CorednsError> {
     let dir = paths.version_dir("coredns", COREDNS_VERSION);
     let dest = dir.join("coredns");
@@ -72,7 +73,7 @@ pub fn ensure_coredns(
     std::fs::create_dir_all(&dir)?;
     let _ = std::fs::remove_file(&dest);
     let tgz = paths.tmp().join("coredns.tgz");
-    downloader.fetch(&coredns_url(COREDNS_VERSION, arch), &tgz).map_err(|e| CorednsError::Download(e.to_string()))?;
+    downloader.fetch_with_progress(&coredns_url(COREDNS_VERSION, arch), &tgz, sink).map_err(|e| CorednsError::Download(e.to_string()))?;
     let extract_dir = paths.tmp().join("coredns-extract");
     std::fs::create_dir_all(&extract_dir)?;
     runner.run("tar", &["-xzf".into(), tgz.display().to_string(), "-C".into(), extract_dir.display().to_string(), "coredns".into()], None)
