@@ -62,7 +62,7 @@ pub async fn stack_start_all(app: tauri::AppHandle) -> Result<Vec<ServiceStatus>
             &issuer,
             &privileged,
         ).map(|o| o.wildcard_bases).unwrap_or_default();
-        apply_wildcard_dns(&state, &bases);
+        let _ = apply_wildcard_dns(&state, &bases);
 
         // Ensure nginx can bind :80/:443 (re-setcap if a binary upgrade cleared it).
         ensure_nginx_bind_cap(&state.paths, &PkexecPrivileged);
@@ -455,23 +455,52 @@ pub fn open_terminal(path: String) -> Result<(), String> {
     laragon_core::open_terminal(&dir).map_err(|e| e.to_string())
 }
 
-/// Apply DNS state for the current wildcard bases: download+run CoreDNS and
-/// write the resolved drop-in when present; otherwise stop CoreDNS and remove
-/// the drop-in. Best-effort (failures are ignored; explicit domains still work).
-fn apply_wildcard_dns(state: &AppState, bases: &[String]) {
+/// Best-effort: kill any CoreDNS spawned from our managed bin (e.g. an orphan
+/// left by a crashed prior session that still holds 127.0.0.1:5353). Matching on
+/// our bin path avoids touching an unrelated system CoreDNS.
+fn kill_stale_coredns(state: &AppState) {
+    let pat = state.paths.bin().join("coredns");
+    let _ = std::process::Command::new("pkill")
+        .arg("-f")
+        .arg(pat.display().to_string())
+        .status();
+}
+
+/// Apply DNS state for the current wildcard bases. Returns non-fatal warnings
+/// (best-effort: failures never break the explicit-domain path, but are reported
+/// so the UI can tell the user wildcard DNS didn't fully apply).
+fn apply_wildcard_dns(state: &AppState, bases: &[String]) -> Vec<String> {
+    let mut warnings: Vec<String> = Vec::new();
     if bases.is_empty() {
         if let Ok(mut orch) = state.orch.lock() {
             let _ = orch.set_coredns(vec![]);
         }
-        let _ = PkexecPrivileged.remove_resolved_dropin();
-        return;
-    }
-    if ensure_coredns(&state.paths, &CurlDownloader, &RealCommandRunner).is_ok() {
-        if let Ok(mut orch) = state.orch.lock() {
-            let _ = orch.set_coredns(bases.to_vec());
+        kill_stale_coredns(state); // ensure no orphan keeps :5353
+        if let Err(e) = PkexecPrivileged.remove_resolved_dropin() {
+            warnings.push(format!("Could not remove DNS routing drop-in: {e}"));
         }
-        let _ = PkexecPrivileged.write_resolved_dropin(&resolved_dropin(bases, 5353));
+        return warnings;
     }
+    if let Err(e) = ensure_coredns(&state.paths, &CurlDownloader, &RealCommandRunner) {
+        warnings.push(format!("Wildcard DNS unavailable (CoreDNS download failed): {e}"));
+        return warnings;
+    }
+    kill_stale_coredns(state); // clear any orphan before (re)starting
+    if let Ok(mut orch) = state.orch.lock() {
+        if let Err(e) = orch.set_coredns(bases.to_vec()) {
+            warnings.push(format!("Could not start CoreDNS: {e}"));
+        }
+    }
+    if let Err(e) = PkexecPrivileged.write_resolved_dropin(&resolved_dropin(bases, 5353)) {
+        warnings.push(format!("Could not write DNS routing drop-in: {e}"));
+    }
+    warnings
+}
+
+#[derive(serde::Serialize)]
+pub struct SetDomainsResult {
+    pub sites: Vec<Site>,
+    pub warnings: Vec<String>,
 }
 
 #[tauri::command]
@@ -479,8 +508,8 @@ pub async fn set_site_domains(
     app: tauri::AppHandle,
     name: String,
     domains: Vec<String>,
-) -> Result<Vec<Site>, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<Site>, String> {
+) -> Result<SetDomainsResult, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<SetDomainsResult, String> {
         let state = app.state::<AppState>();
         let config = Config::load(&state.paths.config_file()).unwrap_or_default();
 
@@ -496,7 +525,7 @@ pub async fn set_site_domains(
             std::path::Path::new("/etc/hosts"), &issuer, &privileged,
         );
         let bases = outcome.as_ref().map(|o| o.wildcard_bases.clone()).unwrap_or_default();
-        apply_wildcard_dns(&state, &bases);
+        let warnings = apply_wildcard_dns(&state, &bases);
         {
             let mut orch = state.orch.lock().map_err(lock_err)?;
             if orch.state(ServiceKind::Nginx) == ServiceState::Running {
@@ -505,7 +534,7 @@ pub async fn set_site_domains(
             }
         }
         let (sites, _w) = list_all_sites(&state.paths, &config.tld).map_err(|e| e.to_string())?;
-        Ok(sites)
+        Ok(SetDomainsResult { sites, warnings })
     })
     .await
     .map_err(|e| e.to_string())?
