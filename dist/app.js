@@ -1099,6 +1099,7 @@
   // ---- render ----
   const app = document.getElementById("app");
   let lastSig = "";
+  let lastView = null;
 
   function render() {
     document.documentElement.dataset.theme = state.dark ? "dark" : "light";
@@ -1140,7 +1141,18 @@
       try { selS = ae.selectionStart; selE = ae.selectionEnd; } catch (_) {}
     }
 
+    // Preserve the scroll position of the main content area across the full
+    // innerHTML replacement (the 2s auto-refresh, or a download-progress tick,
+    // otherwise yanks the user back to the top). Only restore when the view is
+    // unchanged — a deliberate navigation should start at the top.
+    const scroller = app.querySelector(".main");
+    const prevScroll = scroller ? scroller.scrollTop : 0;
+    const sameView = state.view === lastView;
+    lastView = state.view;
+
     app.innerHTML = html;
+
+    if (sameView) { const ns = app.querySelector(".main"); if (ns) ns.scrollTop = prevScroll; }
 
     if (fId || fAction) {
       let el = fId ? document.getElementById(fId) : null;
