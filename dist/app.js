@@ -87,6 +87,8 @@
     proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
     phpVersions: [],
     phpBusy: false,
+    terminalIntegration: false,
+    termBusy: false,
   };
 
   // ---- helpers ----
@@ -127,6 +129,33 @@
       state.phpVersions = Array.isArray(v) ? v : [];
       render();
     } catch (_) { /* settings-only; stay quiet */ }
+  }
+
+  async function loadTerminalIntegration() {
+    try {
+      const on = await invoke("terminal_integration_status");
+      state.terminalIntegration = !!on;
+      render();
+    } catch (_) { /* settings-only; stay quiet */ }
+  }
+
+  async function toggleTerminalIntegration() {
+    if (state.termBusy) return;
+    const next = !state.terminalIntegration;
+    state.termBusy = true; render();
+    try {
+      const on = await invoke("set_terminal_integration", { enabled: next });
+      state.terminalIntegration = !!on;
+      toast({
+        type: "success",
+        title: on ? "Terminal integration on" : "Terminal integration off",
+        msg: on ? "Open a new terminal — php & composer now use Laragon's active version" : "Removed ~/laragon/bin from your shell PATH",
+      });
+    } catch (e) {
+      toast({ type: "error", title: "Couldn't change terminal integration", msg: String(e) });
+    } finally {
+      state.termBusy = false; render();
+    }
   }
 
   async function usePhp(version) {
@@ -475,7 +504,7 @@
     state.view = v;
     state.confirmRemove = null;
     render();
-    if (v === "settings") loadPhpVersions();
+    if (v === "settings") { loadPhpVersions(); loadTerminalIntegration(); }
   }
   function toggleDark() {
     state.dark = !state.dark;
@@ -765,6 +794,10 @@
       '<code class="code-chip">.dev</code></div>' +
       '<div class="set-row"><div class="grow"><div class="t">Sites directory</div><div class="h">Where projects are scanned</div></div>' +
       '<code class="code-chip">~/laragon/www</code></div>' +
+      '<div class="set-row"><div class="grow"><div class="t">Terminal integration</div>' +
+      '<div class="h">Use Laragon\'s active PHP + composer in your shell (php, composer)</div></div>' +
+      '<button class="btn-sm" data-action="toggle-terminal"' + (state.termBusy ? " disabled" : "") + '>' +
+      (state.terminalIntegration ? "On" : "Off") + "</button></div>" +
       '<div class="set-row"><div class="grow"><div class="t">Start on login</div><div class="h">Autostart in system tray — coming soon</div></div>' +
       '<span class="toggle-off"><span class="knob"></span></span></div>' +
       "</div>" +
@@ -976,6 +1009,7 @@
     else if (a === "open-url") { e.preventDefault(); openExternal(el.getAttribute("data-url")); }
     else if (a === "use-php") usePhp(el.getAttribute("data-version"));
     else if (a === "install-php") installPhp(el.getAttribute("data-version"));
+    else if (a === "toggle-terminal") toggleTerminalIntegration();
     else if (a === "toast-dismiss") dismiss(parseInt(el.getAttribute("data-id"), 10));
     else if (a === "new-site") openNewSite();
     else if (a === "ns-close") closeNewSite();

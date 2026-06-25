@@ -34,6 +34,8 @@ pub struct Config {
     pub php_version: String,
     #[serde(default)]
     pub services: ServicesConfig,
+    #[serde(default)]
+    pub shell_integration: bool,
 }
 
 fn default_tld() -> String {
@@ -45,7 +47,7 @@ fn default_php() -> String {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default() }
+        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), shell_integration: false }
     }
 }
 
@@ -95,6 +97,17 @@ mod tests {
         c.save(&tmp).unwrap();
         let back = Config::load(&tmp).unwrap();
         assert_eq!(c, back);
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn shell_integration_defaults_false_and_roundtrips() {
+        assert!(!Config::default().shell_integration);
+        let tmp = std::env::temp_dir().join(format!("lara-cfg-si-{}.toml", std::process::id()));
+        let mut c = Config::default();
+        c.shell_integration = true;
+        c.save(&tmp).unwrap();
+        assert!(Config::load(&tmp).unwrap().shell_integration);
         std::fs::remove_file(&tmp).ok();
     }
 }

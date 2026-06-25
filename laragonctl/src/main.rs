@@ -29,7 +29,8 @@ fn main() {
             let priv_ = SudoPrivileged;
             println!("Installing mkcert local CA (may prompt for sudo)...");
             priv_.install_mkcert_ca().expect("mkcert -install");
-            let nginx_bin = which("nginx").unwrap_or_else(|| "/usr/sbin/nginx".into());
+            let nginx_bin = laragon_core::bin::resolve_bin("nginx", &[paths.bin()])
+                .unwrap_or_else(|| std::path::PathBuf::from("/usr/sbin/nginx"));
             println!("Granting nginx permission to bind low ports via setcap...");
             priv_.setcap_nginx(&nginx_bin).expect("setcap nginx");
             println!("Done.");
@@ -106,18 +107,6 @@ fn main() {
             println!("usage: laragonctl <config-init|up|status|sites|setup-perms|setup>");
         }
     }
-}
-
-/// Resolve a binary on PATH (minimal `which`, no external crate).
-fn which(bin: &str) -> Option<std::path::PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(bin);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
 }
 
 fn wait_for_ctrl_c() {
