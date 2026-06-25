@@ -55,8 +55,12 @@ Rejected:
   ```
 - `apply_shell_block(contents: &str, home: &Path) -> String` (pure): like `hosts::apply_block` — insert/replace the marked block in a file's contents, return the updated contents (idempotent; preserves the rest).
 - `remove_shell_block(contents: &str) -> String` (pure): strip the marked block.
-- `enable_shell_path(home: &Path) -> std::io::Result<()>`: for each of `~/.bashrc` and `~/.zshrc` **that already exists** (don't create new rc files), read → `apply_shell_block` → write if changed.
-- `disable_shell_path(home: &Path) -> std::io::Result<()>`: for each existing rc file, read → `remove_shell_block` → write if changed.
+- `rc_filename_for_shell(shell: &str) -> &'static str` (pure): returns `".zshrc"` if `shell` ends with `zsh`, else `".bashrc"`.
+- `enable_shell_path(home: &Path, shell: &str) -> std::io::Result<()>`:
+  - For each of `~/.bashrc` and `~/.zshrc` **that already exists**, read → `apply_shell_block` → write if changed (so a user with both gets both updated).
+  - **If neither exists**, create exactly one rc — `home/rc_filename_for_shell(shell)` — with the block (so a zsh-only user gets `~/.zshrc`, a bash user gets `~/.bashrc`; we never create a `.zshrc` for a bash user or vice-versa).
+  - `shell` is the caller's `$SHELL`.
+- `disable_shell_path(home: &Path) -> std::io::Result<()>`: for each existing rc file (`~/.bashrc`, `~/.zshrc`), read → `remove_shell_block` → write if changed. (Does not delete an rc file it created; just removes the block.)
 - No privilege (user-owned files). Marker `# >>> laragon >>>` / `# <<< laragon <<<`.
 
 ### 3.4 `core/src/config.rs` — remember the toggle
@@ -68,9 +72,9 @@ Rejected:
 - `set_php_version` (existing): after persisting `Config.php_version` and `replace_php_version`, also call `ensure_active_php_cli(&paths, &version, &CurlDownloader, &RealCommandRunner)` so the `php` symlink (and cli binary) follow the active version. (Runs in the existing `spawn_blocking`.)
 - `terminal_integration_status() -> Result<bool, String>`: returns `Config.shell_integration`.
 - `set_terminal_integration(app, enabled: bool) -> Result<bool, String>` (async + spawn_blocking):
-  - if `enabled`: `ensure_active_php_cli(...)` for the active version; `install_composer(...)`; `enable_shell_path(home)`; set `Config.shell_integration = true` and save.
+  - if `enabled`: `ensure_active_php_cli(...)` for the active version; `install_composer(...)`; `enable_shell_path(home, &shell)`; set `Config.shell_integration = true` and save.
   - if `!enabled`: `disable_shell_path(home)`; set `Config.shell_integration = false` and save. (Binaries/composer left in place; only the PATH block is removed.)
-  - `home` from `std::env::var("HOME")`.
+  - `home` from `std::env::var("HOME")`; `shell` from `std::env::var("SHELL")` (default `"/bin/bash"` if unset).
   - Returns the new flag. Errors → `Err(String)`.
 - Setup wizard (`run_setup`): after the static PHP install + persist, call `set_active_php(paths, version)` so `~/laragon/bin/php` exists for the freshly-installed default version (composer/PATH only wired when the user enables the toggle). Non-fatal.
 - Register the two new commands in `main.rs`.
@@ -87,7 +91,7 @@ Rejected:
 - **Self-contained composer**: `composer.phar` from getcomposer.org, run under the active Laragon php — independent of the distro composer.
 - **No privilege**: everything is under `~/laragon` and the user's own rc files.
 - **Pre-existing fpm-only versions**: `ensure_active_php_cli` downloads the missing cli on demand, so switching to a version installed before this slice still yields a working `php`.
-- **rc files**: only modify `~/.bashrc`/`~/.zshrc` if they already exist; never create them (avoid surprising users without those shells).
+- **rc files**: update every existing `~/.bashrc`/`~/.zshrc`; if **neither** exists, create the one matching `$SHELL` (zsh → `~/.zshrc`, otherwise `~/.bashrc`) — never create a `.zshrc` for a bash user or vice-versa. The active-version **symlink and composer wrapper update regardless of rc files** — switching the version always re-points `~/laragon/bin/php`/`composer`; the rc block only governs whether a plain terminal finds them on PATH.
 
 ## 5. Error handling
 
@@ -100,7 +104,7 @@ Rejected:
 
 - `latest_patch_url(version, arch, sapi, json)`: returns the cli URL for `sapi="cli"` and the fpm URL for `sapi="fpm"` from the same sample listing; ignores the other SAPI/arch.
 - `install_php_static` (module-local fakes): fetches the index once then **two** tarball URLs (fpm + cli), runs `tar` for both, and places **both** `php-fpm<v>` and `php<v>` (mode 0755) in `~/laragon/bin`.
-- `shell_env`: `apply_shell_block` inserts the block once and is idempotent on re-apply; `remove_shell_block` strips it and leaves surrounding lines intact; `shell_block(home)` contains `export PATH="<home>/laragon/bin:$PATH"` and both markers.
+- `shell_env`: `apply_shell_block` inserts the block once and is idempotent on re-apply; `remove_shell_block` strips it and leaves surrounding lines intact; `shell_block(home)` contains `export PATH="<home>/laragon/bin:$PATH"` and both markers. `rc_filename_for_shell("/usr/bin/zsh")` == `.zshrc`, `rc_filename_for_shell("/bin/bash")` == `.bashrc`. `enable_shell_path(home, "/bin/bash")` on a temp HOME with an existing `.bashrc` adds the block to it; on a temp HOME with **no** rc files it creates `.bashrc` (and, with `"/usr/bin/zsh"`, creates `.zshrc` instead); `disable_shell_path` then removes the block.
 - `set_active_php` (temp root): creates `~/laragon/bin/php` symlink → `php<v>`; re-pointing to another version replaces it.
 - `install_composer` (FakeDownloader): writes `composer.phar` and a `composer` wrapper that contains `exec` + `composer.phar`; wrapper is mode 0755.
 - `config`: `shell_integration` defaults false and round-trips.
