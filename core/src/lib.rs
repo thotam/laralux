@@ -18,6 +18,7 @@ pub mod php_versions;
 pub mod php_static;
 pub mod php_cli;
 pub mod shell_env;
+pub mod terminal;
 
 pub use bin::{ensure_nginx_bind_cap, list_php_fpm_versions};
 pub use config::Config;
@@ -37,3 +38,4 @@ pub use php_versions::{php_versions, PhpVersionInfo};
 pub use php_static::{install_php_static, PhpStaticError};
 pub use php_cli::{ensure_active_php_cli, install_composer, set_active_php};
 pub use shell_env::{disable_shell_path, enable_shell_path};
+pub use terminal::{open_terminal, TerminalError};
