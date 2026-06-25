@@ -84,6 +84,14 @@ Rejected:
 - Add a **"Terminal integration"** row to Settings: a toggle **"Use Laragon PHP in terminal (php + composer)"** bound to `terminal_integration_status()` / `set_terminal_integration({enabled})`. While busy, disable it; on success show a toast and a hint: *"Open a new terminal to apply."* On error, revert the toggle and toast.
 - Load the status when entering Settings (alongside `loadPhpVersions`).
 
+### 3.7 `laragonctl/src/main.rs` — unify nginx resolution (consistency fix folded in)
+
+`laragonctl`'s `setup-perms` currently finds nginx with a private `fn which(bin)` (a homegrown PATH search) and `setcap`s that path, while the orchestrator spawns nginx resolved via `bin::resolve_or_name("nginx", &[paths.bin()])` (which searches `~/laragon/bin` → PATH → `FALLBACK_DIRS`). These can diverge, so `setcap` may target a different binary than the one that runs. Fix:
+- Replace the `which("nginx")` call with `laragon_core::bin::resolve_bin("nginx", &[paths.bin()]).unwrap_or_else(|| std::path::PathBuf::from("/usr/sbin/nginx"))` — the same resolution the orchestrator uses (so setcap lands on the spawned binary), keeping `/usr/sbin/nginx` only as the last-resort fallback.
+- Delete the now-unused private `fn which`.
+
+This requires `bin::resolve_bin` to be reachable; it already is via `laragon_core::bin::resolve_bin` (`pub mod bin`). No behavior change beyond aligning the resolved path; covered by `resolve_bin`'s existing tests.
+
 ## 4. Behavior details & decisions
 
 - **CLI follows active**: `~/laragon/bin/php` is a symlink to the active `php<minor>`; `set_php_version` re-points it; `composer` wrapper execs that `php`. Switching version in the app changes both with no extra step.
