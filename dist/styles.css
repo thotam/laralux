@@ -388,3 +388,4 @@ button:disabled { cursor:not-allowed; }
 .ring .ring-spin { fill:none; stroke:var(--primary); stroke-width:5; stroke-linecap:round; transform-origin:32px 32px; }
 .ring .ring-pct { transform:rotate(90deg); transform-origin:32px 32px; fill:var(--text); font-size:13px; font-weight:600; }
 .ring .ring-label { font-size:13px; color:var(--text-muted); }
+.ring .ring-hide { display:none; }
