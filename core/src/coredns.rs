@@ -41,7 +41,11 @@ pub fn corefile(bases: &[String], port: u16) -> String {
 
 /// systemd-resolved drop-in routing the wildcard bases to our CoreDNS.
 pub fn resolved_dropin(bases: &[String], port: u16) -> String {
-    let doms: Vec<String> = bases.iter().map(|b| format!("~{b}")).collect();
+    let doms: Vec<String> = bases
+        .iter()
+        .filter(|b| !b.is_empty() && b.chars().all(|c| !c.is_whitespace() && !c.is_control()))
+        .map(|b| format!("~{b}"))
+        .collect();
     format!("[Resolve]\nDNS=127.0.0.1:{port}\nDomains={}\n", doms.join(" "))
 }
 
@@ -120,5 +124,12 @@ mod tests {
         let dp = resolved_dropin(&["demo.dev".to_string(), "test".to_string()], 5353);
         assert!(dp.contains("DNS=127.0.0.1:5353"));
         assert!(dp.contains("Domains=~demo.dev ~test"));
+    }
+
+    #[test]
+    fn resolved_dropin_drops_unsafe_bases() {
+        let dp = resolved_dropin(&["demo.dev".to_string(), "bad base".to_string()], 5353);
+        assert!(dp.contains("~demo.dev"));
+        assert!(!dp.contains("bad base"));
     }
 }
