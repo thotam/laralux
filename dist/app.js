@@ -91,6 +91,7 @@
     phpBusy: false,
     terminalIntegration: false,
     termBusy: false,
+    download: { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 } },
   };
 
   // ---- helpers ----
@@ -110,6 +111,18 @@
     const byName = {};
     for (const c of arr) byName[c.component] = !!c.present;
     state.setup.components = COMP_ORDER.map((c) => ({ component: c, present: !!byName[c] }));
+  }
+
+  // ---- download progress helpers ----
+  function resetDownload() {
+    state.download = { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 } };
+  }
+  function applyProgress(p) {
+    if (!p || !p.kind) return;
+    state.download.active = true;
+    if (p.kind === "phase") state.download.label = String(p.label || "");
+    else if (p.kind === "step") { state.download.step = { done: p.done | 0, total: p.total | 0 }; if (p.label) state.download.label = String(p.label); }
+    else if (p.kind === "bytes") state.download.bytes = { current: Number(p.current) || 0, total: Number(p.total) || 0 };
   }
 
   // ---- toasts ----
@@ -178,6 +191,7 @@
   async function installPhp(version) {
     if (state.phpBusy) return;
     state.phpBusy = true; render();
+    state.download.active = true; state.download.label = "Downloading PHP " + version + "…"; render();
     try {
       const v = await invoke("install_php_version", { version });
       state.phpVersions = Array.isArray(v) ? v : [];
@@ -185,7 +199,9 @@
     } catch (e) {
       toast({ type: "error", title: "Install failed", msg: String(e) });
     } finally {
-      state.phpBusy = false; render();
+      state.phpBusy = false;
+      resetDownload();
+      render();
     }
   }
 
@@ -271,6 +287,7 @@
     state.setup.phase = "installing";
     state.pkexecMsg = "Authorize package installation (apt) — enter your password in the system prompt.";
     render();
+    state.download.active = true; state.download.label = "Installing components…"; render();
     try {
       const report = await invoke("run_setup_cmd");
       state.setup.report = report;
@@ -287,6 +304,7 @@
     } finally {
       state.busy = false;
       state.pkexecMsg = null;
+      resetDownload();
       render();
     }
   }
@@ -337,6 +355,7 @@
     const { name, template } = state.newSite;
     if (!validName(name)) { state.newSite.error = "Use lowercase letters, digits, hyphens (e.g. my-app)"; render(); return; }
     state.newSite.busy = true; state.newSite.error = ""; render();
+    state.download.active = true; state.download.label = "Creating site…"; render();
     try {
       const rep = await invoke("create_site", { name, template });
       const extra = rep.database_created ? " · database created" : "";
@@ -352,10 +371,11 @@
     } catch (e) {
       state.newSite.error = String(e);
       state.newSite.busy = false;
+      resetDownload();
       toast({ type: "error", title: "Create failed", msg: String(e) });
       render();
     } finally {
-      if (state.newSite.busy) { state.newSite.busy = false; render(); }
+      if (state.newSite.busy) { state.newSite.busy = false; resetDownload(); render(); }
     }
   }
 
@@ -564,6 +584,31 @@
   // ---- render pieces ----
   function spinner(klass) {
     return '<span class="spin spinner ' + klass + '"></span>';
+  }
+
+  function progressRing() {
+    const d = state.download;
+    const R1 = 26, R2 = 18, C1 = 2 * Math.PI * R1, C2 = 2 * Math.PI * R2;
+    const stepFrac = d.step.total > 0 ? d.step.done / d.step.total : 0;
+    const byteKnown = d.bytes.total > 0;
+    const byteFrac = byteKnown ? Math.min(1, d.bytes.current / d.bytes.total) : 0;
+    const pct = byteKnown ? Math.round(byteFrac * 100) + "%"
+      : (d.step.total > 0 ? d.step.done + "/" + d.step.total : "");
+    const off = (frac, C) => C * (1 - frac);
+    const inner = byteKnown
+      ? '<circle class="ring-fg" cx="32" cy="32" r="' + R2 + '" stroke-dasharray="' + C2 + '" stroke-dashoffset="' + off(byteFrac, C2) + '"/>'
+      : '<circle class="ring-spin spin" cx="32" cy="32" r="' + R2 + '" stroke-dasharray="' + (C2 * 0.25) + ' ' + C2 + '"/>';
+    return (
+      '<div class="ring" role="status" aria-label="Downloading">' +
+      '<svg width="64" height="64" viewBox="0 0 64 64">' +
+      '<circle class="ring-bg" cx="32" cy="32" r="' + R1 + '"/>' +
+      '<circle class="ring-fg outer" cx="32" cy="32" r="' + R1 + '" stroke-dasharray="' + C1 + '" stroke-dashoffset="' + off(stepFrac, C1) + '"/>' +
+      '<circle class="ring-bg" cx="32" cy="32" r="' + R2 + '"/>' + inner +
+      '<text class="ring-pct" x="32" y="36" text-anchor="middle">' + esc(pct) + '</text>' +
+      '</svg>' +
+      (d.label ? '<span class="ring-label">' + esc(d.label) + '</span>' : '') +
+      '</div>'
+    );
   }
 
   function header() {
@@ -789,8 +834,9 @@
         '<div class="h">Installs via <code>apt</code> — asks for your password and can take a few minutes.</div></div>' +
         '<button class="btn h36 btn-primary" data-action="run-setup" style="flex:none">' + I.download + "Install missing</button></div>";
     } else if (state.setup.phase === "installing") {
+      const installSpinner = state.download.active ? progressRing() : spinner("primary-lg");
       action =
-        '<div class="setup-installing">' + spinner("primary-lg") +
+        '<div class="setup-installing">' + installSpinner +
         '<div class="info"><div class="t">Installing… authorize when prompted</div>' +
         '<div class="h">Fetching packages — this can take a few minutes. Don\'t close the window.</div></div></div>' +
         '<div class="progress"><div class="shim bar"></div></div>';
@@ -832,10 +878,14 @@
       else right = '<button class="btn-sm" data-action="install-php" data-version="' + esc(p.version) + '"' + (state.phpBusy ? " disabled" : "") + ">Install</button>";
       return '<div class="set-row"><div class="grow"><div class="t">PHP ' + esc(p.version) + '</div><div class="h">' + (p.installed ? "Installed" : "Not installed") + "</div></div>" + right + "</div>";
     }).join("");
+    const phpBusyIndicator = (state.phpBusy && state.download.active)
+      ? '<div class="set-row" style="justify-content:center;padding:12px 0">' + progressRing() + '</div>'
+      : (state.phpBusy ? '<div class="set-row"><div class="h">' + spinner("muted") + " Installing…</div></div>" : "");
     const phpCard =
       '<div class="card settings-card">' +
       '<div class="set-row"><div class="grow"><div class="t">PHP version</div>' +
       '<div class="h">Active version for the stack · downloaded static build (no root)</div></div></div>' +
+      phpBusyIndicator +
       (phpRows || '<div class="set-row"><div class="h">Loading…</div></div>') +
       "</div>";
     return (
@@ -1232,6 +1282,9 @@
   }
 
   // ---- boot ----
+  if (TAURI && TAURI.event && TAURI.event.listen) {
+    TAURI.event.listen("download-progress", (e) => { applyProgress(e.payload); render(); });
+  }
   render();
   refresh();
   setInterval(refresh, 2000);
