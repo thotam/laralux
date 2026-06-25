@@ -57,6 +57,26 @@ fn version_key(v: &str) -> Vec<u32> {
     v.split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
+/// Resolve a requested version to an installed one: an exact `version_dir` wins;
+/// otherwise the highest installed full version whose major.minor equals
+/// `requested` (so a minor like "8.3" maps to e.g. "8.3.31"). None if nothing matches.
+pub fn resolve_installed_version(paths: &LaragonPaths, tool: &str, requested: &str) -> Option<String> {
+    if paths.version_dir(tool, requested).is_dir() {
+        return Some(requested.to_string());
+    }
+    let mut best: Option<(Vec<u32>, String)> = None;
+    for v in installed_versions(paths, tool) {
+        let minor = v.split('.').take(2).collect::<Vec<_>>().join(".");
+        if minor == requested {
+            let key = version_key(&v);
+            if best.as_ref().map_or(true, |(bk, _)| &key > bk) {
+                best = Some((key, v));
+            }
+        }
+    }
+    best.map(|(_, v)| v)
+}
+
 /// Materialize `current` symlinks from config. Returns a warning per tool whose
 /// configured version dir is missing. Best-effort: never aborts.
 pub fn apply_versions(paths: &LaragonPaths, config: &Config) -> Vec<String> {
@@ -178,5 +198,17 @@ mod tests {
         // /bin/echo prints the arg; probe extracts the first semver token.
         assert_eq!(probe_version(std::path::Path::new("/bin/echo"), &["v1.2.3 extra"]), Some("1.2.3".to_string()));
         assert_eq!(probe_version(std::path::Path::new("/bin/echo"), &["no version here"]), None);
+    }
+
+    #[test]
+    fn resolve_installed_version_maps_minor_to_latest_patch() {
+        let paths = root();
+        std::fs::create_dir_all(paths.version_dir("php", "8.3.31")).unwrap();
+        std::fs::create_dir_all(paths.version_dir("php", "8.3.40")).unwrap();
+        std::fs::create_dir_all(paths.version_dir("php", "8.4.10")).unwrap();
+        assert_eq!(resolve_installed_version(&paths, "php", "8.3"), Some("8.3.40".to_string())); // latest patch of the minor
+        assert_eq!(resolve_installed_version(&paths, "php", "8.4.10"), Some("8.4.10".to_string())); // exact full
+        assert_eq!(resolve_installed_version(&paths, "php", "9.0"), None);
+        std::fs::remove_dir_all(paths.root()).ok();
     }
 }

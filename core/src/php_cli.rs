@@ -19,10 +19,11 @@ pub fn ensure_active_php_cli(
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
 ) -> Result<(), PhpStaticError> {
-    if !paths.version_dir("php", version).join("php").is_file() {
-        let _ = install_php_cli(paths, version, downloader, runner)?;
-    }
-    set_active_php(paths, version).map_err(PhpStaticError::Io)?;
+    let full = match crate::layout::resolve_installed_version(paths, "php", version) {
+        Some(f) if paths.version_dir("php", &f).join("php").is_file() => f,
+        _ => install_php_cli(paths, version, downloader, runner)?,
+    };
+    set_active_php(paths, &full).map_err(PhpStaticError::Io)?;
     Ok(())
 }
 

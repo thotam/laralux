@@ -111,7 +111,9 @@ impl Orchestrator {
         if was_running {
             let _ = self.stop(ServiceKind::PhpFpm);
         }
-        crate::layout::set_current(&self.paths, "php", version)
+        let full = crate::layout::resolve_installed_version(&self.paths, "php", version)
+            .unwrap_or_else(|| version.to_string());
+        crate::layout::set_current(&self.paths, "php", &full)
             .map_err(|e| ServiceError::Config(format!("set php current: {e}")))?;
         if was_running {
             self.start(ServiceKind::PhpFpm)?;

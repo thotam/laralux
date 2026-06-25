@@ -421,8 +421,9 @@ pub async fn set_php_version(
         if !installed.iter().any(|p| p.version == version && p.installed) {
             return Err(format!("PHP {version} is not installed"));
         }
-        config.versions.insert("php".to_string(), version.clone());
-        config.php_version = version.clone();
+        let full = laragon_core::resolve_installed_version(&state.paths, "php", &version).unwrap_or_else(|| version.clone());
+        config.versions.insert("php".to_string(), full.clone());
+        config.php_version = full;
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
 
         let mut orch = state.orch.lock().map_err(lock_err)?;
