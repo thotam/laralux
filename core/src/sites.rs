@@ -224,8 +224,10 @@ pub fn list_all_sites(
 
     for s in sites.iter_mut() {
         if let Some(over) = registry.domains_for(&s.name) {
-            s.domains = over.to_vec();
-            s.hostname = over[0].clone();
+            if let Some(first) = over.first() {
+                s.domains = over.to_vec();
+                s.hostname = first.clone();
+            }
         }
     }
 
@@ -491,6 +493,23 @@ mod tests {
         let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
         let d = sites.iter().find(|s| s.name == "demo").unwrap();
         assert_eq!(d.domains, vec!["demo.dev".to_string(), "*.demo.dev".to_string()]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn empty_domain_override_is_ignored() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("demo")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+        // Write a sites.toml with an empty domains list for "demo".
+        let sites_file = paths.sites_file();
+        std::fs::create_dir_all(sites_file.parent().unwrap()).unwrap();
+        std::fs::write(&sites_file, "[[domains]]\nname = \"demo\"\ndomains = []\n").unwrap();
+        // Should not panic; empty override is silently ignored.
+        let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
+        let d = sites.iter().find(|s| s.name == "demo").unwrap();
+        assert_eq!(d.domains, vec!["demo.dev".to_string()]);
+        assert_eq!(d.hostname, "demo.dev");
         std::fs::remove_dir_all(&root).ok();
     }
 
