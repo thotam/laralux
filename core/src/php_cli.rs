@@ -18,10 +18,11 @@ pub fn ensure_active_php_cli(
     version: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
+    sink: &dyn crate::progress::ProgressSink,
 ) -> Result<(), PhpStaticError> {
     let full = match crate::layout::resolve_installed_version(paths, "php", version) {
         Some(f) if paths.version_dir("php", &f).join("php").is_file() => f,
-        _ => install_php_cli(paths, version, downloader, runner)?,
+        _ => install_php_cli(paths, version, downloader, runner, sink)?,
     };
     set_active_php(paths, &full).map_err(PhpStaticError::Io)?;
     Ok(())
@@ -29,12 +30,12 @@ pub fn ensure_active_php_cli(
 
 /// Download composer.phar, probe its version, place it into `bin/composer/<version>/`,
 /// write a wrapper script, and point `bin/composer/current` at the version dir.
-pub fn install_composer(paths: &LaragonPaths, downloader: &dyn Downloader) -> std::io::Result<()> {
+pub fn install_composer(paths: &LaragonPaths, downloader: &dyn Downloader, sink: &dyn crate::progress::ProgressSink) -> std::io::Result<()> {
     // Download to tmp, read its version, then place into bin/composer/<version>/.
     let tmp_phar = paths.tmp().join("composer.phar");
     std::fs::create_dir_all(paths.tmp())?;
     downloader
-        .fetch(COMPOSER_URL, &tmp_phar)
+        .fetch_with_progress(COMPOSER_URL, &tmp_phar, sink)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
     let php = paths.current_link("php").join("php");
     let version = crate::layout::probe_version(&php, &[tmp_phar.to_string_lossy().as_ref(), "--version"])
@@ -104,7 +105,7 @@ mod tests {
         std::fs::write(paths.version_dir("php", "8.4.10").join("php"), b"x").unwrap();
         let dl = FakeDownloader::new(); // would write "fake"; must NOT be called
         let runner = crate::scaffold::FakeCommandRunner::new();
-        ensure_active_php_cli(&paths, "8.4.10", &dl, &runner).unwrap();
+        ensure_active_php_cli(&paths, "8.4.10", &dl, &runner, &crate::progress::NullProgress).unwrap();
         let link = paths.current_link("php");
         assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("8.4.10"));
         assert!(dl.requested().lock().unwrap().is_empty(), "no download when cli present");
@@ -118,7 +119,7 @@ mod tests {
         std::fs::create_dir_all(paths.current_link("php")).unwrap();
         std::fs::write(paths.current_link("php").join("php"), b"x").unwrap();
         let dl = FakeDownloader::new();
-        install_composer(&paths, &dl).unwrap();
+        install_composer(&paths, &dl, &crate::progress::NullProgress).unwrap();
         // composer.phar lands in the fallback version dir
         let dir = paths.version_dir("composer", COMPOSER_FALLBACK_VERSION);
         assert!(dir.join("composer.phar").is_file());

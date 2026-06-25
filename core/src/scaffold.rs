@@ -259,6 +259,7 @@ pub fn create_site(
     mariadb_running: bool,
     runner: &dyn CommandRunner,
     downloader: &dyn Downloader,
+    sink: &dyn crate::progress::ProgressSink,
 ) -> Result<CreateReport, ScaffoldError> {
     validate_site_name(name)?;
     let dir = paths.www().join(name);
@@ -267,7 +268,7 @@ pub fn create_site(
     }
 
     let mut warnings = Vec::new();
-    let result = build_template(paths, &dir, name, template, runner, downloader);
+    let result = build_template(paths, &dir, name, template, runner, downloader, sink);
     if let Err(e) = result {
         // Roll back any partially-created directory.
         let _ = std::fs::remove_dir_all(&dir);
@@ -293,6 +294,7 @@ fn build_template(
     template: SiteTemplate,
     runner: &dyn CommandRunner,
     downloader: &dyn Downloader,
+    sink: &dyn crate::progress::ProgressSink,
 ) -> Result<(), ScaffoldError> {
     match template {
         SiteTemplate::Blank => {
@@ -324,7 +326,7 @@ fn build_template(
             std::fs::create_dir_all(dir)?;
             let tarball = paths.tmp().join(format!("wordpress-{name}.tar.gz"));
             downloader
-                .fetch(WORDPRESS_URL, &tarball)
+                .fetch_with_progress(WORDPRESS_URL, &tarball, sink)
                 .map_err(|e| ScaffoldError::Download(e.to_string()))?;
             runner.run(
                 "tar",
@@ -450,7 +452,7 @@ mod tests {
         let calls = runner.calls();
         let dl = FakeDownloader::new();
 
-        let rep = create_site(&p, "blog", "dev", SiteTemplate::Blank, true, &runner, &dl).unwrap();
+        let rep = create_site(&p, "blog", "dev", SiteTemplate::Blank, true, &runner, &dl, &crate::progress::NullProgress).unwrap();
         assert_eq!(rep.hostname, "blog.dev");
         assert!(p.www().join("blog").join("index.php").is_file());
         // auto-db issued because mariadb_running = true
@@ -466,7 +468,7 @@ mod tests {
         let p = LaragonPaths::new(root());
         p.ensure_dirs().unwrap();
         std::fs::create_dir_all(p.www().join("dup")).unwrap();
-        let r = create_site(&p, "dup", "dev", SiteTemplate::Blank, false, &FakeCommandRunner::new(), &FakeDownloader::new());
+        let r = create_site(&p, "dup", "dev", SiteTemplate::Blank, false, &FakeCommandRunner::new(), &FakeDownloader::new(), &crate::progress::NullProgress);
         assert!(matches!(r, Err(ScaffoldError::AlreadyExists(_))));
         std::fs::remove_dir_all(p.root()).ok();
     }
@@ -477,7 +479,7 @@ mod tests {
         p.ensure_dirs().unwrap();
         let runner = FakeCommandRunner::new();
         let calls = runner.calls();
-        create_site(&p, "app", "dev", SiteTemplate::Laravel, false, &runner, &FakeDownloader::new()).unwrap();
+        create_site(&p, "app", "dev", SiteTemplate::Laravel, false, &runner, &FakeDownloader::new(), &crate::progress::NullProgress).unwrap();
         let c = calls.lock().unwrap();
         assert!(c.iter().any(|(prog, args, _)| prog == "composer"
             && args == &vec!["create-project".to_string(), "laravel/laravel".to_string(),
@@ -493,7 +495,7 @@ mod tests {
         let calls = runner.calls();
         let dl = FakeDownloader::new();
         let urls = dl.requested();
-        create_site(&p, "wp", "dev", SiteTemplate::Wordpress, true, &runner, &dl).unwrap();
+        create_site(&p, "wp", "dev", SiteTemplate::Wordpress, true, &runner, &dl, &crate::progress::NullProgress).unwrap();
         assert!(urls.lock().unwrap().iter().any(|u| u.contains("wordpress.org")));
         assert!(calls.lock().unwrap().iter().any(|(prog, _, _)| prog == "tar"));
         assert!(p.www().join("wp").join("wp-config.php").is_file());
@@ -505,7 +507,7 @@ mod tests {
         let p = LaragonPaths::new(root());
         p.ensure_dirs().unwrap();
         let runner = FakeCommandRunner::failing(); // composer will "fail"
-        let r = create_site(&p, "boom", "dev", SiteTemplate::Laravel, false, &runner, &FakeDownloader::new());
+        let r = create_site(&p, "boom", "dev", SiteTemplate::Laravel, false, &runner, &FakeDownloader::new(), &crate::progress::NullProgress);
         assert!(r.is_err());
         assert!(!p.www().join("boom").exists(), "partial dir must be rolled back");
         std::fs::remove_dir_all(p.root()).ok();
