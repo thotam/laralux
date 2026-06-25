@@ -26,7 +26,13 @@ const TERMINAL_CANDIDATES: [&str; 9] = [
 pub fn terminal_argv(emulator: &str, dir: &Path) -> Vec<String> {
     let d = dir.display().to_string();
     match emulator {
-        "ptyxis" => vec!["--new-window".to_string(), format!("--working-directory={d}")],
+        // `--standalone` starts a fresh instance so ptyxis does not also restore
+        // the previous session's tab (which otherwise opens a stray extra tab).
+        "ptyxis" => vec![
+            "--standalone".to_string(),
+            "--new-window".to_string(),
+            format!("--working-directory={d}"),
+        ],
         "gnome-terminal" | "xfce4-terminal" | "tilix" => vec![format!("--working-directory={d}")],
         "konsole" => vec!["--workdir".to_string(), d],
         "kitty" => vec!["--directory".to_string(), d],
@@ -83,7 +89,11 @@ mod tests {
         let d = Path::new("/srv/app");
         assert_eq!(
             terminal_argv("ptyxis", d),
-            vec!["--new-window".to_string(), "--working-directory=/srv/app".to_string()]
+            vec![
+                "--standalone".to_string(),
+                "--new-window".to_string(),
+                "--working-directory=/srv/app".to_string()
+            ]
         );
         assert_eq!(
             terminal_argv("gnome-terminal", d),
