@@ -14,7 +14,15 @@ use laragon_core::{
 };
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::Emitter;
 use tauri::Manager;
+
+struct TauriProgress(tauri::AppHandle);
+impl laragon_core::ProgressSink for TauriProgress {
+    fn emit(&self, ev: laragon_core::ProgressEvent) {
+        let _ = self.0.emit("download-progress", ev);
+    }
+}
 
 /// Shared, app-lifetime state. The orchestrator owns the running child
 /// processes, so it must live as long as the app and be stopped on exit.
@@ -148,11 +156,13 @@ pub fn setup_status(state: tauri::State<AppState>) -> Result<Vec<ComponentStatus
 
 #[tauri::command]
 pub async fn run_setup_cmd(app: tauri::AppHandle) -> Result<SetupReport, String> {
+    let app_for_progress = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<SetupReport, String> {
         let state = app.state::<AppState>();
         let privileged = PkexecPrivileged;
         let downloader = CurlDownloader;
-        Ok(run_setup(&state.paths, &privileged, &downloader, &RealCommandRunner, &laragon_core::NullProgress))
+        let progress = TauriProgress(app_for_progress);
+        Ok(run_setup(&state.paths, &privileged, &downloader, &RealCommandRunner, &progress))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -164,6 +174,7 @@ pub async fn create_site(
     name: String,
     template: SiteTemplate,
 ) -> Result<CreateReport, String> {
+    let app_for_progress = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<CreateReport, String> {
         let state = app.state::<AppState>();
         let config = Config::load(&state.paths.config_file()).unwrap_or_default();
@@ -175,6 +186,7 @@ pub async fn create_site(
         };
 
         // Scaffold (slow; no orchestrator lock held).
+        let progress = TauriProgress(app_for_progress);
         let report = core_create_site(
             &state.paths,
             &name,
@@ -183,7 +195,7 @@ pub async fn create_site(
             mariadb_running,
             &RealCommandRunner,
             &CurlDownloader,
-            &laragon_core::NullProgress,
+            &progress,
         )
         .map_err(|e| e.to_string())?;
 
@@ -402,9 +414,11 @@ pub async fn install_php_version(
     app: tauri::AppHandle,
     version: String,
 ) -> Result<Vec<PhpVersionInfo>, String> {
+    let app_for_progress = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PhpVersionInfo>, String> {
         let state = app.state::<AppState>();
-        let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &laragon_core::NullProgress)
+        let progress = TauriProgress(app_for_progress);
+        let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress)
             .map_err(|e| e.to_string())?;
         // install_php_static repoints bin/php/current to the just-installed version;
         // restore the configured active version so a non-active install never
@@ -422,6 +436,7 @@ pub async fn set_php_version(
     app: tauri::AppHandle,
     version: String,
 ) -> Result<Vec<ServiceStatus>, String> {
+    let app_for_progress = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
         let state = app.state::<AppState>();
         let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
@@ -441,7 +456,8 @@ pub async fn set_php_version(
 
         // Point the CLI `php` (and composer) at the new active version; download
         // the cli binary if a pre-static-cli version only had php-fpm.
-        let _ = ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &laragon_core::NullProgress);
+        let progress = TauriProgress(app_for_progress);
+        let _ = ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress);
 
         Ok(snapshot)
     })
