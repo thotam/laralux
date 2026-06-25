@@ -29,7 +29,9 @@ pub use service::registry::build_services;
 pub use service::{ServiceKind, ServiceState};
 pub use privileged::{PkexecPrivileged, Privileged, SudoPrivileged};
 pub use sites::{list_all_sites, scan_sites, ProxySpec, Site, SiteSource};
-pub use site_registry::{ProxyRoute, ProxySite, RegisteredSite, RegistryError, SiteRegistry};
+pub use site_registry::{
+    validate_domain, ProxyRoute, ProxySite, RegisteredSite, RegistryError, SiteDomains, SiteRegistry,
+};
 pub use ssl::MkcertIssuer;
 pub use sync::sync_sites;
 pub use setup::{detect as detect_components, run_setup, Component, ComponentStatus, CurlDownloader, SetupReport};
