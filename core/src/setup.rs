@@ -63,6 +63,7 @@ pub fn detect(paths: &LaragonPaths) -> Vec<ComponentStatus> {
         .map(|&component| {
             let present = match component {
                 Component::Php => crate::bin::resolve_bin("php-fpm", &crate::layout::managed_bin_dirs(paths)).is_some(),
+                Component::Composer => crate::bin::resolve_bin("composer", &crate::layout::managed_bin_dirs(paths)).is_some(),
                 other => {
                     let name = detect_binary(other);
                     resolve_bin(&name, &[paths.bin()]).is_some()
@@ -82,7 +83,7 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
         Component::Redis => vec!["redis-server".to_string()],
         Component::Mkcert => vec!["mkcert".to_string(), "libnss3-tools".to_string()],
         Component::Mailpit => Vec::new(),
-        Component::Composer => vec!["composer".to_string()],
+        Component::Composer => Vec::new(),
     }
 }
 
@@ -156,6 +157,7 @@ impl Downloader for FakeDownloader {
 pub struct SetupReport {
     pub apt_packages: Vec<String>,
     pub mailpit_fetched: bool,
+    pub composer_fetched: bool,
     pub mkcert_ca: bool,
     pub nginx_setcap: bool,
     pub php_version: Option<String>,
@@ -178,6 +180,7 @@ pub fn run_setup(
     let mut report = SetupReport {
         apt_packages: Vec::new(),
         mailpit_fetched: false,
+        composer_fetched: false,
         mkcert_ca: false,
         nginx_setcap: false,
         php_version: None,
@@ -211,6 +214,16 @@ pub fn run_setup(
                 }
             }
             Err(e) => report.errors.push(format!("install php (static): {e}")),
+        }
+    }
+
+    // 1c. Install composer (downloaded, not apt) when missing. Must run after PHP so
+    // the PHP binary is available for probing the composer version.
+    if missing.contains(&Component::Composer) {
+        if let Err(e) = crate::php_cli::install_composer(paths, downloader) {
+            report.errors.push(format!("install composer: {e}"));
+        } else {
+            report.composer_fetched = true;
         }
     }
 
@@ -283,6 +296,12 @@ pub fn run_setup(
     // allow it into ~/laragon so the app-managed datadir works.
     if let Err(e) = privileged.allow_mariadb_apparmor() {
         report.errors.push(format!("mariadb apparmor: {e}"));
+    }
+
+    // Reconcile all `current` symlinks from the freshly-written config.
+    let cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+    for w in crate::layout::apply_versions(paths, &cfg) {
+        report.errors.push(format!("apply versions: {w}"));
     }
 
     report
@@ -377,9 +396,9 @@ mod tests {
     }
 
     #[test]
-    fn composer_is_a_component_with_apt_package() {
+    fn composer_is_a_component_with_no_apt_package() {
         assert!(Component::ALL.contains(&Component::Composer));
-        assert_eq!(apt_packages_for(Component::Composer), vec!["composer".to_string()]);
+        assert!(apt_packages_for(Component::Composer).is_empty());
         assert_eq!(Component::Composer.label(), "composer");
     }
 }
