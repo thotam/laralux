@@ -32,17 +32,14 @@ pub fn arch_tag() -> Option<&'static str> {
     arch_from(std::env::consts::ARCH)
 }
 
-pub fn latest_patch_url(version: &str, arch: &str, sapi: &str, listing_json: &str) -> Option<String> {
+pub fn latest_patch(version: &str, arch: &str, sapi: &str, listing_json: &str) -> Option<(String, String)> {
     let entries: Vec<serde_json::Value> = serde_json::from_str(listing_json).ok()?;
     let prefix = format!("php-{version}.");
     let suffix = format!("-{sapi}-linux-{arch}.tar.gz");
     let mut best: Option<(u32, String)> = None;
     for e in &entries {
-        let name = match e.get("name").and_then(|n| n.as_str()) {
-            Some(n) => n,
-            None => continue,
-        };
-        if let (true, true) = (name.starts_with(&prefix), name.ends_with(&suffix)) {
+        let name = match e.get("name").and_then(|n| n.as_str()) { Some(n) => n, None => continue };
+        if name.starts_with(&prefix) && name.ends_with(&suffix) {
             let mid = &name[prefix.len()..name.len() - suffix.len()];
             if let Ok(patch) = mid.parse::<u32>() {
                 if best.as_ref().map_or(true, |(b, _)| patch > *b) {
@@ -51,7 +48,7 @@ pub fn latest_patch_url(version: &str, arch: &str, sapi: &str, listing_json: &st
             }
         }
     }
-    best.map(|(_, name)| format!("{STATIC_PHP_BASE}/{name}"))
+    best.map(|(patch, name)| (format!("{version}.{patch}"), format!("{STATIC_PHP_BASE}/{name}")))
 }
 
 /// Fetch the `bulk` directory index JSON once.
@@ -64,40 +61,31 @@ fn fetch_index(paths: &LaragonPaths, downloader: &dyn Downloader) -> Result<Stri
     Ok(std::fs::read_to_string(&index)?)
 }
 
-/// Download one SAPI tarball, extract its single `member` binary, and install
-/// it as `~/laragon/bin/<dest_name>` (mode 0755).
+/// Download one SAPI tarball for `version`, extract `member`, install it as
+/// `<dest_dir>/<dest_name>` (0755). Returns the full resolved version.
 fn download_static_php(
     paths: &LaragonPaths,
     version: &str,
     arch: &str,
     sapi: &str,
     member: &str,
+    dest_dir: &std::path::Path,
     dest_name: &str,
     listing_json: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
-) -> Result<(), PhpStaticError> {
-    let url = latest_patch_url(version, arch, sapi, listing_json)
+) -> Result<String, PhpStaticError> {
+    let (full, url) = latest_patch(version, arch, sapi, listing_json)
         .ok_or_else(|| PhpStaticError::Unavailable(version.to_string()))?;
-    let tarball = paths.tmp().join(format!("php-{version}-{sapi}.tar.gz"));
-    downloader
-        .fetch(&url, &tarball)
-        .map_err(|e| PhpStaticError::Download(e.to_string()))?;
-    runner
-        .run(
-            "tar",
-            &[
-                "-xzf".to_string(),
-                tarball.display().to_string(),
-                "-C".to_string(),
-                paths.tmp().display().to_string(),
-                member.to_string(),
-            ],
-            None,
-        )
-        .map_err(|e| PhpStaticError::Extract(e.to_string()))?;
+    let tarball = paths.tmp().join(format!("php-{full}-{sapi}.tar.gz"));
+    downloader.fetch(&url, &tarball).map_err(|e| PhpStaticError::Download(e.to_string()))?;
+    std::fs::create_dir_all(dest_dir)?;
+    runner.run("tar", &[
+        "-xzf".to_string(), tarball.display().to_string(),
+        "-C".to_string(), paths.tmp().display().to_string(), member.to_string(),
+    ], None).map_err(|e| PhpStaticError::Extract(e.to_string()))?;
     let extracted = paths.tmp().join(member);
-    let dest = paths.bin().join(dest_name);
+    let dest = dest_dir.join(dest_name);
     std::fs::rename(&extracted, &dest).or_else(|_| {
         std::fs::copy(&extracted, &dest).map(|_| ()).and_then(|_| std::fs::remove_file(&extracted))
     })?;
@@ -106,35 +94,44 @@ fn download_static_php(
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))?;
     }
-    Ok(())
+    Ok(full)
 }
 
 /// Install both the php-fpm and php (cli) static binaries for `version`.
+/// Returns the full resolved version string (e.g. `"8.4.22"`).
 pub fn install_php_static(
     paths: &LaragonPaths,
-    version: &str,
+    requested: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
-) -> Result<(), PhpStaticError> {
+) -> Result<String, PhpStaticError> {
     let arch = arch_tag().ok_or_else(|| PhpStaticError::Arch(std::env::consts::ARCH.to_string()))?;
-    std::fs::create_dir_all(paths.bin())?;
     let json = fetch_index(paths, downloader)?;
-    download_static_php(paths, version, arch, "fpm", "php-fpm", &format!("php-fpm{version}"), &json, downloader, runner)?;
-    download_static_php(paths, version, arch, "cli", "php", &format!("php{version}"), &json, downloader, runner)?;
-    Ok(())
+    // Resolve the full version once (from the fpm entry) so both SAPIs share a dir.
+    let (full, _) = latest_patch(requested, arch, "fpm", &json)
+        .ok_or_else(|| PhpStaticError::Unavailable(requested.to_string()))?;
+    let dir = paths.version_dir("php", &full);
+    download_static_php(paths, requested, arch, "fpm", "php-fpm", &dir, "php-fpm", &json, downloader, runner)?;
+    download_static_php(paths, requested, arch, "cli", "php", &dir, "php", &json, downloader, runner)?;
+    crate::layout::set_current(paths, "php", &full)?;
+    Ok(full)
 }
 
-/// Install only the php (cli) static binary as `~/laragon/bin/php<version>`.
+/// Install only the php (cli) static binary. Returns the full resolved version string.
 pub fn install_php_cli(
     paths: &LaragonPaths,
-    version: &str,
+    requested: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
-) -> Result<(), PhpStaticError> {
+) -> Result<String, PhpStaticError> {
     let arch = arch_tag().ok_or_else(|| PhpStaticError::Arch(std::env::consts::ARCH.to_string()))?;
-    std::fs::create_dir_all(paths.bin())?;
     let json = fetch_index(paths, downloader)?;
-    download_static_php(paths, version, arch, "cli", "php", &format!("php{version}"), &json, downloader, runner)
+    let (full, _) = latest_patch(requested, arch, "cli", &json)
+        .ok_or_else(|| PhpStaticError::Unavailable(requested.to_string()))?;
+    let dir = paths.version_dir("php", &full);
+    download_static_php(paths, requested, arch, "cli", "php", &dir, "php", &json, downloader, runner)?;
+    crate::layout::set_current(paths, "php", &full)?;
+    Ok(full)
 }
 
 #[cfg(test)]
@@ -155,21 +152,22 @@ mod tests {
     ]"#;
 
     #[test]
-    fn latest_patch_url_picks_highest_patch_for_arch_and_sapi() {
-        assert_eq!(
-            latest_patch_url("8.4", "x86_64", "fpm", SAMPLE).unwrap(),
-            format!("{STATIC_PHP_BASE}/php-8.4.22-fpm-linux-x86_64.tar.gz")
-        );
-        assert_eq!(
-            latest_patch_url("8.4", "x86_64", "cli", SAMPLE).unwrap(),
-            format!("{STATIC_PHP_BASE}/php-8.4.22-cli-linux-x86_64.tar.gz")
-        );
+    fn latest_patch_picks_highest_patch_for_arch_and_sapi() {
+        let (ver, url) = latest_patch("8.4", "x86_64", "fpm", SAMPLE).unwrap();
+        assert_eq!(ver, "8.4.22");
+        assert_eq!(url, format!("{STATIC_PHP_BASE}/php-8.4.22-fpm-linux-x86_64.tar.gz"));
+
+        let (ver2, url2) = latest_patch("8.4", "x86_64", "cli", SAMPLE).unwrap();
+        assert_eq!(ver2, "8.4.22");
+        assert_eq!(url2, format!("{STATIC_PHP_BASE}/php-8.4.22-cli-linux-x86_64.tar.gz"));
+
+        assert!(latest_patch("7.4", "x86_64", "fpm", SAMPLE).is_none());
     }
 
     #[test]
-    fn latest_patch_url_none_for_missing_version_or_arch() {
-        assert!(latest_patch_url("7.4", "x86_64", "fpm", SAMPLE).is_none());
-        assert!(latest_patch_url("8.4", "riscv64", "fpm", SAMPLE).is_none());
+    fn latest_patch_none_for_missing_version_or_arch() {
+        assert!(latest_patch("7.4", "x86_64", "fpm", SAMPLE).is_none());
+        assert!(latest_patch("8.4", "riscv64", "fpm", SAMPLE).is_none());
     }
 
     #[test]
@@ -230,14 +228,16 @@ mod tests {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let runner = TarRunner { calls: calls.clone() };
 
-        install_php_static(&paths, "8.4", &dl, &runner).unwrap();
+        let full = install_php_static(&paths, "8.4", &dl, &runner).unwrap();
+        assert_eq!(full, "8.4.22");
+        assert!(paths.version_dir("php", "8.4.22").join("php-fpm").is_file());
+        assert!(paths.version_dir("php", "8.4.22").join("php").is_file());
+        assert_eq!(std::fs::read_link(paths.current_link("php")).unwrap(), std::path::Path::new("8.4.22"));
 
         let f = fetched.lock().unwrap();
         assert!(f[0].ends_with("?format=json"), "index fetched first");
         assert!(f.iter().any(|u| u.ends_with(&format!("php-8.4.22-fpm-linux-{arch}.tar.gz"))));
         assert!(f.iter().any(|u| u.ends_with(&format!("php-8.4.22-cli-linux-{arch}.tar.gz"))));
-        assert!(paths.bin().join("php-fpm8.4").is_file(), "fpm placed");
-        assert!(paths.bin().join("php8.4").is_file(), "cli placed");
         assert_eq!(calls.lock().unwrap().len(), 2, "tar run for both SAPIs");
         std::fs::remove_dir_all(&root).ok();
     }

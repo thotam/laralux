@@ -400,7 +400,7 @@ pub async fn install_php_version(
 ) -> Result<Vec<PhpVersionInfo>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PhpVersionInfo>, String> {
         let state = app.state::<AppState>();
-        install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner)
+        let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner)
             .map_err(|e| e.to_string())?;
         let config = Config::load(&state.paths.config_file()).unwrap_or_default();
         Ok(core_php_versions(&state.paths, &config.php_version))

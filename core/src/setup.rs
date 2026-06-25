@@ -198,26 +198,16 @@ pub fn run_setup(
 
     // 1b. Install PHP from a static build (no apt/distro PHP) when missing.
     if missing.contains(&Component::Php) {
-        match crate::php_static::install_php_static(
-            paths,
-            crate::php_versions::DEFAULT_PHP_VERSION,
-            downloader,
-            runner,
-        ) {
-            Ok(()) => match crate::bin::detect_php_fpm_version(&[paths.bin()]) {
-                Some(ver) => {
-                    report.php_version = Some(ver.clone());
-                    let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
-                    cfg.php_version = ver.clone();
-                    if let Err(e) = cfg.save(&paths.config_file()) {
-                        report.errors.push(format!("persist php version: {e}"));
-                    }
-                    let _ = crate::php_cli::set_active_php(paths, &ver);
+        match crate::php_static::install_php_static(paths, crate::php_versions::DEFAULT_PHP_VERSION, downloader, runner) {
+            Ok(full) => {
+                report.php_version = Some(full.clone());
+                let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+                cfg.versions.insert("php".to_string(), full.clone());
+                cfg.php_version = full.clone();
+                if let Err(e) = cfg.save(&paths.config_file()) {
+                    report.errors.push(format!("persist php version: {e}"));
                 }
-                None => report
-                    .errors
-                    .push("php-fpm binary not found after static install".to_string()),
-            },
+            }
             Err(e) => report.errors.push(format!("install php (static): {e}")),
         }
     }
