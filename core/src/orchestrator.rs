@@ -108,6 +108,23 @@ impl Orchestrator {
         Ok(was_running)
     }
 
+    /// Swap the active CoreDNS bases. Stops and removes any existing CoreDNS service,
+    /// then starts a new one with the given bases (port 5353). If bases is empty,
+    /// stops and removes without restarting.
+    pub fn set_coredns(&mut self, bases: Vec<String>) -> Result<(), ServiceError> {
+        let was_running = self.state(ServiceKind::Coredns) == ServiceState::Running;
+        if was_running {
+            let _ = self.stop(ServiceKind::Coredns);
+        }
+        self.services.retain(|s| s.kind() != ServiceKind::Coredns);
+        if bases.is_empty() {
+            return Ok(());
+        }
+        self.services
+            .push(Box::new(crate::service::coredns::CorednsService::new(bases, 5353)));
+        self.start(ServiceKind::Coredns)
+    }
+
     /// Mark any service whose process has died as `Crashed`.
     pub fn refresh(&mut self) {
         let mut dead = Vec::new();
@@ -385,6 +402,23 @@ mod tests {
         // the most recent spawn used the new version's binary
         let progs: Vec<String> = log.lock().unwrap().iter().map(|s| s.program.clone()).collect();
         assert_eq!(progs.last().unwrap(), "php-fpm8.3");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn set_coredns_runs_when_bases_present_and_stops_when_empty() {
+        let tmp = std::env::temp_dir().join(format!("lara-cdns-{}", std::process::id()));
+        let paths = LaragonPaths::new(tmp.clone());
+        let spawner = crate::process::FakeSpawner::new();
+        let log = spawner.log();
+        let mut orch = Orchestrator::new(paths, vec![], Box::new(spawner));
+
+        orch.set_coredns(vec!["demo.dev".to_string()]).unwrap();
+        assert_eq!(orch.state(ServiceKind::Coredns), ServiceState::Running);
+        assert_eq!(log.lock().unwrap().last().unwrap().program, "coredns");
+
+        orch.set_coredns(vec![]).unwrap();
+        assert_eq!(orch.state(ServiceKind::Coredns), ServiceState::Stopped);
         std::fs::remove_dir_all(&tmp).ok();
     }
 
