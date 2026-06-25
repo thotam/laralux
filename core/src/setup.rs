@@ -208,10 +208,11 @@ pub fn run_setup(
                 Some(ver) => {
                     report.php_version = Some(ver.clone());
                     let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
-                    cfg.php_version = ver;
+                    cfg.php_version = ver.clone();
                     if let Err(e) = cfg.save(&paths.config_file()) {
                         report.errors.push(format!("persist php version: {e}"));
                     }
+                    let _ = crate::php_cli::set_active_php(paths, &ver);
                 }
                 None => report
                     .errors

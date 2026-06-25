@@ -32,6 +32,8 @@ fn main() {
             commands::php_versions,
             commands::install_php_version,
             commands::set_php_version,
+            commands::terminal_integration_status,
+            commands::set_terminal_integration,
         ])
         .setup(|app| {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;

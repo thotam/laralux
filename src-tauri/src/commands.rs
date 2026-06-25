@@ -3,6 +3,7 @@ use laragon_core::{
     list_all_sites, run_setup, sync_sites, Config, CreateReport, LaragonPaths, MkcertIssuer,
     Orchestrator, PkexecPrivileged, ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind,
     ServiceState, ServiceStatus, Site, SiteRegistry, SiteTemplate,
+    ensure_active_php_cli, install_composer, enable_shell_path, disable_shell_path,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
@@ -395,7 +396,49 @@ pub async fn set_php_version(
 
         let mut orch = state.orch.lock().map_err(lock_err)?;
         orch.replace_php_version(&version).map_err(|e| e.to_string())?;
-        Ok(orch.snapshot())
+        let snapshot = orch.snapshot();
+        drop(orch);
+
+        // Point the CLI `php` (and composer) at the new active version; download
+        // the cli binary if a pre-static-cli version only had php-fpm.
+        let _ = ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner);
+
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn terminal_integration_status(state: tauri::State<AppState>) -> Result<bool, String> {
+    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    Ok(config.shell_integration)
+}
+
+#[tauri::command]
+pub async fn set_terminal_integration(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+        let state = app.state::<AppState>();
+        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+        let home = std::path::PathBuf::from(home);
+
+        if enabled {
+            ensure_active_php_cli(&state.paths, &config.php_version, &CurlDownloader, &RealCommandRunner)
+                .map_err(|e| e.to_string())?;
+            install_composer(&state.paths, &CurlDownloader).map_err(|e| e.to_string())?;
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+            enable_shell_path(&home, &shell).map_err(|e| e.to_string())?;
+        } else {
+            disable_shell_path(&home).map_err(|e| e.to_string())?;
+        }
+
+        config.shell_integration = enabled;
+        config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
+        Ok(enabled)
     })
     .await
     .map_err(|e| e.to_string())?
