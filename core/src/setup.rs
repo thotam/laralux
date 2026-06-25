@@ -88,6 +88,7 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
 }
 
 use crate::privileged::Privileged;
+use crate::progress::ProgressSink;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -107,6 +108,27 @@ pub enum SetupError {
 /// Fetches a URL to a destination file.
 pub trait Downloader: Send + Sync {
     fn fetch(&self, url: &str, dest: &Path) -> Result<(), SetupError>;
+    /// Fetch while reporting byte progress to `sink`. Default: no byte progress.
+    fn fetch_with_progress(&self, url: &str, dest: &Path, sink: &dyn ProgressSink) -> Result<(), SetupError> {
+        let _ = sink;
+        self.fetch(url, dest)
+    }
+}
+
+/// Last `content-length` header value (case-insensitive) in a raw HTTP header
+/// blob, or 0 if none/unparsable.
+pub fn parse_content_length(headers: &str) -> u64 {
+    let mut total = 0u64;
+    for line in headers.lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("content-length") {
+                if let Ok(n) = v.trim().parse::<u64>() {
+                    total = n;
+                }
+            }
+        }
+    }
+    total
 }
 
 pub struct CurlDownloader;
@@ -124,6 +146,38 @@ impl Downloader for CurlDownloader {
             Ok(())
         } else {
             Err(SetupError::Download(format!("curl failed for {url}")))
+        }
+    }
+
+    fn fetch_with_progress(&self, url: &str, dest: &Path, sink: &dyn ProgressSink) -> Result<(), SetupError> {
+        use crate::progress::ProgressEvent;
+        // Total size via a HEAD; 0 (unknown) is fine — the UI shows an indeterminate ring.
+        let total = std::process::Command::new("curl")
+            .args(["-sIL", url])
+            .output()
+            .ok()
+            .map(|o| parse_content_length(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or(0);
+        // Start the download in the background; poll the growing dest file for progress.
+        let mut child = std::process::Command::new("curl")
+            .arg("-fL").arg(url).arg("-o").arg(dest)
+            .spawn()
+            .map_err(|e| SetupError::Download(format!("spawn curl: {e}")))?;
+        loop {
+            let current = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+            sink.emit(ProgressEvent::Bytes { current, total });
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if status.success() {
+                        let done = if total > 0 { total } else { current };
+                        sink.emit(ProgressEvent::Bytes { current: done, total });
+                        return Ok(());
+                    }
+                    return Err(SetupError::Download(format!("curl failed for {url}")));
+                }
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(150)),
+                Err(e) => return Err(SetupError::Download(format!("curl wait: {e}"))),
+            }
         }
     }
 }
@@ -312,6 +366,13 @@ mod tests {
     use super::*;
     use crate::paths::LaragonPaths;
     use crate::privileged::FakePrivileged;
+
+    #[test]
+    fn parse_content_length_picks_last_case_insensitive() {
+        let h = "HTTP/2 200\r\nContent-Length: 100\r\n\r\nHTTP/2 200\r\ncontent-length: 4096\r\n";
+        assert_eq!(parse_content_length(h), 4096);
+        assert_eq!(parse_content_length("no header here"), 0);
+    }
 
     #[test]
     fn apt_packages_for_php_is_empty() {
