@@ -443,3 +443,12 @@ pub async fn set_terminal_integration(
     .await
     .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub fn open_terminal(path: String) -> Result<(), String> {
+    let dir = std::path::PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(format!("not a directory: {path}"));
+    }
+    laragon_core::open_terminal(&dir).map_err(|e| e.to_string())
+}
