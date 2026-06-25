@@ -45,6 +45,36 @@ pub fn stack_status(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus>,
     Ok(orch.snapshot())
 }
 
+/// The full Start-All sequence shared by the UI command and the tray menu:
+/// regenerate vhosts + certs + /etc/hosts, (re)start wildcard DNS, ensure nginx
+/// can bind, then start every service. Each privileged step self-skips when
+/// nothing changed (hosts unchanged, drop-in already correct, cap already set),
+/// so a plain restart needs no password — sudo is requested only when a real
+/// change (new site/domain/wildcard, or a cleared capability) requires it.
+pub fn run_full_start(state: &AppState) -> Vec<String> {
+    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+    let issuer = MkcertIssuer::new(state.paths.ssl());
+    let privileged = PkexecPrivileged;
+    let bases = sync_sites(
+        &state.paths,
+        &config.tld,
+        &php_socket,
+        std::path::Path::new("/etc/hosts"),
+        &issuer,
+        &privileged,
+    )
+    .map(|o| o.wildcard_bases)
+    .unwrap_or_default();
+    let warnings = apply_wildcard_dns(state, &bases);
+    // Ensure nginx can bind :80/:443 (re-setcap only if a binary upgrade cleared it).
+    ensure_nginx_bind_cap(&state.paths, &PkexecPrivileged);
+    if let Ok(mut orch) = state.orch.lock() {
+        let _ = orch.start_all();
+    }
+    warnings
+}
+
 #[tauri::command]
 pub async fn stack_start_all(app: tauri::AppHandle) -> Result<Vec<ServiceStatus>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
@@ -63,28 +93,9 @@ pub async fn stack_start_all(app: tauri::AppHandle) -> Result<Vec<ServiceStatus>
         }
         let _reset = ResetGuard(&state.starting);
 
-        // Sync sites (per-site vhosts + mkcert certs + /etc/hosts) BEFORE starting,
-        // so nginx loads the vhosts on start and <name>.<tld> resolves. Best-effort:
-        // a sync failure (e.g. the user cancels the pkexec prompt) must not block start.
-        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-        let issuer = MkcertIssuer::new(state.paths.ssl());
-        let privileged = PkexecPrivileged;
-        let bases = sync_sites(
-            &state.paths,
-            &config.tld,
-            &php_socket,
-            std::path::Path::new("/etc/hosts"),
-            &issuer,
-            &privileged,
-        ).map(|o| o.wildcard_bases).unwrap_or_default();
-        let _ = apply_wildcard_dns(&state, &bases);
-
-        // Ensure nginx can bind :80/:443 (re-setcap if a binary upgrade cleared it).
-        ensure_nginx_bind_cap(&state.paths, &PkexecPrivileged);
-
+        let _warnings = run_full_start(&state);
         let mut orch = state.orch.lock().map_err(lock_err)?;
-        orch.start_all().map_err(|e| e.to_string())?;
+        orch.refresh();
         Ok(orch.snapshot())
     })
     .await
@@ -471,6 +482,8 @@ pub fn open_terminal(path: String) -> Result<(), String> {
     laragon_core::open_terminal(&dir).map_err(|e| e.to_string())
 }
 
+const RESOLVED_DROPIN_PATH: &str = "/etc/systemd/resolved.conf.d/laragon.conf";
+
 /// Best-effort: kill any CoreDNS spawned from our managed bin (e.g. an orphan
 /// left by a crashed prior session that still holds 127.0.0.1:5353). Matching on
 /// our bin path avoids touching an unrelated system CoreDNS.
@@ -482,18 +495,22 @@ fn kill_stale_coredns(state: &AppState) {
         .status();
 }
 
-/// Apply DNS state for the current wildcard bases. Returns non-fatal warnings
-/// (best-effort: failures never break the explicit-domain path, but are reported
-/// so the UI can tell the user wildcard DNS didn't fully apply).
+/// Apply DNS state for the current wildcard bases. Returns non-fatal warnings.
+/// CoreDNS (a process) is (re)started every call, but the privileged
+/// systemd-resolved drop-in is only written/removed when it actually changes,
+/// so a plain restart with unchanged wildcard config needs no password.
 fn apply_wildcard_dns(state: &AppState, bases: &[String]) -> Vec<String> {
     let mut warnings: Vec<String> = Vec::new();
     if bases.is_empty() {
         if let Ok(mut orch) = state.orch.lock() {
             let _ = orch.set_coredns(vec![]);
         }
-        kill_stale_coredns(state); // ensure no orphan keeps :5353
-        if let Err(e) = PkexecPrivileged.remove_resolved_dropin() {
-            warnings.push(format!("Could not remove DNS routing drop-in: {e}"));
+        kill_stale_coredns(state);
+        // Only prompt to remove the drop-in if it is actually present.
+        if std::path::Path::new(RESOLVED_DROPIN_PATH).exists() {
+            if let Err(e) = PkexecPrivileged.remove_resolved_dropin() {
+                warnings.push(format!("Could not remove DNS routing drop-in: {e}"));
+            }
         }
         return warnings;
     }
@@ -501,14 +518,20 @@ fn apply_wildcard_dns(state: &AppState, bases: &[String]) -> Vec<String> {
         warnings.push(format!("Wildcard DNS unavailable (CoreDNS download failed): {e}"));
         return warnings;
     }
-    kill_stale_coredns(state); // clear any orphan before (re)starting
+    kill_stale_coredns(state);
     if let Ok(mut orch) = state.orch.lock() {
         if let Err(e) = orch.set_coredns(bases.to_vec()) {
             warnings.push(format!("Could not start CoreDNS: {e}"));
         }
     }
-    if let Err(e) = PkexecPrivileged.write_resolved_dropin(&resolved_dropin(bases, 5353)) {
-        warnings.push(format!("Could not write DNS routing drop-in: {e}"));
+    // Only prompt to write the drop-in when its content actually changed
+    // (trailing-newline-insensitive), so a plain restart needs no password.
+    let desired = resolved_dropin(bases, 5353);
+    let current = std::fs::read_to_string(RESOLVED_DROPIN_PATH).ok();
+    if current.as_deref().map(str::trim_end) != Some(desired.trim_end()) {
+        if let Err(e) = PkexecPrivileged.write_resolved_dropin(&desired) {
+            warnings.push(format!("Could not write DNS routing drop-in: {e}"));
+        }
     }
     warnings
 }
