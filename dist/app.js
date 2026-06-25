@@ -306,7 +306,10 @@
   function validName(n) { return n.length >= 1 && n.length <= 63 && SITE_NAME_RE.test(n); }
 
   const DOMAIN_RE = /^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
-  function validDomain(d) { return DOMAIN_RE.test(d); }
+  function validDomain(d) {
+    if (!DOMAIN_RE.test(d)) return false;
+    return d.replace(/^\*\./, "").split(".").every((l) => l.length <= 63);
+  }
 
   function deriveName(path) {
     const base = (path || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
@@ -484,9 +487,12 @@
     for (const d of domains) { if (!validDomain(d)) { sd.error = "Invalid domain: " + d; render(); return; } }
     sd.busy = true; sd.error = ""; render();
     try {
-      const sites = await invoke("set_site_domains", { name: sd.name, domains });
-      state.sites = Array.isArray(sites) ? sites : [];
+      const res = await invoke("set_site_domains", { name: sd.name, domains });
+      state.sites = Array.isArray(res && res.sites) ? res.sites : [];
       toast({ type: "success", title: "Domains updated", msg: domains.join(", ") });
+      if (res && Array.isArray(res.warnings)) {
+        for (const w of res.warnings) toast({ type: "error", title: "Wildcard DNS", msg: String(w) });
+      }
       state.modal = null; render();
     } catch (e) {
       sd.error = String(e); sd.busy = false;
