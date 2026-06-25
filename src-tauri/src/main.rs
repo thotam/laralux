@@ -59,6 +59,16 @@ fn main() {
                             if state.starting.swap(true, std::sync::atomic::Ordering::SeqCst) {
                                 return;
                             }
+                            // Clear the flag on every exit path, even a panic in the
+                            // privileged preflight or start_all (a manual reset would
+                            // leave Start All wedged forever).
+                            struct ResetGuard<'a>(&'a std::sync::atomic::AtomicBool);
+                            impl Drop for ResetGuard<'_> {
+                                fn drop(&mut self) {
+                                    self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+                                }
+                            }
+                            let _reset = ResetGuard(&state.starting);
                             laragon_core::ensure_nginx_bind_cap(
                                 &state.paths,
                                 &laragon_core::PkexecPrivileged,
@@ -66,7 +76,6 @@ fn main() {
                             if let Ok(mut orch) = state.orch.lock() {
                                 let _ = orch.start_all();
                             }
-                            state.starting.store(false, std::sync::atomic::Ordering::SeqCst);
                         }
                     }
                     "stop_all" => {
