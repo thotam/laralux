@@ -66,6 +66,11 @@ impl Config {
         self.versions.get(tool).map(|s| s.as_str())
     }
 
+    /// Load the config, always `normalize()`-ing the result (parsed or default),
+    /// so a loaded config's `versions` always reflects the legacy `php_version`.
+    /// Note: a loaded missing-file config therefore differs from a bare
+    /// `Config::default()` (its `versions["php"]` is populated) — compare via
+    /// `tool_version`, not `== Config::default()`.
     pub fn load(path: &Path) -> Result<Config, ConfigError> {
         match std::fs::read_to_string(path) {
             Ok(text) => Ok(toml::from_str::<Config>(&text)?.normalize()),
@@ -97,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn load_missing_file_returns_default() {
+    fn load_missing_file_returns_normalized_default() {
         let c = Config::load(std::path::Path::new("/no/such/laragon.toml")).unwrap();
         // load applies normalize(), so compare against normalized default
         assert_eq!(c, Config::default().normalize());
