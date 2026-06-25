@@ -18,6 +18,8 @@ pub trait Privileged: Send + Sync {
     fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError>;
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError>;
     fn allow_mariadb_apparmor(&self) -> Result<(), PrivError>;
+    fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError>;
+    fn remove_resolved_dropin(&self) -> Result<(), PrivError>;
 }
 
 // ---------- Shared free helpers ----------
@@ -51,6 +53,26 @@ apparmor_parser -r /etc/apparmor.d/mariadbd\n";
 
 fn mariadb_apparmor_argv() -> Vec<String> {
     vec!["sh".to_string(), "-c".to_string(), MARIADB_APPARMOR_SCRIPT.to_string()]
+}
+
+const RESOLVED_DROPIN: &str = "/etc/systemd/resolved.conf.d/laragon.conf";
+
+fn write_resolved_argv(contents: &str) -> Vec<String> {
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "mkdir -p /etc/systemd/resolved.conf.d && cat > {RESOLVED_DROPIN} <<'LARAGONEOF'\n{contents}\nLARAGONEOF\nsystemctl reload systemd-resolved || systemctl restart systemd-resolved || true"
+        ),
+    ]
+}
+
+fn remove_resolved_argv() -> Vec<String> {
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!("rm -f {RESOLVED_DROPIN}; systemctl reload systemd-resolved || systemctl restart systemd-resolved || true"),
+    ]
 }
 
 fn apt_argv(packages: &[String]) -> Vec<String> {
@@ -110,6 +132,12 @@ impl Privileged for SudoPrivileged {
     fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
         run_escalated("sudo", &mariadb_apparmor_argv())
     }
+    fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError> {
+        run_escalated("sudo", &write_resolved_argv(contents))
+    }
+    fn remove_resolved_dropin(&self) -> Result<(), PrivError> {
+        run_escalated("sudo", &remove_resolved_argv())
+    }
 }
 
 // ---------- Real: pkexec (graphical auth) ----------
@@ -141,6 +169,12 @@ impl Privileged for PkexecPrivileged {
     fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
         run_escalated("pkexec", &mariadb_apparmor_argv())
     }
+    fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError> {
+        run_escalated("pkexec", &write_resolved_argv(contents))
+    }
+    fn remove_resolved_dropin(&self) -> Result<(), PrivError> {
+        run_escalated("pkexec", &remove_resolved_argv())
+    }
 }
 
 // ---------- Fake (used by sync tests) ----------
@@ -154,6 +188,8 @@ pub struct FakePrivileged {
     add_repos: Arc<Mutex<Vec<String>>>,
     disabled_services: Arc<Mutex<Vec<Vec<String>>>>,
     apparmor_configured: Arc<Mutex<bool>>,
+    resolved_dropins: Arc<Mutex<Vec<String>>>,
+    resolved_removed: Arc<Mutex<bool>>,
 }
 
 impl FakePrivileged {
@@ -177,6 +213,12 @@ impl FakePrivileged {
     }
     pub fn mariadb_apparmor_configured(&self) -> bool {
         *self.apparmor_configured.lock().unwrap()
+    }
+    pub fn resolved_dropins(&self) -> Arc<Mutex<Vec<String>>> {
+        self.resolved_dropins.clone()
+    }
+    pub fn resolved_removed(&self) -> Arc<Mutex<bool>> {
+        self.resolved_removed.clone()
     }
 }
 
@@ -207,6 +249,14 @@ impl Privileged for FakePrivileged {
     }
     fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
         *self.apparmor_configured.lock().unwrap() = true;
+        Ok(())
+    }
+    fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError> {
+        self.resolved_dropins.lock().unwrap().push(contents.to_string());
+        Ok(())
+    }
+    fn remove_resolved_dropin(&self) -> Result<(), PrivError> {
+        *self.resolved_removed.lock().unwrap() = true;
         Ok(())
     }
 }
@@ -323,5 +373,14 @@ mod tests {
         assert!(!f.mariadb_apparmor_configured());
         f.allow_mariadb_apparmor().unwrap();
         assert!(f.mariadb_apparmor_configured());
+    }
+
+    #[test]
+    fn fake_records_resolved_dropin() {
+        let f = FakePrivileged::new();
+        f.write_resolved_dropin("[Resolve]\nDNS=127.0.0.1:5353\n").unwrap();
+        assert_eq!(f.resolved_dropins().lock().unwrap().len(), 1);
+        f.remove_resolved_dropin().unwrap();
+        assert!(*f.resolved_removed().lock().unwrap());
     }
 }

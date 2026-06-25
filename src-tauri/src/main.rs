@@ -35,6 +35,7 @@ fn main() {
             commands::terminal_integration_status,
             commands::set_terminal_integration,
             commands::open_terminal,
+            commands::set_site_domains,
         ])
         .setup(|app| {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;

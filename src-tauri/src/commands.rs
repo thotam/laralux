@@ -1,9 +1,10 @@
 use laragon_core::{
-    build_services, create_site as core_create_site, detect_components, ensure_nginx_bind_cap,
-    list_all_sites, run_setup, sync_sites, Config, CreateReport, LaragonPaths, MkcertIssuer,
-    Orchestrator, PkexecPrivileged, ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind,
-    ServiceState, ServiceStatus, Site, SiteRegistry, SiteTemplate,
-    ensure_active_php_cli, install_composer, enable_shell_path, disable_shell_path,
+    build_services, create_site as core_create_site, detect_components, ensure_coredns,
+    ensure_nginx_bind_cap, list_all_sites, resolved_dropin, run_setup, sync_sites, Config,
+    CreateReport, LaragonPaths, MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged,
+    ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site,
+    SiteRegistry, SiteTemplate, ensure_active_php_cli, install_composer, enable_shell_path,
+    disable_shell_path,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
@@ -53,14 +54,15 @@ pub async fn stack_start_all(app: tauri::AppHandle) -> Result<Vec<ServiceStatus>
         let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
         let issuer = MkcertIssuer::new(state.paths.ssl());
         let privileged = PkexecPrivileged;
-        let _ = sync_sites(
+        let bases = sync_sites(
             &state.paths,
             &config.tld,
             &php_socket,
             std::path::Path::new("/etc/hosts"),
             &issuer,
             &privileged,
-        );
+        ).map(|o| o.wildcard_bases).unwrap_or_default();
+        apply_wildcard_dns(&state, &bases);
 
         // Ensure nginx can bind :80/:443 (re-setcap if a binary upgrade cleared it).
         ensure_nginx_bind_cap(&state.paths, &PkexecPrivileged);
@@ -451,4 +453,60 @@ pub fn open_terminal(path: String) -> Result<(), String> {
         return Err(format!("not a directory: {path}"));
     }
     laragon_core::open_terminal(&dir).map_err(|e| e.to_string())
+}
+
+/// Apply DNS state for the current wildcard bases: download+run CoreDNS and
+/// write the resolved drop-in when present; otherwise stop CoreDNS and remove
+/// the drop-in. Best-effort (failures are ignored; explicit domains still work).
+fn apply_wildcard_dns(state: &AppState, bases: &[String]) {
+    if bases.is_empty() {
+        if let Ok(mut orch) = state.orch.lock() {
+            let _ = orch.set_coredns(vec![]);
+        }
+        let _ = PkexecPrivileged.remove_resolved_dropin();
+        return;
+    }
+    if ensure_coredns(&state.paths, &CurlDownloader, &RealCommandRunner).is_ok() {
+        if let Ok(mut orch) = state.orch.lock() {
+            let _ = orch.set_coredns(bases.to_vec());
+        }
+        let _ = PkexecPrivileged.write_resolved_dropin(&resolved_dropin(bases, 5353));
+    }
+}
+
+#[tauri::command]
+pub async fn set_site_domains(
+    app: tauri::AppHandle,
+    name: String,
+    domains: Vec<String>,
+) -> Result<Vec<Site>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<Site>, String> {
+        let state = app.state::<AppState>();
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+
+        let mut registry = SiteRegistry::load(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+        registry.set_domains(&name, &domains).map_err(|e| e.to_string())?;
+        registry.save(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+
+        let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let privileged = PkexecPrivileged;
+        let outcome = sync_sites(
+            &state.paths, &config.tld, &php_socket,
+            std::path::Path::new("/etc/hosts"), &issuer, &privileged,
+        );
+        let bases = outcome.as_ref().map(|o| o.wildcard_bases.clone()).unwrap_or_default();
+        apply_wildcard_dns(&state, &bases);
+        {
+            let mut orch = state.orch.lock().map_err(lock_err)?;
+            if orch.state(ServiceKind::Nginx) == ServiceState::Running {
+                let _ = orch.stop(ServiceKind::Nginx);
+                let _ = orch.start(ServiceKind::Nginx);
+            }
+        }
+        let (sites, _w) = list_all_sites(&state.paths, &config.tld).map_err(|e| e.to_string())?;
+        Ok(sites)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

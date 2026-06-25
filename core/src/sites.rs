@@ -22,6 +22,7 @@ pub struct Site {
     pub name: String,
     pub root: PathBuf,
     pub hostname: String,
+    pub domains: Vec<String>,
     pub source: SiteSource,
     pub proxy: Option<ProxySpec>,
 }
@@ -45,6 +46,7 @@ impl Site {
         cert: &std::path::Path,
         key: &std::path::Path,
     ) -> String {
+        let server_names = self.domains.join(" ");
         if let Some(spec) = &self.proxy {
             let mut locations = String::new();
             for r in &spec.routes {
@@ -70,19 +72,19 @@ impl Site {
             return format!(
                 "server {{\n\
                  \x20 listen 80;\n\
-                 \x20 server_name {host};\n\
+                 \x20 server_name {names};\n\
                  \x20 return 301 https://$host$request_uri;\n\
                  }}\n\
                  server {{\n\
                  \x20 listen 443 ssl;\n\
-                 \x20 server_name {host};\n\
+                 \x20 server_name {names};\n\
                  \x20 ssl_certificate {cert};\n\
                  \x20 ssl_certificate_key {key};\n\
                  \x20 access_log {alog};\n\
                  \x20 error_log {elog};\n\
                  {locations}\
                  }}\n",
-                host = self.hostname,
+                names = server_names,
                 cert = cert.display(),
                 key = key.display(),
                 alog = paths.log().join(format!("{}-access.log", self.name)).display(),
@@ -93,12 +95,12 @@ impl Site {
         format!(
             "server {{\n\
              \x20 listen 80;\n\
-             \x20 server_name {host};\n\
+             \x20 server_name {names};\n\
              \x20 return 301 https://$host$request_uri;\n\
              }}\n\
              server {{\n\
              \x20 listen 443 ssl;\n\
-             \x20 server_name {host};\n\
+             \x20 server_name {names};\n\
              \x20 ssl_certificate {cert};\n\
              \x20 ssl_certificate_key {key};\n\
              \x20 root {docroot};\n\
@@ -114,7 +116,7 @@ impl Site {
              \x20   fastcgi_param HTTPS on;\n\
              \x20 }}\n\
              }}\n",
-            host = self.hostname,
+            names = server_names,
             cert = cert.display(),
             key = key.display(),
             docroot = self.document_root().display(),
@@ -145,8 +147,10 @@ pub fn scan_sites(paths: &LaragonPaths, tld: &str) -> std::io::Result<Vec<Site>>
         if name.starts_with('.') {
             continue;
         }
+        let hostname = format!("{name}.{tld}");
         sites.push(Site {
-            hostname: format!("{name}.{tld}"),
+            domains: vec![hostname.clone()],
+            hostname,
             root: entry.path(),
             name,
             source: SiteSource::Scanned,
@@ -191,8 +195,10 @@ pub fn list_all_sites(
             ));
             continue;
         }
+        let hostname = format!("{}.{}", entry.name, tld);
         sites.push(Site {
-            hostname: format!("{}.{}", entry.name, tld),
+            domains: vec![hostname.clone()],
+            hostname,
             root: entry.root.clone(),
             name: entry.name.clone(),
             source: SiteSource::Linked,
@@ -205,13 +211,24 @@ pub fn list_all_sites(
             warnings.push(format!("proxy site `{}` is shadowed by another site", p.name));
             continue;
         }
+        let hostname = format!("{}.{}", p.name, tld);
         sites.push(Site {
-            hostname: format!("{}.{}", p.name, tld),
+            domains: vec![hostname.clone()],
+            hostname,
             root: std::path::PathBuf::new(),
             name: p.name.clone(),
             source: SiteSource::Proxy,
             proxy: Some(ProxySpec { routes: p.routes.clone(), websocket: p.websocket }),
         });
+    }
+
+    for s in sites.iter_mut() {
+        if let Some(over) = registry.domains_for(&s.name) {
+            if let Some(first) = over.first() {
+                s.domains = over.to_vec();
+                s.hostname = first.clone();
+            }
+        }
     }
 
     sites.sort_by(|a, b| a.name.cmp(&b.name));
@@ -411,6 +428,7 @@ mod tests {
             name: name.to_string(),
             root: std::path::PathBuf::new(),
             hostname: format!("{name}.dev"),
+            domains: vec![format!("{name}.dev")],
             source: SiteSource::Proxy,
             proxy: Some(ProxySpec { routes, websocket }),
         }
@@ -456,5 +474,58 @@ mod tests {
         assert!(conf.contains("proxy_pass http://127.0.0.1:3001;"));
         assert!(conf.contains("proxy_pass http://127.0.0.1:3000;"));
         assert!(!conf.contains("Upgrade $http_upgrade"));
+    }
+
+    #[test]
+    fn site_has_domains_default_and_override() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("demo")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+        // default
+        let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
+        let d = sites.iter().find(|s| s.name == "demo").unwrap();
+        assert_eq!(d.domains, vec!["demo.dev".to_string()]);
+        assert_eq!(d.hostname, "demo.dev");
+        // override
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        reg.set_domains("demo", &["demo.dev".to_string(), "*.demo.dev".to_string()]).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+        let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
+        let d = sites.iter().find(|s| s.name == "demo").unwrap();
+        assert_eq!(d.domains, vec!["demo.dev".to_string(), "*.demo.dev".to_string()]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn empty_domain_override_is_ignored() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("demo")).unwrap();
+        let paths = LaragonPaths::new(root.clone());
+        // Write a sites.toml with an empty domains list for "demo".
+        let sites_file = paths.sites_file();
+        std::fs::create_dir_all(sites_file.parent().unwrap()).unwrap();
+        std::fs::write(&sites_file, "[[domains]]\nname = \"demo\"\ndomains = []\n").unwrap();
+        // Should not panic; empty override is silently ignored.
+        let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
+        let d = sites.iter().find(|s| s.name == "demo").unwrap();
+        assert_eq!(d.domains, vec!["demo.dev".to_string()]);
+        assert_eq!(d.hostname, "demo.dev");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vhost_server_name_lists_all_domains() {
+        let site = Site {
+            name: "demo".into(),
+            root: std::path::PathBuf::from("/x"),
+            hostname: "demo.dev".into(),
+            source: SiteSource::Scanned,
+            proxy: None,
+            domains: vec!["demo.dev".into(), "*.demo.dev".into()],
+        };
+        let paths = LaragonPaths::new(temp_root());
+        let conf = site.vhost_config(&paths, std::path::Path::new("/x/php.sock"),
+            std::path::Path::new("/x/c.pem"), std::path::Path::new("/x/k.pem"));
+        assert!(conf.contains("server_name demo.dev *.demo.dev;"));
     }
 }

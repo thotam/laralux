@@ -24,6 +24,12 @@ pub enum RegistryError {
     NoRoutes,
     #[error("not found: {0}")]
     NotFound(String),
+    #[error("invalid domain: {0}")]
+    InvalidDomain(String),
+    #[error("a site needs at least one domain")]
+    NoDomains,
+    #[error("domain already used by another site: {0}")]
+    DomainTaken(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,12 +56,20 @@ pub struct ProxySite {
     pub routes: Vec<ProxyRoute>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SiteDomains {
+    pub name: String,
+    pub domains: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SiteRegistry {
     #[serde(default)]
     sites: Vec<RegisteredSite>,
     #[serde(default)]
     proxies: Vec<ProxySite>,
+    #[serde(default)]
+    domains: Vec<SiteDomains>,
 }
 
 /// Normalize a user-typed target into `host:port` (default host 127.0.0.1).
@@ -96,6 +110,29 @@ pub fn validate_routes(routes: &[ProxyRoute]) -> Result<Vec<ProxyRoute>, Registr
         out.push(ProxyRoute { path: r.path.clone(), upstream });
     }
     Ok(out)
+}
+
+/// A valid site domain: dotted DNS labels, optionally with a leading `*.`.
+pub fn validate_domain(d: &str) -> Result<(), RegistryError> {
+    let host = match d.strip_prefix("*.") {
+        Some(rest) => rest,
+        None => d,
+    };
+    if host.is_empty() || host.contains('*') {
+        return Err(RegistryError::InvalidDomain(d.to_string()));
+    }
+    let label_ok = |l: &str| {
+        !l.is_empty()
+            && l.len() <= 63
+            && l.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            && !l.starts_with('-')
+            && !l.ends_with('-')
+    };
+    if host.split('.').all(label_ok) && host.contains('.') {
+        Ok(())
+    } else {
+        Err(RegistryError::InvalidDomain(d.to_string()))
+    }
 }
 
 impl SiteRegistry {
@@ -168,11 +205,39 @@ impl SiteRegistry {
         Ok(())
     }
 
+    pub fn domains_for(&self, name: &str) -> Option<&[String]> {
+        self.domains.iter().find(|d| d.name == name).map(|d| d.domains.as_slice())
+    }
+
+    pub fn set_domains(&mut self, name: &str, domains: &[String]) -> Result<(), RegistryError> {
+        if domains.is_empty() {
+            return Err(RegistryError::NoDomains);
+        }
+        for d in domains {
+            validate_domain(d)?;
+        }
+        // reject a domain claimed by a *different* site
+        for other in &self.domains {
+            if other.name == name {
+                continue;
+            }
+            for d in domains {
+                if other.domains.iter().any(|x| x == d) {
+                    return Err(RegistryError::DomainTaken(d.clone()));
+                }
+            }
+        }
+        self.domains.retain(|d| d.name != name);
+        self.domains.push(SiteDomains { name: name.to_string(), domains: domains.to_vec() });
+        Ok(())
+    }
+
     pub fn remove(&mut self, name: &str) -> bool {
-        let before = self.sites.len() + self.proxies.len();
+        let before = self.sites.len() + self.proxies.len() + self.domains.len();
         self.sites.retain(|s| s.name != name);
         self.proxies.retain(|p| p.name != name);
-        self.sites.len() + self.proxies.len() != before
+        self.domains.retain(|d| d.name != name);
+        self.sites.len() + self.proxies.len() + self.domains.len() != before
     }
 }
 
@@ -295,6 +360,35 @@ mod tests {
         assert!(!reg.proxies()[0].websocket);
 
         assert!(matches!(reg.update_proxy("ghost", &new_routes, true), Err(RegistryError::NotFound(_))));
+    }
+
+    #[test]
+    fn validate_domain_accepts_and_rejects() {
+        for ok in ["app2.dev", "api.demo.dev", "my-app.local", "*.demo.dev"] {
+            assert!(validate_domain(ok).is_ok(), "should accept {ok}");
+        }
+        for bad in ["", "Demo.dev", "a b.dev", "*.*.dev", "*x.dev", "foo.*.dev", "-x.dev"] {
+            assert!(validate_domain(bad).is_err(), "should reject {bad}");
+        }
+    }
+
+    #[test]
+    fn set_domains_validates_uniqueness_and_roundtrips() {
+        let mut reg = SiteRegistry::default();
+        assert!(matches!(reg.set_domains("a", &[]), Err(RegistryError::NoDomains)));
+        assert!(matches!(
+            reg.set_domains("a", &["Bad".to_string()]),
+            Err(RegistryError::InvalidDomain(_))
+        ));
+        reg.set_domains("a", &["a.dev".to_string(), "*.a.dev".to_string()]).unwrap();
+        // another site can't claim a.dev
+        assert!(matches!(
+            reg.set_domains("b", &["a.dev".to_string()]),
+            Err(RegistryError::DomainTaken(_))
+        ));
+        assert_eq!(reg.domains_for("a").unwrap(), &["a.dev".to_string(), "*.a.dev".to_string()]);
+        assert!(reg.remove("a"));
+        assert!(reg.domains_for("a").is_none());
     }
 
     #[test]

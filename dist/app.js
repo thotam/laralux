@@ -86,6 +86,7 @@
     linkSite: { root: "", name: "", busy: false, error: "" },
     confirmRemove: null,
     proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
+    siteDomains: { name: "", domains: [""], busy: false, error: "" },
     phpVersions: [],
     phpBusy: false,
     terminalIntegration: false,
@@ -304,6 +305,9 @@
   const SITE_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
   function validName(n) { return n.length >= 1 && n.length <= 63 && SITE_NAME_RE.test(n); }
 
+  const DOMAIN_RE = /^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+  function validDomain(d) { return DOMAIN_RE.test(d); }
+
   function deriveName(path) {
     const base = (path || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
     return base.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
@@ -460,6 +464,36 @@
       render();
     } finally {
       if (p.busy) { p.busy = false; render(); }
+    }
+  }
+
+  function openDomains(site) {
+    const ds = (site.domains && site.domains.length) ? site.domains.slice() : [site.hostname];
+    state.siteDomains = { name: site.name, domains: ds, busy: false, error: "" };
+    state.modal = "domains";
+    render();
+  }
+  function closeDomains() { if (state.siteDomains.busy) return; state.modal = null; render(); }
+  function addDomainRow() { state.siteDomains.domains.push(""); render(); }
+  function delDomainRow(i) { state.siteDomains.domains.splice(i, 1); if (!state.siteDomains.domains.length) state.siteDomains.domains.push(""); render(); }
+
+  async function submitDomains() {
+    const sd = state.siteDomains;
+    const domains = sd.domains.map((d) => d.trim()).filter((d) => d.length);
+    if (!domains.length) { sd.error = "Add at least one domain"; render(); return; }
+    for (const d of domains) { if (!validDomain(d)) { sd.error = "Invalid domain: " + d; render(); return; } }
+    sd.busy = true; sd.error = ""; render();
+    try {
+      const sites = await invoke("set_site_domains", { name: sd.name, domains });
+      state.sites = Array.isArray(sites) ? sites : [];
+      toast({ type: "success", title: "Domains updated", msg: domains.join(", ") });
+      state.modal = null; render();
+    } catch (e) {
+      sd.error = String(e); sd.busy = false;
+      toast({ type: "error", title: "Update failed", msg: String(e) });
+      render();
+    } finally {
+      if (sd.busy) { sd.busy = false; render(); }
     }
   }
 
@@ -701,6 +735,7 @@
             const editBtn = isProxy
               ? '<button class="btn-sm" data-action="edit-proxy" data-name="' + esc(s.name) + '">Edit</button>'
               : "";
+            const domBtn = '<button class="btn-sm" data-action="edit-domains" data-name="' + esc(s.name) + '">Domains</button>';
             const removeBtn = (isProxy || isLinked)
               ? '<button class="btn-sm danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
                 (state.confirmRemove === s.name ? "Confirm?" : "Remove") + "</button>"
@@ -716,7 +751,7 @@
               badge +
               termBtn +
               '<button class="icon-btn sq32" data-action="copy-site" data-name="' + esc(s.name) + '" aria-label="Copy URL">' + I.copy + "</button>" +
-              editBtn + removeBtn +
+              editBtn + domBtn + removeBtn +
               '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + I.external + "Open</a></div>"
             );
           })
@@ -947,6 +982,38 @@
     );
   }
 
+  function domainsModal() {
+    const sd = state.siteDomains;
+    const hasAny = sd.domains.some((d) => d.trim().length > 0);
+    const errorHtml = sd.error ? '<div class="ns-error">' + esc(sd.error) + '</div>' : '';
+    const d = sd.busy ? ' disabled' : '';
+    const rows = sd.domains.map((v, i) =>
+      '<div class="pr-row">' +
+      '<input class="ns-input" type="text" placeholder="app.example.com or *.example.com" value="' + esc(v) + '" autocomplete="off" spellcheck="false" data-action="dm-input" data-idx="' + i + '"' + d + ' />' +
+      (sd.domains.length > 1 ? '<button class="icon-btn sq32" data-action="dm-del" data-idx="' + i + '" aria-label="Remove domain"' + d + '>' + I.close + '</button>' : '') +
+      '</div>'
+    ).join('');
+    const submitLabel = sd.busy
+      ? '<span class="spin spinner on-primary"></span>Saving…'
+      : 'Save';
+    return (
+      '<div class="ns-overlay" data-action="dm-overlay-click" role="dialog" aria-modal="true" aria-labelledby="dm-title">' +
+      '<div class="ns-card" role="document">' +
+      '<div class="ns-head"><h2 class="ns-title" id="dm-title">Edit domains — ' + esc(sd.name) + '</h2>' +
+      '<button class="icon-btn" data-action="dm-close" aria-label="Close"' + d + '>' + I.close + '</button></div>' +
+      '<div class="ns-body">' +
+      '<label class="ns-label">Domains</label>' +
+      rows +
+      '<button class="link-btn" data-action="dm-add"' + d + '>+ Add domain</button>' +
+      errorHtml +
+      '</div>' +
+      '<div class="ns-foot">' +
+      '<button class="btn btn-outline" data-action="dm-close"' + d + '>Cancel</button>' +
+      '<button class="btn btn-primary' + (!hasAny || sd.busy ? ' btn-dim' : '') + '" data-action="dm-submit"' + (!hasAny || sd.busy ? ' disabled' : '') + '>' + submitLabel + '</button>' +
+      '</div></div></div>'
+    );
+  }
+
   // ---- render ----
   const app = document.getElementById("app");
   let lastSig = "";
@@ -962,6 +1029,7 @@
     const modalHtml = state.modal === "newsite" ? newSiteModal()
       : state.modal === "linksite" ? linkSiteModal()
       : state.modal === "proxy" ? proxyModal()
+      : state.modal === "domains" ? domainsModal()
       : "";
     const html =
       '<div class="root" data-compact="' + state.compact + '">' +
@@ -1045,6 +1113,12 @@
     else if (a === "pr-add") addProxyRoute();
     else if (a === "pr-del") delProxyRoute(parseInt(el.getAttribute("data-idx"), 10));
     else if (a === "px-overlay-click") { if (e.target === el) closeProxy(); }
+    else if (a === "edit-domains") openDomains(state.sites.find((s) => s.name === el.getAttribute("data-name")));
+    else if (a === "dm-close") closeDomains();
+    else if (a === "dm-submit") submitDomains();
+    else if (a === "dm-add") addDomainRow();
+    else if (a === "dm-del") delDomainRow(parseInt(el.getAttribute("data-idx"), 10));
+    else if (a === "dm-overlay-click") { if (e.target === el) closeDomains(); }
   });
 
   // ---- modal input events (delegated on app) ----
@@ -1103,6 +1177,7 @@
     }
     if (el.dataset.action === "pr-path") { state.proxy.routes[parseInt(el.dataset.idx, 10)].path = el.value; }
     if (el.dataset.action === "pr-upstream") { state.proxy.routes[parseInt(el.dataset.idx, 10)].upstream = el.value; }
+    if (el.dataset.action === "dm-input") { state.siteDomains.domains[parseInt(el.dataset.idx, 10)] = el.value; }
   });
 
   app.addEventListener("change", (e) => {
@@ -1118,11 +1193,12 @@
     if (e.key === "Escape" && state.modal === "newsite") closeNewSite();
     else if (e.key === "Escape" && state.modal === "linksite") closeLinkSite();
     else if (e.key === "Escape" && state.modal === "proxy") closeProxy();
+    else if (e.key === "Escape" && state.modal === "domains") closeDomains();
   });
 
   // ---- focus-trap inside modal ----
   app.addEventListener("keydown", (e) => {
-    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite" && state.modal !== "proxy")) return;
+    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite" && state.modal !== "proxy" && state.modal !== "domains")) return;
     const card = document.querySelector(".ns-card");
     if (!card) return;
     const focusable = Array.from(card.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'));

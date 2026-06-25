@@ -19,6 +19,7 @@ pub mod php_static;
 pub mod php_cli;
 pub mod shell_env;
 pub mod terminal;
+pub mod coredns;
 
 pub use bin::{ensure_nginx_bind_cap, list_php_fpm_versions};
 pub use config::Config;
@@ -29,9 +30,11 @@ pub use service::registry::build_services;
 pub use service::{ServiceKind, ServiceState};
 pub use privileged::{PkexecPrivileged, Privileged, SudoPrivileged};
 pub use sites::{list_all_sites, scan_sites, ProxySpec, Site, SiteSource};
-pub use site_registry::{ProxyRoute, ProxySite, RegisteredSite, RegistryError, SiteRegistry};
+pub use site_registry::{
+    validate_domain, ProxyRoute, ProxySite, RegisteredSite, RegistryError, SiteDomains, SiteRegistry,
+};
 pub use ssl::MkcertIssuer;
-pub use sync::sync_sites;
+pub use sync::{sync_sites, SyncOutcome};
 pub use setup::{detect as detect_components, run_setup, Component, ComponentStatus, CurlDownloader, SetupReport};
 pub use scaffold::{CommandRunner, RealCommandRunner, SiteTemplate, ScaffoldError, create_site, CreateReport};
 pub use php_versions::{php_versions, PhpVersionInfo};
@@ -39,3 +42,4 @@ pub use php_static::{install_php_static, PhpStaticError};
 pub use php_cli::{ensure_active_php_cli, install_composer, set_active_php};
 pub use shell_env::{disable_shell_path, enable_shell_path};
 pub use terminal::{open_terminal, TerminalError};
+pub use coredns::{ensure_coredns, corefile, resolved_dropin, CorednsError};
