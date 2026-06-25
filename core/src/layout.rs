@@ -1,5 +1,6 @@
+use crate::config::Config;
 use crate::paths::LaragonPaths;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// (Re)point `bin/<tool>/current` at `<version>` (relative target, so it
 /// resolves inside the tool dir). Removes any existing `current` first.
@@ -56,6 +57,53 @@ fn version_key(v: &str) -> Vec<u32> {
     v.split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
+/// Materialize `current` symlinks from config. Returns a warning per tool whose
+/// configured version dir is missing. Best-effort: never aborts.
+pub fn apply_versions(paths: &LaragonPaths, config: &Config) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for (tool, version) in &config.versions {
+        if paths.version_dir(tool, version).is_dir() {
+            if let Err(e) = set_current(paths, tool, version) {
+                warnings.push(format!("{tool}: set_current failed: {e}"));
+            }
+        } else {
+            warnings.push(format!("{tool}: version {version} not installed"));
+        }
+    }
+    warnings
+}
+
+/// Run `program args`, capture stdout+stderr, return the first `N.N` or `N.N.N`
+/// token found. Used to name mailpit/composer dirs by their real version.
+pub fn probe_version(program: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new(program).args(args).output().ok()?;
+    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    extract_version(&text)
+}
+
+/// First `\d+\.\d+(\.\d+)?` token in `s` (no regex dep — hand-scan).
+fn extract_version(s: &str) -> Option<String> {
+    let bytes: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            let mut dots = 0;
+            while i < bytes.len() && (bytes[i].is_ascii_digit() || (bytes[i] == '.' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit())) {
+                if bytes[i] == '.' { dots += 1; }
+                i += 1;
+            }
+            if dots >= 1 {
+                return Some(bytes[start..i].iter().collect());
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,5 +158,25 @@ mod tests {
         assert!(dirs.contains(&paths.current_link("php")));
         assert!(dirs.contains(&paths.current_link("coredns")));
         std::fs::remove_dir_all(paths.root()).ok();
+    }
+
+    #[test]
+    fn apply_versions_materializes_present_and_warns_missing() {
+        let paths = root();
+        std::fs::create_dir_all(paths.version_dir("php", "8.3.31")).unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.versions.insert("php".into(), "8.3.31".into());
+        cfg.versions.insert("nginx".into(), "1.31.2".into()); // dir missing
+        let warnings = apply_versions(&paths, &cfg);
+        assert_eq!(std::fs::read_link(paths.current_link("php")).unwrap(), std::path::Path::new("8.3.31"));
+        assert!(warnings.iter().any(|w| w.contains("nginx")));
+        std::fs::remove_dir_all(paths.root()).ok();
+    }
+
+    #[test]
+    fn probe_version_extracts_semver() {
+        // /bin/echo prints the arg; probe extracts the first semver token.
+        assert_eq!(probe_version(std::path::Path::new("/bin/echo"), &["v1.2.3 extra"]), Some("1.2.3".to_string()));
+        assert_eq!(probe_version(std::path::Path::new("/bin/echo"), &["no version here"]), None);
     }
 }
