@@ -20,8 +20,10 @@ pub mod php_cli;
 pub mod shell_env;
 pub mod terminal;
 pub mod coredns;
+pub mod layout;
 
 pub use bin::{ensure_nginx_bind_cap, list_php_fpm_versions};
+pub use layout::{managed_bin_dirs, set_current, installed_versions};
 pub use config::Config;
 pub use orchestrator::{Orchestrator, ServiceStatus};
 pub use paths::LaragonPaths;

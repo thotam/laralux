@@ -46,6 +46,15 @@ impl LaragonPaths {
     pub fn bin(&self) -> PathBuf {
         self.root.join("bin")
     }
+    pub fn tool_dir(&self, tool: &str) -> PathBuf {
+        self.bin().join(tool)
+    }
+    pub fn version_dir(&self, tool: &str, version: &str) -> PathBuf {
+        self.bin().join(tool).join(version)
+    }
+    pub fn current_link(&self, tool: &str) -> PathBuf {
+        self.bin().join(tool).join("current")
+    }
     pub fn etc_for(&self, sub: &str) -> PathBuf {
         self.etc().join(sub)
     }
