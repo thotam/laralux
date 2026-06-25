@@ -47,13 +47,13 @@ Rejected:
 
 ### 3.3 `core/src/shell_env.rs` (new) — managed PATH block
 
-- `pub fn shell_block(home: &Path) -> String` (pure): the exact managed block text:
+- `pub const SHELL_BLOCK: &str` (pure): the exact managed block text, using the literal `$HOME` (shell-evaluated per user, never hardcoding a username/home — so it is inherently per-user and a stale absolute path can't leak across users):
   ```
   # >>> laragon >>>
-  export PATH="<home>/laragon/bin:$PATH"
+  export PATH="$HOME/laragon/bin:$PATH"
   # <<< laragon <<<
   ```
-- `apply_shell_block(contents: &str, home: &Path) -> String` (pure): like `hosts::apply_block` — insert/replace the marked block in a file's contents, return the updated contents (idempotent; preserves the rest).
+- `apply_shell_block(contents: &str) -> String` (pure): like `hosts::apply_block` — insert/replace the `SHELL_BLOCK` between the markers in a file's contents, return the updated contents (idempotent; preserves the rest).
 - `remove_shell_block(contents: &str) -> String` (pure): strip the marked block.
 - `rc_filename_for_shell(shell: &str) -> &'static str` (pure): returns `".zshrc"` if `shell` ends with `zsh`, else `".bashrc"`.
 - `enable_shell_path(home: &Path, shell: &str) -> std::io::Result<()>`:
@@ -104,7 +104,7 @@ Rejected:
 
 - `latest_patch_url(version, arch, sapi, json)`: returns the cli URL for `sapi="cli"` and the fpm URL for `sapi="fpm"` from the same sample listing; ignores the other SAPI/arch.
 - `install_php_static` (module-local fakes): fetches the index once then **two** tarball URLs (fpm + cli), runs `tar` for both, and places **both** `php-fpm<v>` and `php<v>` (mode 0755) in `~/laragon/bin`.
-- `shell_env`: `apply_shell_block` inserts the block once and is idempotent on re-apply; `remove_shell_block` strips it and leaves surrounding lines intact; `shell_block(home)` contains `export PATH="<home>/laragon/bin:$PATH"` and both markers. `rc_filename_for_shell("/usr/bin/zsh")` == `.zshrc`, `rc_filename_for_shell("/bin/bash")` == `.bashrc`. `enable_shell_path(home, "/bin/bash")` on a temp HOME with an existing `.bashrc` adds the block to it; on a temp HOME with **no** rc files it creates `.bashrc` (and, with `"/usr/bin/zsh"`, creates `.zshrc` instead); `disable_shell_path` then removes the block.
+- `shell_env`: `apply_shell_block` inserts the block once and is idempotent on re-apply; `remove_shell_block` strips it and leaves surrounding lines intact; `SHELL_BLOCK` contains the literal `export PATH="$HOME/laragon/bin:$PATH"` (not an expanded path) and both markers. `rc_filename_for_shell("/usr/bin/zsh")` == `.zshrc`, `rc_filename_for_shell("/bin/bash")` == `.bashrc`. `enable_shell_path(home, "/bin/bash")` on a temp HOME with an existing `.bashrc` adds the block to it; on a temp HOME with **no** rc files it creates `.bashrc` (and, with `"/usr/bin/zsh"`, creates `.zshrc` instead); `disable_shell_path` then removes the block.
 - `set_active_php` (temp root): creates `~/laragon/bin/php` symlink → `php<v>`; re-pointing to another version replaces it.
 - `install_composer` (FakeDownloader): writes `composer.phar` and a `composer` wrapper that contains `exec` + `composer.phar`; wrapper is mode 0755.
 - `config`: `shell_integration` defaults false and round-trips.
