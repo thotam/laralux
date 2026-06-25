@@ -50,7 +50,7 @@ impl Service for PhpFpmService {
         Ok(())
     }
     fn command(&self, paths: &LaragonPaths) -> SpawnSpec {
-        SpawnSpec::new(format!("php-fpm{}", self.version))
+        SpawnSpec::new("php-fpm")
             .arg("-F") // foreground, so the orchestrator owns the process
             .arg("-y")
             .arg(self.conf_path(paths).display().to_string())
@@ -84,7 +84,7 @@ mod tests {
         let p = LaragonPaths::new("/tmp/lara".into());
         let svc = PhpFpmService::new("8.4");
         let spec = svc.command(&p);
-        assert_eq!(spec.program, "php-fpm8.4");
+        assert_eq!(spec.program, "php-fpm");
         assert!(spec.args.contains(&"-F".to_string()));
         assert!(spec.args.iter().any(|a| a.ends_with("php-fpm.conf")));
         assert_eq!(svc.kind(), ServiceKind::PhpFpm);

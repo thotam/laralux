@@ -9,7 +9,7 @@ use laragon_core::{
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
 use laragon_core::{
-    install_php_static, list_php_fpm_versions, php_versions as core_php_versions,
+    install_php_static, php_versions as core_php_versions,
     PhpVersionInfo,
 };
 use std::sync::Mutex;
@@ -30,6 +30,9 @@ pub fn build_state() -> AppState {
     let paths = LaragonPaths::new(LaragonPaths::default_root());
     let config = Config::load(&paths.config_file()).unwrap_or_default();
     let _ = paths.ensure_dirs();
+    // Reconcile bin/<tool>/current symlinks from config (the source of truth)
+    // at startup, so the active versions match config regardless of prior installs.
+    let _ = laragon_core::apply_versions(&paths, &config);
     let orch = Orchestrator::new(paths.clone(), build_services(&config, &paths), Box::new(RealSpawner));
     AppState { orch: Mutex::new(orch), paths, tld: config.tld, starting: AtomicBool::new(false) }
 }
@@ -400,9 +403,13 @@ pub async fn install_php_version(
 ) -> Result<Vec<PhpVersionInfo>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PhpVersionInfo>, String> {
         let state = app.state::<AppState>();
-        install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner)
+        let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner)
             .map_err(|e| e.to_string())?;
+        // install_php_static repoints bin/php/current to the just-installed version;
+        // restore the configured active version so a non-active install never
+        // hijacks the live pointer (config is the source of truth).
         let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let _ = laragon_core::apply_versions(&state.paths, &config);
         Ok(core_php_versions(&state.paths, &config.php_version))
     })
     .await
@@ -416,11 +423,14 @@ pub async fn set_php_version(
 ) -> Result<Vec<ServiceStatus>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
         let state = app.state::<AppState>();
-        if !list_php_fpm_versions(&[state.paths.bin()]).contains(&version) {
+        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let installed = laragon_core::php_versions(&state.paths, &config.php_version);
+        if !installed.iter().any(|p| p.version == version && p.installed) {
             return Err(format!("PHP {version} is not installed"));
         }
-        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        config.php_version = version.clone();
+        let full = laragon_core::resolve_installed_version(&state.paths, "php", &version).unwrap_or_else(|| version.clone());
+        config.versions.insert("php".to_string(), full.clone());
+        config.php_version = full;
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
 
         let mut orch = state.orch.lock().map_err(lock_err)?;

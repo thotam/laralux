@@ -62,7 +62,8 @@ pub fn detect(paths: &LaragonPaths) -> Vec<ComponentStatus> {
         .iter()
         .map(|&component| {
             let present = match component {
-                Component::Php => crate::bin::detect_php_fpm_version(&[paths.bin()]).is_some(),
+                Component::Php => crate::bin::resolve_bin("php-fpm", &crate::layout::managed_bin_dirs(paths)).is_some(),
+                Component::Composer => crate::bin::resolve_bin("composer", &crate::layout::managed_bin_dirs(paths)).is_some(),
                 other => {
                     let name = detect_binary(other);
                     resolve_bin(&name, &[paths.bin()]).is_some()
@@ -82,7 +83,7 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
         Component::Redis => vec!["redis-server".to_string()],
         Component::Mkcert => vec!["mkcert".to_string(), "libnss3-tools".to_string()],
         Component::Mailpit => Vec::new(),
-        Component::Composer => vec!["composer".to_string()],
+        Component::Composer => Vec::new(),
     }
 }
 
@@ -92,6 +93,8 @@ use std::sync::{Arc, Mutex};
 
 pub const MAILPIT_URL: &str =
     "https://github.com/axllent/mailpit/releases/latest/download/mailpit-linux-amd64.tar.gz";
+
+pub const MAILPIT_FALLBACK_VERSION: &str = "1.20.0";
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetupError {
@@ -154,6 +157,7 @@ impl Downloader for FakeDownloader {
 pub struct SetupReport {
     pub apt_packages: Vec<String>,
     pub mailpit_fetched: bool,
+    pub composer_fetched: bool,
     pub mkcert_ca: bool,
     pub nginx_setcap: bool,
     pub php_version: Option<String>,
@@ -176,6 +180,7 @@ pub fn run_setup(
     let mut report = SetupReport {
         apt_packages: Vec::new(),
         mailpit_fetched: false,
+        composer_fetched: false,
         mkcert_ca: false,
         nginx_setcap: false,
         php_version: None,
@@ -198,27 +203,27 @@ pub fn run_setup(
 
     // 1b. Install PHP from a static build (no apt/distro PHP) when missing.
     if missing.contains(&Component::Php) {
-        match crate::php_static::install_php_static(
-            paths,
-            crate::php_versions::DEFAULT_PHP_VERSION,
-            downloader,
-            runner,
-        ) {
-            Ok(()) => match crate::bin::detect_php_fpm_version(&[paths.bin()]) {
-                Some(ver) => {
-                    report.php_version = Some(ver.clone());
-                    let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
-                    cfg.php_version = ver.clone();
-                    if let Err(e) = cfg.save(&paths.config_file()) {
-                        report.errors.push(format!("persist php version: {e}"));
-                    }
-                    let _ = crate::php_cli::set_active_php(paths, &ver);
+        match crate::php_static::install_php_static(paths, crate::php_versions::DEFAULT_PHP_VERSION, downloader, runner) {
+            Ok(full) => {
+                report.php_version = Some(full.clone());
+                let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+                cfg.versions.insert("php".to_string(), full.clone());
+                cfg.php_version = full.clone();
+                if let Err(e) = cfg.save(&paths.config_file()) {
+                    report.errors.push(format!("persist php version: {e}"));
                 }
-                None => report
-                    .errors
-                    .push("php-fpm binary not found after static install".to_string()),
-            },
+            }
             Err(e) => report.errors.push(format!("install php (static): {e}")),
+        }
+    }
+
+    // 1c. Install composer (downloaded, not apt) when missing. Must run after PHP so
+    // the PHP binary is available for probing the composer version.
+    if missing.contains(&Component::Composer) {
+        if let Err(e) = crate::php_cli::install_composer(paths, downloader) {
+            report.errors.push(format!("install composer: {e}"));
+        } else {
+            report.composer_fetched = true;
         }
     }
 
@@ -229,25 +234,43 @@ pub fn run_setup(
         report.errors.push(format!("disable system services: {e}"));
     }
 
-    // 2. Fetch + extract mailpit into ~/laragon/bin when missing.
+    // 2. Fetch + extract mailpit into ~/laragon/bin/<version>/ when missing.
     if missing.contains(&Component::Mailpit) {
         let tarball = paths.tmp().join("mailpit.tar.gz");
         match downloader.fetch(MAILPIT_URL, &tarball) {
             Ok(()) => {
                 report.mailpit_fetched = true;
-                let output = std::process::Command::new("tar")
-                    .arg("-xzf")
-                    .arg(&tarball)
-                    .arg("-C")
-                    .arg(paths.bin())
-                    .arg("mailpit")
-                    .output();
-                match output {
-                    Ok(o) if o.status.success() => {}
-                    Ok(o) => report.errors.push(format!(
-                        "tar extract mailpit failed: {}",
-                        String::from_utf8_lossy(&o.stderr).trim()
-                    )),
+                let extract_dir = paths.tmp().join("mailpit-extract");
+                let _ = std::fs::create_dir_all(&extract_dir);
+                let out = std::process::Command::new("tar")
+                    .arg("-xzf").arg(&tarball).arg("-C").arg(&extract_dir).arg("mailpit").output();
+                match out {
+                    Ok(o) if o.status.success() => {
+                        let extracted = extract_dir.join("mailpit");
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = std::fs::set_permissions(&extracted, std::fs::Permissions::from_mode(0o755));
+                        }
+                        let ver = crate::layout::probe_version(&extracted, &["version"])
+                            .unwrap_or_else(|| MAILPIT_FALLBACK_VERSION.to_string());
+                        let dir = paths.version_dir("mailpit", &ver);
+                        let _ = std::fs::create_dir_all(&dir);
+                        let dest = dir.join("mailpit");
+                        let moved = std::fs::rename(&extracted, &dest).or_else(|_| {
+                            std::fs::copy(&extracted, &dest).map(|_| ()).and_then(|_| std::fs::remove_file(&extracted))
+                        });
+                        match moved {
+                            Ok(()) => {
+                                let _ = crate::layout::set_current(paths, "mailpit", &ver);
+                                let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+                                cfg.versions.insert("mailpit".to_string(), ver);
+                                let _ = cfg.save(&paths.config_file());
+                            }
+                            Err(e) => report.errors.push(format!("install mailpit: {e}")),
+                        }
+                    }
+                    Ok(o) => report.errors.push(format!("tar extract mailpit failed: {}", String::from_utf8_lossy(&o.stderr).trim())),
                     Err(e) => report.errors.push(format!("tar spawn: {e}")),
                 }
             }
@@ -262,7 +285,7 @@ pub fn run_setup(
     }
 
     // 4. setcap the resolved nginx binary (same path the orchestrator spawns).
-    if let Some(nginx) = resolve_bin("nginx", &[paths.bin()]) {
+    if let Some(nginx) = resolve_bin("nginx", &crate::layout::managed_bin_dirs(paths)) {
         match privileged.setcap_nginx(&nginx) {
             Ok(()) => report.nginx_setcap = true,
             Err(e) => report.errors.push(format!("setcap nginx: {e}")),
@@ -273,6 +296,12 @@ pub fn run_setup(
     // allow it into ~/laragon so the app-managed datadir works.
     if let Err(e) = privileged.allow_mariadb_apparmor() {
         report.errors.push(format!("mariadb apparmor: {e}"));
+    }
+
+    // Reconcile all `current` symlinks from the freshly-written config.
+    let cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+    for w in crate::layout::apply_versions(paths, &cfg) {
+        report.errors.push(format!("apply versions: {w}"));
     }
 
     report
@@ -367,9 +396,9 @@ mod tests {
     }
 
     #[test]
-    fn composer_is_a_component_with_apt_package() {
+    fn composer_is_a_component_with_no_apt_package() {
         assert!(Component::ALL.contains(&Component::Composer));
-        assert_eq!(apt_packages_for(Component::Composer), vec!["composer".to_string()]);
+        assert!(apt_packages_for(Component::Composer).is_empty());
         assert_eq!(Component::Composer.label(), "composer");
     }
 }

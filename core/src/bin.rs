@@ -41,88 +41,6 @@ pub fn resolve_or_name(name: &str, extra_dirs: &[PathBuf]) -> String {
         .unwrap_or_else(|| name.to_string())
 }
 
-/// Parse "8.4" → (8, 4). Returns None if not exactly major.minor of integers.
-fn parse_php_version(s: &str) -> Option<(u32, u32)> {
-    let mut parts = s.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next()?.parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    Some((major, minor))
-}
-
-/// Scan exactly `dirs` (no implicit PATH/fallback) for the highest php-fpm<maj>.<min>.
-fn detect_php_fpm_version_in(dirs: &[PathBuf]) -> Option<String> {
-    let mut best: Option<(u32, u32, String)> = None;
-    for dir in dirs {
-        let entries = match std::fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            if !entry.path().is_file() {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(ver) = name.strip_prefix("php-fpm") {
-                if let Some((maj, min)) = parse_php_version(ver) {
-                    if best.as_ref().map_or(true, |(bmaj, bmin, _)| (maj, min) > (*bmaj, *bmin)) {
-                        best = Some((maj, min, ver.to_string()));
-                    }
-                }
-            }
-        }
-    }
-    best.map(|(_, _, ver)| ver)
-}
-
-/// Find the highest installed `php-fpm<major>.<minor>` and return its version string.
-pub fn detect_php_fpm_version(extra_dirs: &[PathBuf]) -> Option<String> {
-    let mut dirs: Vec<PathBuf> = extra_dirs.to_vec();
-    if let Some(path) = std::env::var_os("PATH") {
-        dirs.extend(std::env::split_paths(&path));
-    }
-    dirs.extend(FALLBACK_DIRS.iter().map(PathBuf::from));
-    detect_php_fpm_version_in(&dirs)
-}
-
-/// Scan exactly `dirs` for all `php-fpm<maj>.<min>` binaries; sorted unique versions.
-fn list_php_fpm_versions_in(dirs: &[PathBuf]) -> Vec<String> {
-    let mut found: Vec<(u32, u32)> = Vec::new();
-    for dir in dirs {
-        let entries = match std::fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            if !entry.path().is_file() {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(ver) = name.strip_prefix("php-fpm") {
-                if let Some((maj, min)) = parse_php_version(ver) {
-                    if !found.contains(&(maj, min)) {
-                        found.push((maj, min));
-                    }
-                }
-            }
-        }
-    }
-    found.sort();
-    found.into_iter().map(|(maj, min)| format!("{maj}.{min}")).collect()
-}
-
-/// All installed php-fpm versions across `extra_dirs` + PATH + system bin dirs.
-pub fn list_php_fpm_versions(extra_dirs: &[PathBuf]) -> Vec<String> {
-    let mut dirs: Vec<PathBuf> = extra_dirs.to_vec();
-    if let Some(path) = std::env::var_os("PATH") {
-        dirs.extend(std::env::split_paths(&path));
-    }
-    dirs.extend(FALLBACK_DIRS.iter().map(PathBuf::from));
-    list_php_fpm_versions_in(&dirs)
-}
-
 /// True iff `getcap` output reports the net-bind capability.
 pub fn getcap_indicates_cap(output: &str) -> bool {
     output.contains("cap_net_bind_service")
@@ -141,7 +59,7 @@ pub fn nginx_has_bind_cap(nginx_bin: &std::path::Path) -> bool {
 /// net-bind capability, re-apply it via `setcap` (best-effort; a failure does
 /// not block startup). No-op (no prompt) when the capability is already present.
 pub fn ensure_nginx_bind_cap(paths: &LaragonPaths, privileged: &dyn Privileged) {
-    if let Some(nginx) = resolve_bin("nginx", &[paths.bin()]) {
+    if let Some(nginx) = resolve_bin("nginx", &crate::layout::managed_bin_dirs(paths)) {
         if !nginx_has_bind_cap(&nginx) {
             let _ = privileged.setcap_nginx(&nginx);
         }
@@ -185,46 +103,6 @@ mod tests {
         let abs = exe.display().to_string();
         assert_eq!(resolve_bin(&abs, &[]), Some(exe));
         assert_eq!(resolve_bin("/no/such/tool/here", &[]), None);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn detects_highest_php_fpm_version() {
-        let dir = tmp();
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("php-fpm8.3"), "x").unwrap();
-        std::fs::write(dir.join("php-fpm8.4"), "x").unwrap();
-        std::fs::write(dir.join("php-fpm"), "x").unwrap(); // unversioned: ignored
-        assert_eq!(detect_php_fpm_version_in(&[dir.clone()]), Some("8.4".to_string()));
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn no_php_fpm_returns_none() {
-        let dir = tmp();
-        std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(detect_php_fpm_version_in(&[dir.clone()]), None);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn lists_all_php_fpm_versions_sorted() {
-        let dir = std::env::temp_dir().join(format!("lara-phplist-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("php-fpm8.4"), "x").unwrap();
-        std::fs::write(dir.join("php-fpm8.3"), "x").unwrap();
-        std::fs::write(dir.join("php-fpm"), "x").unwrap();      // no version → ignored
-        std::fs::write(dir.join("nginx"), "x").unwrap();        // unrelated → ignored
-        let got = list_php_fpm_versions_in(&[dir.clone()]);
-        assert_eq!(got, vec!["8.3".to_string(), "8.4".to_string()]);
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn lists_empty_when_none() {
-        let dir = std::env::temp_dir().join(format!("lara-phplist-empty-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        assert!(list_php_fpm_versions_in(&[dir.clone()]).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 
