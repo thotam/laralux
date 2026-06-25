@@ -141,7 +141,7 @@ pub fn nginx_has_bind_cap(nginx_bin: &std::path::Path) -> bool {
 /// net-bind capability, re-apply it via `setcap` (best-effort; a failure does
 /// not block startup). No-op (no prompt) when the capability is already present.
 pub fn ensure_nginx_bind_cap(paths: &LaragonPaths, privileged: &dyn Privileged) {
-    if let Some(nginx) = resolve_bin("nginx", &[paths.bin()]) {
+    if let Some(nginx) = resolve_bin("nginx", &crate::layout::managed_bin_dirs(paths)) {
         if !nginx_has_bind_cap(&nginx) {
             let _ = privileged.setcap_nginx(&nginx);
         }

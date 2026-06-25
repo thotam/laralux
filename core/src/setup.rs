@@ -262,7 +262,7 @@ pub fn run_setup(
     }
 
     // 4. setcap the resolved nginx binary (same path the orchestrator spawns).
-    if let Some(nginx) = resolve_bin("nginx", &[paths.bin()]) {
+    if let Some(nginx) = resolve_bin("nginx", &crate::layout::managed_bin_dirs(paths)) {
         match privileged.setcap_nginx(&nginx) {
             Ok(()) => report.nginx_setcap = true,
             Err(e) => report.errors.push(format!("setcap nginx: {e}")),

@@ -86,7 +86,7 @@ impl Orchestrator {
             svc.write_config(&self.paths)?;
             svc.pre_start(&self.paths)?;
             let mut spec = svc.command(&self.paths);
-            spec.program = crate::bin::resolve_or_name(&spec.program, &[self.paths.bin()]);
+            spec.program = crate::bin::resolve_or_name(&spec.program, &crate::layout::managed_bin_dirs(&self.paths));
             let handle = self.spawner.spawn(&spec)?;
             self.handles.insert(kind, handle);
         }
@@ -369,11 +369,12 @@ mod tests {
 
     #[test]
     fn start_resolves_program_against_bin_dir() {
-        // A fake binary placed in <root>/bin should be spawned by absolute path.
+        // A fake binary placed in <root>/bin/redis-server/current/ (versioned layout)
+        // should be spawned by absolute path.
         let root = std::env::temp_dir().join(format!("lara-orch-res-{}", std::process::id()));
-        let bindir = root.join("bin");
-        std::fs::create_dir_all(&bindir).unwrap();
-        let exe = bindir.join("redis-server");
+        let cur = root.join("bin").join("redis-server").join("current");
+        std::fs::create_dir_all(&cur).unwrap();
+        let exe = cur.join("redis-server");
         std::fs::write(&exe, "x").unwrap();
 
         let spawner = crate::process::FakeSpawner::new();
