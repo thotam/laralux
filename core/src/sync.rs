@@ -15,6 +15,12 @@ pub enum SyncError {
     Priv(#[from] crate::privileged::PrivError),
 }
 
+pub struct SyncOutcome {
+    pub sites: Vec<Site>,
+    pub warnings: Vec<String>,
+    pub wildcard_bases: Vec<String>,
+}
+
 /// Scan sites, issue certs, write per-site vhosts, and update the managed
 /// `/etc/hosts` block — writing hosts only when the block actually changes.
 pub fn sync_sites(
@@ -24,29 +30,43 @@ pub fn sync_sites(
     hosts_path: &Path,
     issuer: &dyn CertIssuer,
     privileged: &dyn Privileged,
-) -> Result<(Vec<Site>, Vec<String>), SyncError> {
+) -> Result<SyncOutcome, SyncError> {
     let (sites, warnings) = list_all_sites(paths, tld)?;
     let sites_dir = paths.etc_for("nginx").join("sites");
     std::fs::create_dir_all(&sites_dir)?;
 
     for site in &sites {
-        let certs = issuer.ensure_cert(&site.name, &[site.hostname.clone()])?;
+        let certs = issuer.ensure_cert(&site.name, &site.domains)?;
         let conf = site.vhost_config(paths, php_socket, &certs.cert, &certs.key);
         std::fs::write(sites_dir.join(format!("{}.conf", site.name)), conf)?;
     }
 
-    let hostnames: Vec<String> = sites.iter().map(|s| s.hostname.clone()).collect();
+    let mut explicit: Vec<String> = Vec::new();
+    let mut wildcard_bases: Vec<String> = Vec::new();
+    for s in &sites {
+        for d in &s.domains {
+            match d.strip_prefix("*.") {
+                Some(base) => {
+                    if !wildcard_bases.iter().any(|b| b == base) {
+                        wildcard_bases.push(base.to_string());
+                    }
+                }
+                None => explicit.push(d.clone()),
+            }
+        }
+    }
+
     let existing = match std::fs::read_to_string(hosts_path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(SyncError::Io(e)),
     };
-    let updated = apply_block(&existing, &hostnames);
+    let updated = apply_block(&existing, &explicit);
     if updated != existing {
         privileged.write_etc_hosts(&updated)?;
     }
 
-    Ok((sites, warnings))
+    Ok(SyncOutcome { sites, warnings, wildcard_bases })
 }
 
 #[cfg(test)]
@@ -80,7 +100,8 @@ mod tests {
         let writes = priv_.hosts_writes();
         let sock = paths.tmp().join("php-fpm.sock");
 
-        let (sites, _warnings) = sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
+        let out = sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
+        let sites = out.sites;
 
         assert_eq!(sites.len(), 2);
         // vhost files written
@@ -122,6 +143,31 @@ mod tests {
     }
 
     #[test]
+    fn sync_splits_explicit_hosts_and_wildcard_bases() {
+        let r = root();
+        std::fs::create_dir_all(r.join("www").join("demo")).unwrap();
+        let paths = LaragonPaths::new(r.clone());
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        reg.set_domains("demo", &["demo.dev".into(), "api.demo.dev".into(), "*.demo.dev".into()]).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let hosts_path = r.join("hosts");
+        std::fs::write(&hosts_path, "127.0.0.1 localhost\n").unwrap();
+        let issuer = FakeCertIssuer::new(paths.ssl());
+        let priv_ = FakePrivileged::new();
+        let writes = priv_.hosts_writes();
+        let sock = paths.tmp().join("php-fpm.sock");
+
+        let out = sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
+        assert_eq!(out.wildcard_bases, vec!["demo.dev".to_string()]);
+        let w = writes.lock().unwrap();
+        assert!(w[0].contains("127.0.0.1 demo.dev"));
+        assert!(w[0].contains("127.0.0.1 api.demo.dev"));
+        assert!(!w[0].contains("*.demo.dev")); // wildcard not in hosts
+        std::fs::remove_dir_all(&r).ok();
+    }
+
+    #[test]
     fn writes_vhost_for_linked_site_outside_www() {
         let r = root();
         std::fs::create_dir_all(r.join("www")).unwrap();
@@ -139,8 +185,8 @@ mod tests {
         let priv_ = FakePrivileged::new();
         let sock = paths.tmp().join("php-fpm.sock");
 
-        let (sites, _w) = sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
-        assert!(sites.iter().any(|s| s.name == "linked"));
+        let out = sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
+        assert!(out.sites.iter().any(|s| s.name == "linked"));
         assert!(paths.etc_for("nginx").join("sites").join("linked.conf").is_file());
         std::fs::remove_dir_all(&r).ok();
     }

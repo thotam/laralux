@@ -33,7 +33,7 @@ pub use site_registry::{
     validate_domain, ProxyRoute, ProxySite, RegisteredSite, RegistryError, SiteDomains, SiteRegistry,
 };
 pub use ssl::MkcertIssuer;
-pub use sync::sync_sites;
+pub use sync::{sync_sites, SyncOutcome};
 pub use setup::{detect as detect_components, run_setup, Component, ComponentStatus, CurlDownloader, SetupReport};
 pub use scaffold::{CommandRunner, RealCommandRunner, SiteTemplate, ScaffoldError, create_site, CreateReport};
 pub use php_versions::{php_versions, PhpVersionInfo};

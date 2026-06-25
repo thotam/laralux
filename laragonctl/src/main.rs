@@ -51,7 +51,7 @@ fn main() {
                 &issuer,
                 &privileged,
             ) {
-                Ok(sites) => println!("Synced {} site(s).", sites.0.len()),
+                Ok(out) => println!("Synced {} site(s).", out.sites.len()),
                 Err(e) => {
                     eprintln!("site sync failed: {e}");
                     std::process::exit(1);
