@@ -13,6 +13,7 @@ use laragon_core::{
     PhpVersionInfo,
 };
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 
 /// Shared, app-lifetime state. The orchestrator owns the running child
@@ -21,6 +22,7 @@ pub struct AppState {
     pub orch: Mutex<Orchestrator>,
     pub paths: LaragonPaths,
     pub tld: String,
+    pub starting: AtomicBool,
 }
 
 /// Build the managed state from the on-disk config.
@@ -29,7 +31,7 @@ pub fn build_state() -> AppState {
     let config = Config::load(&paths.config_file()).unwrap_or_default();
     let _ = paths.ensure_dirs();
     let orch = Orchestrator::new(paths.clone(), build_services(&config, &paths), Box::new(RealSpawner));
-    AppState { orch: Mutex::new(orch), paths, tld: config.tld }
+    AppState { orch: Mutex::new(orch), paths, tld: config.tld, starting: AtomicBool::new(false) }
 }
 
 fn lock_err<T>(_: std::sync::PoisonError<T>) -> String {
@@ -47,6 +49,20 @@ pub fn stack_status(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus>,
 pub async fn stack_start_all(app: tauri::AppHandle) -> Result<Vec<ServiceStatus>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
         let state = app.state::<AppState>();
+        // Re-entrancy guard: if a start is already in progress (e.g. the tray
+        // fired Start All while this one is mid-flight), return the current
+        // snapshot instead of spawning a second, port-conflicting stack.
+        if state.starting.swap(true, Ordering::SeqCst) {
+            let mut orch = state.orch.lock().map_err(lock_err)?;
+            orch.refresh();
+            return Ok(orch.snapshot());
+        }
+        struct ResetGuard<'a>(&'a AtomicBool);
+        impl Drop for ResetGuard<'_> {
+            fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); }
+        }
+        let _reset = ResetGuard(&state.starting);
+
         // Sync sites (per-site vhosts + mkcert certs + /etc/hosts) BEFORE starting,
         // so nginx loads the vhosts on start and <name>.<tld> resolves. Best-effort:
         // a sync failure (e.g. the user cancels the pkexec prompt) must not block start.

@@ -54,6 +54,11 @@ fn main() {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "start_all" => {
                         if let Some(state) = app.try_state::<AppState>() {
+                            // Shares the re-entrancy guard with stack_start_all so a
+                            // tray click during startup can't spawn a duplicate stack.
+                            if state.starting.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                                return;
+                            }
                             laragon_core::ensure_nginx_bind_cap(
                                 &state.paths,
                                 &laragon_core::PkexecPrivileged,
@@ -61,6 +66,7 @@ fn main() {
                             if let Ok(mut orch) = state.orch.lock() {
                                 let _ = orch.start_all();
                             }
+                            state.starting.store(false, std::sync::atomic::Ordering::SeqCst);
                         }
                     }
                     "stop_all" => {
