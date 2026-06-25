@@ -30,6 +30,9 @@ pub fn build_state() -> AppState {
     let paths = LaragonPaths::new(LaragonPaths::default_root());
     let config = Config::load(&paths.config_file()).unwrap_or_default();
     let _ = paths.ensure_dirs();
+    // Reconcile bin/<tool>/current symlinks from config (the source of truth)
+    // at startup, so the active versions match config regardless of prior installs.
+    let _ = laragon_core::apply_versions(&paths, &config);
     let orch = Orchestrator::new(paths.clone(), build_services(&config, &paths), Box::new(RealSpawner));
     AppState { orch: Mutex::new(orch), paths, tld: config.tld, starting: AtomicBool::new(false) }
 }
@@ -402,7 +405,11 @@ pub async fn install_php_version(
         let state = app.state::<AppState>();
         let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner)
             .map_err(|e| e.to_string())?;
+        // install_php_static repoints bin/php/current to the just-installed version;
+        // restore the configured active version so a non-active install never
+        // hijacks the live pointer (config is the source of truth).
         let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let _ = laragon_core::apply_versions(&state.paths, &config);
         Ok(core_php_versions(&state.paths, &config.php_version))
     })
     .await
