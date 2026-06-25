@@ -55,42 +55,38 @@ pub fn coredns_installed(dest: &std::path::Path) -> bool {
     std::fs::metadata(dest).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
 }
 
-/// Download the static CoreDNS binary into ~/laragon/bin (no apt/root) if missing.
+/// Download the static CoreDNS binary into ~/laragon/bin/<version>/ (no apt/root) if missing.
 pub fn ensure_coredns(
     paths: &LaragonPaths,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
 ) -> Result<(), CorednsError> {
-    let dest = paths.bin().join("coredns");
+    let dir = paths.version_dir("coredns", COREDNS_VERSION);
+    let dest = dir.join("coredns");
     if coredns_installed(&dest) {
+        let _ = crate::layout::set_current(paths, "coredns", COREDNS_VERSION);
         return Ok(());
     }
-    // Remove any zero-byte leftover from a previous failed extract
-    let _ = std::fs::remove_file(&dest);
     let arch = coredns_arch().ok_or_else(|| CorednsError::Arch(std::env::consts::ARCH.to_string()))?;
     std::fs::create_dir_all(paths.tmp())?;
-    std::fs::create_dir_all(paths.bin())?;
+    std::fs::create_dir_all(&dir)?;
+    let _ = std::fs::remove_file(&dest);
     let tgz = paths.tmp().join("coredns.tgz");
-    downloader
-        .fetch(&coredns_url(COREDNS_VERSION, arch), &tgz)
-        .map_err(|e| CorednsError::Download(e.to_string()))?;
+    downloader.fetch(&coredns_url(COREDNS_VERSION, arch), &tgz).map_err(|e| CorednsError::Download(e.to_string()))?;
     let extract_dir = paths.tmp().join("coredns-extract");
     std::fs::create_dir_all(&extract_dir)?;
-    runner
-        .run("tar", &["-xzf".into(), tgz.display().to_string(), "-C".into(), extract_dir.display().to_string(), "coredns".into()], None)
+    runner.run("tar", &["-xzf".into(), tgz.display().to_string(), "-C".into(), extract_dir.display().to_string(), "coredns".into()], None)
         .map_err(|e| CorednsError::Extract(e.to_string()))?;
     let extracted = extract_dir.join("coredns");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&extracted, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| CorednsError::Extract(e.to_string()))?;
+        std::fs::set_permissions(&extracted, std::fs::Permissions::from_mode(0o755))?;
     }
     std::fs::rename(&extracted, &dest).or_else(|_| {
-        std::fs::copy(&extracted, &dest)
-            .map(|_| ())
-            .and_then(|_| std::fs::remove_file(&extracted))
-    }).map_err(|e| CorednsError::Extract(e.to_string()))?;
+        std::fs::copy(&extracted, &dest).map(|_| ()).and_then(|_| std::fs::remove_file(&extracted))
+    })?;
+    crate::layout::set_current(paths, "coredns", COREDNS_VERSION)?;
     Ok(())
 }
 

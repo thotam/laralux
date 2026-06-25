@@ -93,6 +93,8 @@ use std::sync::{Arc, Mutex};
 pub const MAILPIT_URL: &str =
     "https://github.com/axllent/mailpit/releases/latest/download/mailpit-linux-amd64.tar.gz";
 
+pub const MAILPIT_FALLBACK_VERSION: &str = "1.20.0";
+
 #[derive(Debug, thiserror::Error)]
 pub enum SetupError {
     #[error("setup io error: {0}")]
@@ -219,25 +221,43 @@ pub fn run_setup(
         report.errors.push(format!("disable system services: {e}"));
     }
 
-    // 2. Fetch + extract mailpit into ~/laragon/bin when missing.
+    // 2. Fetch + extract mailpit into ~/laragon/bin/<version>/ when missing.
     if missing.contains(&Component::Mailpit) {
         let tarball = paths.tmp().join("mailpit.tar.gz");
         match downloader.fetch(MAILPIT_URL, &tarball) {
             Ok(()) => {
                 report.mailpit_fetched = true;
-                let output = std::process::Command::new("tar")
-                    .arg("-xzf")
-                    .arg(&tarball)
-                    .arg("-C")
-                    .arg(paths.bin())
-                    .arg("mailpit")
-                    .output();
-                match output {
-                    Ok(o) if o.status.success() => {}
-                    Ok(o) => report.errors.push(format!(
-                        "tar extract mailpit failed: {}",
-                        String::from_utf8_lossy(&o.stderr).trim()
-                    )),
+                let extract_dir = paths.tmp().join("mailpit-extract");
+                let _ = std::fs::create_dir_all(&extract_dir);
+                let out = std::process::Command::new("tar")
+                    .arg("-xzf").arg(&tarball).arg("-C").arg(&extract_dir).arg("mailpit").output();
+                match out {
+                    Ok(o) if o.status.success() => {
+                        let extracted = extract_dir.join("mailpit");
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = std::fs::set_permissions(&extracted, std::fs::Permissions::from_mode(0o755));
+                        }
+                        let ver = crate::layout::probe_version(&extracted, &["version"])
+                            .unwrap_or_else(|| MAILPIT_FALLBACK_VERSION.to_string());
+                        let dir = paths.version_dir("mailpit", &ver);
+                        let _ = std::fs::create_dir_all(&dir);
+                        let dest = dir.join("mailpit");
+                        let moved = std::fs::rename(&extracted, &dest).or_else(|_| {
+                            std::fs::copy(&extracted, &dest).map(|_| ()).and_then(|_| std::fs::remove_file(&extracted))
+                        });
+                        match moved {
+                            Ok(()) => {
+                                let _ = crate::layout::set_current(paths, "mailpit", &ver);
+                                let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+                                cfg.versions.insert("mailpit".to_string(), ver);
+                                let _ = cfg.save(&paths.config_file());
+                            }
+                            Err(e) => report.errors.push(format!("install mailpit: {e}")),
+                        }
+                    }
+                    Ok(o) => report.errors.push(format!("tar extract mailpit failed: {}", String::from_utf8_lossy(&o.stderr).trim())),
                     Err(e) => report.errors.push(format!("tar spawn: {e}")),
                 }
             }
