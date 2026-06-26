@@ -7,7 +7,7 @@ use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    Manager,
+    Emitter, Manager,
 };
 
 fn main() {
@@ -94,6 +94,29 @@ fn main() {
                     _ => {}
                 })
                 .build(app)?;
+
+            // Realtime service status: poll liveness server-side every ~1s and
+            // push `services-changed` ONLY when the snapshot actually changes, so
+            // crashes surface within ~1s and the UI never re-renders while idle.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let mut last: Option<Vec<laragon_core::ServiceStatus>> = None;
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        let Some(state) = handle.try_state::<AppState>() else { continue };
+                        let snap = match state.orch.lock() {
+                            Ok(mut orch) => { orch.refresh(); orch.snapshot() }
+                            Err(_) => continue,
+                        };
+                        if last.as_ref() != Some(&snap) {
+                            let _ = handle.emit("services-changed", &snap);
+                            last = Some(snap);
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
