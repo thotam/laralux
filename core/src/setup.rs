@@ -345,9 +345,12 @@ pub fn run_setup(
     }
 
     // 3. Install the mkcert local CA (idempotent).
-    match privileged.install_mkcert_ca() {
-        Ok(()) => report.mkcert_ca = true,
-        Err(e) => report.errors.push(format!("mkcert -install: {e}")),
+    match crate::bin::resolve_bin("mkcert", &crate::layout::managed_bin_dirs(paths)) {
+        Some(mk) => match privileged.install_mkcert_ca(&mk) {
+            Ok(()) => report.mkcert_ca = true,
+            Err(e) => report.errors.push(format!("mkcert -install: {e}")),
+        },
+        None => report.errors.push("mkcert -install: mkcert not found".to_string()),
     }
 
     // 4. setcap the resolved nginx binary (same path the orchestrator spawns).

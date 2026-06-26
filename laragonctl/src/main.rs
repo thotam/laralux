@@ -29,7 +29,10 @@ fn main() {
         "setup-perms" => {
             let priv_ = SudoPrivileged;
             println!("Installing mkcert local CA (may prompt for sudo)...");
-            priv_.install_mkcert_ca().expect("mkcert -install");
+            match laragon_core::bin::resolve_bin("mkcert", &laragon_core::layout::managed_bin_dirs(&paths)) {
+                Some(mk) => priv_.install_mkcert_ca(&mk).expect("mkcert -install"),
+                None => eprintln!("warning: mkcert not found in managed bin dirs; skipping CA install"),
+            }
             let nginx_bin = laragon_core::bin::resolve_bin("nginx", &[paths.bin()])
                 .unwrap_or_else(|| std::path::PathBuf::from("/usr/sbin/nginx"));
             println!("Granting nginx permission to bind low ports via setcap...");
