@@ -3,15 +3,10 @@ use laragon_core::{
     ensure_nginx_bind_cap, list_all_sites, resolved_dropin, run_setup, sync_sites, Config,
     CreateReport, LaragonPaths, MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged,
     ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site,
-    SiteRegistry, SiteTemplate, ensure_active_php_cli, install_composer, enable_shell_path,
-    disable_shell_path,
+    SiteRegistry, SiteTemplate,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
-use laragon_core::{
-    install_php_static, php_versions as core_php_versions,
-    PhpVersionInfo,
-};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
@@ -402,62 +397,72 @@ pub async fn update_proxy(
     .map_err(|e| e.to_string())?
 }
 
+
 #[tauri::command]
-pub fn php_versions(state: tauri::State<AppState>) -> Result<Vec<PhpVersionInfo>, String> {
-    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
-    Ok(core_php_versions(&state.paths, &config.php_version))
+pub fn tool_versions(
+    state: tauri::State<AppState>,
+    tool: String,
+) -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
+    let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+    Ok(laragon_core::tools::available_versions(t, &state.paths))
 }
 
 #[tauri::command]
-pub async fn install_php_version(
+pub async fn install_tool_version(
     app: tauri::AppHandle,
+    tool: String,
     version: String,
-) -> Result<Vec<PhpVersionInfo>, String> {
+) -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
     let app_for_progress = app.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PhpVersionInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
         let state = app.state::<AppState>();
+        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
         let progress = TauriProgress(app_for_progress);
-        let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress)
+        laragon_core::tools::install_version(t, &state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress)
             .map_err(|e| e.to_string())?;
-        // install_php_static repoints bin/php/current to the just-installed version;
-        // restore the configured active version so a non-active install never
-        // hijacks the live pointer (config is the source of truth).
+        // Keep `current` symlinks reconciled to config after an install.
         let config = Config::load(&state.paths.config_file()).unwrap_or_default();
         let _ = laragon_core::apply_versions(&state.paths, &config);
-        Ok(core_php_versions(&state.paths, &config.php_version))
+        Ok(laragon_core::tools::available_versions(t, &state.paths))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn set_php_version(
+pub async fn set_tool_version(
     app: tauri::AppHandle,
+    tool: String,
     version: String,
 ) -> Result<Vec<ServiceStatus>, String> {
     let app_for_progress = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
         let state = app.state::<AppState>();
+        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+        let info = laragon_core::tools::info(t);
+
         let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let installed = laragon_core::php_versions(&state.paths, &config.php_version);
-        if !installed.iter().any(|p| p.version == version && p.installed) {
-            return Err(format!("PHP {version} is not installed"));
+        let full = laragon_core::resolve_installed_version(&state.paths, info.key, &version)
+            .unwrap_or_else(|| version.clone());
+        config.versions.insert(info.key.to_string(), full.clone());
+        if t == laragon_core::tools::ManagedTool::Php {
+            config.php_version = full.clone();
         }
-        let full = laragon_core::resolve_installed_version(&state.paths, "php", &version).unwrap_or_else(|| version.clone());
-        config.versions.insert("php".to_string(), full.clone());
-        config.php_version = full;
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
 
-        let mut orch = state.orch.lock().map_err(lock_err)?;
-        orch.replace_php_version(&version).map_err(|e| e.to_string())?;
-        let snapshot = orch.snapshot();
-        drop(orch);
+        let snapshot = {
+            let mut orch = state.orch.lock().map_err(lock_err)?;
+            match info.service_kind {
+                Some(kind) => { orch.replace_version(kind, info.key, &version).map_err(|e| e.to_string())?; }
+                None => { laragon_core::set_current(&state.paths, info.key, &full).map_err(|e| e.to_string())?; }
+            }
+            orch.snapshot()
+        };
 
-        // Point the CLI `php` (and composer) at the new active version; download
-        // the cli binary if a pre-static-cli version only had php-fpm.
-        let progress = TauriProgress(app_for_progress);
-        let _ = ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress);
-
+        if t == laragon_core::tools::ManagedTool::Php {
+            let progress = TauriProgress(app_for_progress);
+            let _ = laragon_core::ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress);
+        }
         Ok(snapshot)
     })
     .await
@@ -465,35 +470,30 @@ pub async fn set_php_version(
 }
 
 #[tauri::command]
-pub fn terminal_integration_status(state: tauri::State<AppState>) -> Result<bool, String> {
+pub fn tool_symlinks(state: tauri::State<AppState>) -> Result<Vec<String>, String> {
     let config = Config::load(&state.paths.config_file()).unwrap_or_default();
-    Ok(config.shell_integration)
+    Ok(config.symlinks.into_iter().collect())
 }
 
 #[tauri::command]
-pub async fn set_terminal_integration(
+pub async fn set_tool_symlink(
     app: tauri::AppHandle,
+    tool: String,
     enabled: bool,
-) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>, String> {
         let state = app.state::<AppState>();
-        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-        let home = std::path::PathBuf::from(home);
-
+        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
         if enabled {
-            ensure_active_php_cli(&state.paths, &config.php_version, &CurlDownloader, &RealCommandRunner, &laragon_core::NullProgress)
-                .map_err(|e| e.to_string())?;
-            install_composer(&state.paths, &CurlDownloader, &laragon_core::NullProgress).map_err(|e| e.to_string())?;
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-            enable_shell_path(&home, &shell).map_err(|e| e.to_string())?;
+            laragon_core::link_tool(&state.paths, t, &PkexecPrivileged).map_err(|e| e.to_string())?;
         } else {
-            disable_shell_path(&home).map_err(|e| e.to_string())?;
+            laragon_core::unlink_tool(t, &PkexecPrivileged).map_err(|e| e.to_string())?;
         }
-
-        config.shell_integration = enabled;
+        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let k = laragon_core::tools::key(t).to_string();
+        if enabled { config.symlinks.insert(k); } else { config.symlinks.remove(&k); }
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
-        Ok(enabled)
+        Ok(config.symlinks.into_iter().collect())
     })
     .await
     .map_err(|e| e.to_string())?
