@@ -655,7 +655,7 @@
   function pkexecBanner() {
     if (!state.pkexecMsg) return "";
     return (
-      '<div class="pkexec" role="status">' + spinner("warn") + I.lock +
+      '<div class="pkexec" role="status">' + I.lock +
       '<span class="msg">' + esc(state.pkexecMsg) + "</span></div>"
     );
   }
