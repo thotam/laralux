@@ -28,29 +28,42 @@ fn installed(dest: &std::path::Path) -> bool {
 }
 
 /// Download the static mkcert binary into bin/mkcert/<version>/mkcert (no apt).
+/// Curated mkcert versions offered in the Setup modal. mkcert is rarely updated;
+/// 1.4.4 is the current release. All verified present as GitHub release assets.
+pub const KNOWN_MKCERT_VERSIONS: [&str; 3] = ["1.4.4", "1.4.3", "1.4.2"];
+
+/// Download the default (pinned) mkcert version.
 pub fn install_mkcert(
     paths: &LaragonPaths, downloader: &dyn Downloader, sink: &dyn ProgressSink,
 ) -> Result<String, MkcertError> {
-    let dir = paths.version_dir("mkcert", MKCERT_VERSION);
+    install_mkcert_version(paths, MKCERT_VERSION, downloader, sink)
+}
+
+/// Download a SPECIFIC mkcert version into bin/mkcert/<version>/mkcert (no apt).
+/// Idempotent. An unknown version surfaces as `MkcertError::Download`.
+pub fn install_mkcert_version(
+    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
+) -> Result<String, MkcertError> {
+    let dir = paths.version_dir("mkcert", version);
     let dest = dir.join("mkcert");
     if installed(&dest) {
-        let _ = crate::layout::set_current(paths, "mkcert", MKCERT_VERSION);
-        return Ok(MKCERT_VERSION.to_string());
+        let _ = crate::layout::set_current(paths, "mkcert", version);
+        return Ok(version.to_string());
     }
     let arch = mkcert_arch().ok_or_else(|| MkcertError::Arch(std::env::consts::ARCH.to_string()))?;
     std::fs::create_dir_all(paths.tmp())?;
     std::fs::create_dir_all(&dir)?;
     let tmp = paths.tmp().join("mkcert.download");
     let _ = std::fs::remove_file(&tmp);
-    downloader.fetch_with_progress(&mkcert_url(MKCERT_VERSION, arch), &tmp, sink)
+    downloader.fetch_with_progress(&mkcert_url(version, arch), &tmp, sink)
         .map_err(|e| MkcertError::Download(e.to_string()))?;
     #[cfg(unix)]
     { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?; }
     std::fs::rename(&tmp, &dest).or_else(|_| {
         std::fs::copy(&tmp, &dest).map(|_| ()).and_then(|_| std::fs::remove_file(&tmp))
     })?;
-    crate::layout::set_current(paths, "mkcert", MKCERT_VERSION)?;
-    Ok(MKCERT_VERSION.to_string())
+    crate::layout::set_current(paths, "mkcert", version)?;
+    Ok(version.to_string())
 }
 
 #[cfg(test)]

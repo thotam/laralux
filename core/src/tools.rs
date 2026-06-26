@@ -111,6 +111,11 @@ pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVe
             crate::layout::installed_versions(paths, "mailpit"),
             &cfg.versions.get("mailpit").cloned().unwrap_or_default(),
         ),
+        ManagedTool::Mkcert => known_catalog(
+            &crate::mkcert_static::KNOWN_MKCERT_VERSIONS,
+            crate::layout::installed_versions(paths, "mkcert"),
+            &cfg.versions.get("mkcert").cloned().unwrap_or_default(),
+        ),
         other => {
             let k = key(other);
             let active = cfg.versions.get(k).cloned().unwrap_or_default();
@@ -142,6 +147,8 @@ pub fn install_version(
         ManagedTool::Redis => crate::redis_static::install_redis_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Mailpit => crate::mailpit_static::install_mailpit_version(paths, version, downloader, runner, sink)
+            .map_err(|e| ToolError::Install(e.to_string())),
+        ManagedTool::Mkcert => crate::mkcert_static::install_mkcert_version(paths, version, downloader, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         _ => Err(ToolError::Unsupported),
     }
@@ -192,13 +199,13 @@ mod tests {
 
     #[test]
     fn single_version_tool_lists_installed_only() {
-        let root = std::env::temp_dir().join(format!("lara-tools-mk-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("lara-tools-cp-{}", std::process::id()));
         let paths = LaragonPaths::new(root.clone());
-        // mkcert is still single-version: only the installed version is listed.
-        std::fs::create_dir_all(paths.version_dir("mkcert", "1.4.4")).unwrap();
-        let vs = available_versions(ManagedTool::Mkcert, &paths);
+        // composer is still single-version: only the installed version is listed.
+        std::fs::create_dir_all(paths.version_dir("composer", "2.8.0")).unwrap();
+        let vs = available_versions(ManagedTool::Composer, &paths);
         assert_eq!(vs.len(), 1);
-        assert_eq!(vs[0].version, "1.4.4");
+        assert_eq!(vs[0].version, "2.8.0");
         assert!(vs[0].installed);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -258,7 +265,7 @@ mod tests {
     fn install_version_unsupported_for_truly_single_version_tool() {
         let paths = LaragonPaths::new("/tmp/lara".into());
         let err = install_version(
-            ManagedTool::Mkcert, &paths, "1.4.4",
+            ManagedTool::Composer, &paths, "2.8.0",
             &crate::setup::FakeDownloader::new(), &crate::scaffold::FakeCommandRunner::new(),
             &crate::progress::NullProgress,
         );
