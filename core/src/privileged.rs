@@ -71,6 +71,23 @@ fn run_escalated(escalator: &str, argv: &[String]) -> Result<(), PrivError> {
     }
 }
 
+/// Run `mkcert -install` limited to the system trust store. Scoping to `system`
+/// keeps mkcert from attempting the Firefox/Chrome NSS stores (which need
+/// `certutil`), so it no longer warns about a missing certutil — browser trust
+/// is handled separately by the bundled certutil (`certutil_static`).
+fn run_mkcert_system(mkcert_bin: &Path) -> Result<(), PrivError> {
+    let status = std::process::Command::new(mkcert_bin)
+        .arg("-install")
+        .env("TRUST_STORES", "system")
+        .status()
+        .map_err(|e| PrivError::Command(format!("spawn mkcert: {e}")))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(PrivError::Command("mkcert -install (system) failed".to_string()))
+    }
+}
+
 // ---------- Real: sudo / mkcert ----------
 
 pub struct SudoPrivileged;
@@ -91,7 +108,7 @@ impl Privileged for SudoPrivileged {
         run_escalated("sudo", &cp_argv(&tmp))
     }
     fn install_mkcert_ca(&self, mkcert_bin: &Path) -> Result<(), PrivError> {
-        run_escalated(&mkcert_bin.display().to_string(), &["-install".to_string()])
+        run_mkcert_system(mkcert_bin)
     }
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError> {
         run_escalated("sudo", &setcap_argv(nginx_bin))
@@ -119,7 +136,7 @@ impl Privileged for PkexecPrivileged {
         run_escalated("pkexec", &cp_argv(&tmp))
     }
     fn install_mkcert_ca(&self, mkcert_bin: &Path) -> Result<(), PrivError> {
-        run_escalated(&mkcert_bin.display().to_string(), &["-install".to_string()])
+        run_mkcert_system(mkcert_bin)
     }
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError> {
         run_escalated("pkexec", &setcap_argv(nginx_bin))

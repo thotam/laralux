@@ -216,6 +216,8 @@ pub struct SetupReport {
     pub redis_fetched: bool,
     pub mkcert_fetched: bool,
     pub mkcert_ca: bool,
+    pub certutil_fetched: bool,
+    pub mkcert_nss: bool,
     pub nginx_setcap: bool,
     pub mariadb_fetched: bool,
     pub php_version: Option<String>,
@@ -252,6 +254,8 @@ pub fn run_setup(
         redis_fetched: false,
         mkcert_fetched: false,
         mkcert_ca: false,
+        certutil_fetched: false,
+        mkcert_nss: false,
         nginx_setcap: false,
         mariadb_fetched: false,
         php_version: None,
@@ -399,6 +403,23 @@ pub fn run_setup(
             Err(e) => report.errors.push(format!("mkcert -install: {e}")),
         },
         None => report.errors.push("mkcert -install: mkcert not found".to_string()),
+    }
+
+    // 3b. Bundle certutil (NSS tools) and register the CA in the browser NSS
+    // stores (Firefox/Chrome). No-apt: certutil is extracted from Ubuntu debs.
+    match crate::certutil_static::install_certutil(paths, downloader, runner, sink) {
+        Ok(certutil) => {
+            report.certutil_fetched = true;
+            if let Some(mk) = crate::bin::resolve_bin("mkcert", &crate::layout::managed_bin_dirs(paths)) {
+                let bindir = certutil.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+                let libdir = crate::certutil_static::certutil_lib_dir(paths);
+                match crate::certutil_static::mkcert_install_nss(&mk, &bindir, &libdir) {
+                    Ok(()) => report.mkcert_nss = true,
+                    Err(e) => report.errors.push(format!("mkcert NSS install: {e}")),
+                }
+            }
+        }
+        Err(e) => report.errors.push(format!("install certutil: {e}")),
     }
 
     // 4. setcap the resolved nginx binary (same path the orchestrator spawns).
