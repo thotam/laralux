@@ -106,6 +106,11 @@ pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVe
             crate::layout::installed_versions(paths, "redis"),
             &cfg.versions.get("redis").cloned().unwrap_or_default(),
         ),
+        ManagedTool::Mailpit => known_catalog(
+            &crate::mailpit_static::KNOWN_MAILPIT_VERSIONS,
+            crate::layout::installed_versions(paths, "mailpit"),
+            &cfg.versions.get("mailpit").cloned().unwrap_or_default(),
+        ),
         other => {
             let k = key(other);
             let active = cfg.versions.get(k).cloned().unwrap_or_default();
@@ -135,6 +140,8 @@ pub fn install_version(
         ManagedTool::Mariadb => crate::mariadb_static::install_mariadb_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Redis => crate::redis_static::install_redis_version(paths, version, downloader, runner, sink)
+            .map_err(|e| ToolError::Install(e.to_string())),
+        ManagedTool::Mailpit => crate::mailpit_static::install_mailpit_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         _ => Err(ToolError::Unsupported),
     }
@@ -185,13 +192,13 @@ mod tests {
 
     #[test]
     fn single_version_tool_lists_installed_only() {
-        let root = std::env::temp_dir().join(format!("lara-tools-mp-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("lara-tools-mk-{}", std::process::id()));
         let paths = LaragonPaths::new(root.clone());
-        // Mailpit is still single-version: only the installed version is listed.
-        std::fs::create_dir_all(paths.version_dir("mailpit", "1.20.0")).unwrap();
-        let vs = available_versions(ManagedTool::Mailpit, &paths);
+        // mkcert is still single-version: only the installed version is listed.
+        std::fs::create_dir_all(paths.version_dir("mkcert", "1.4.4")).unwrap();
+        let vs = available_versions(ManagedTool::Mkcert, &paths);
         assert_eq!(vs.len(), 1);
-        assert_eq!(vs[0].version, "1.20.0");
+        assert_eq!(vs[0].version, "1.4.4");
         assert!(vs[0].installed);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -236,10 +243,22 @@ mod tests {
     }
 
     #[test]
+    fn mailpit_available_versions_includes_known_set_newest_first() {
+        let root = std::env::temp_dir().join(format!("lara-tools-mpv-{}", std::process::id()));
+        let paths = LaragonPaths::new(root.clone());
+        std::fs::create_dir_all(paths.version_dir("mailpit", "1.25.0")).unwrap();
+        let vs = available_versions(ManagedTool::Mailpit, &paths);
+        assert_eq!(vs.len(), crate::mailpit_static::KNOWN_MAILPIT_VERSIONS.len());
+        assert!(vs.iter().find(|v| v.version == "1.25.0").unwrap().installed);
+        assert_eq!(vs[0].version, "1.30.2"); // newest first
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn install_version_unsupported_for_truly_single_version_tool() {
         let paths = LaragonPaths::new("/tmp/lara".into());
         let err = install_version(
-            ManagedTool::Mailpit, &paths, "1.20.0",
+            ManagedTool::Mkcert, &paths, "1.4.4",
             &crate::setup::FakeDownloader::new(), &crate::scaffold::FakeCommandRunner::new(),
             &crate::progress::NullProgress,
         );

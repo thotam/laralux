@@ -23,6 +23,7 @@ pub mod mkcert_static;
 pub mod nginx_static;
 pub mod redis_static;
 pub mod mariadb_static;
+pub mod mailpit_static;
 pub mod certutil_static;
 pub mod layout;
 pub mod orphans;
