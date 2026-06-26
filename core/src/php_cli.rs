@@ -6,6 +6,15 @@ use crate::setup::Downloader;
 pub const COMPOSER_URL: &str = "https://getcomposer.org/composer.phar";
 pub const COMPOSER_FALLBACK_VERSION: &str = "2.8.9";
 
+/// Curated Composer versions offered in the Setup modal (recent 2.x + 2.2 LTS).
+/// All verified present as `getcomposer.org/download/<ver>/composer.phar`.
+pub const KNOWN_COMPOSER_VERSIONS: [&str; 4] = ["2.8.9", "2.7.9", "2.6.6", "2.2.24"];
+
+/// Versioned composer.phar download URL.
+pub fn composer_versioned_url(version: &str) -> String {
+    format!("https://getcomposer.org/download/{version}/composer.phar")
+}
+
 /// Point `bin/php/current` at `<version>` (via layout::set_current).
 pub fn set_active_php(paths: &LaragonPaths, version: &str) -> std::io::Result<()> {
     crate::layout::set_current(paths, "php", version)
@@ -28,25 +37,15 @@ pub fn ensure_active_php_cli(
     Ok(())
 }
 
-/// Download composer.phar, probe its version, place it into `bin/composer/<version>/`,
-/// write a wrapper script, and point `bin/composer/current` at the version dir.
-pub fn install_composer(paths: &LaragonPaths, downloader: &dyn Downloader, sink: &dyn crate::progress::ProgressSink) -> std::io::Result<()> {
-    // Download to tmp, read its version, then place into bin/composer/<version>/.
-    let tmp_phar = paths.tmp().join("composer.phar");
-    std::fs::create_dir_all(paths.tmp())?;
-    downloader
-        .fetch_with_progress(COMPOSER_URL, &tmp_phar, sink)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-    let php = paths.current_link("php").join("php");
-    let version = crate::layout::probe_version(&php, &[tmp_phar.to_string_lossy().as_ref(), "--version"])
-        .unwrap_or_else(|| COMPOSER_FALLBACK_VERSION.to_string());
-    let dir = paths.version_dir("composer", &version);
+/// Place a downloaded composer.phar into `bin/composer/<version>/composer.phar`,
+/// write the `composer` wrapper (invokes the absolute managed php), chmod it, and
+/// point `bin/composer/current` at the version dir.
+fn place_composer_phar(paths: &LaragonPaths, version: &str, tmp_phar: &std::path::Path) -> std::io::Result<()> {
+    let dir = paths.version_dir("composer", version);
     std::fs::create_dir_all(&dir)?;
     let phar = dir.join("composer.phar");
-    std::fs::rename(&tmp_phar, &phar).or_else(|_| {
-        std::fs::copy(&tmp_phar, &phar)
-            .map(|_| ())
-            .and_then(|_| std::fs::remove_file(&tmp_phar))
+    std::fs::rename(tmp_phar, &phar).or_else(|_| {
+        std::fs::copy(tmp_phar, &phar).map(|_| ()).and_then(|_| std::fs::remove_file(tmp_phar))
     })?;
     let wrapper = dir.join("composer");
     std::fs::write(
@@ -58,8 +57,39 @@ pub fn install_composer(paths: &LaragonPaths, downloader: &dyn Downloader, sink:
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755))?;
     }
-    crate::layout::set_current(paths, "composer", &version)?;
-    Ok(())
+    crate::layout::set_current(paths, "composer", version)
+}
+
+/// Download the latest composer.phar, probe its version, and install it into
+/// `bin/composer/<version>/` with a wrapper. Used by the default Setup install.
+pub fn install_composer(paths: &LaragonPaths, downloader: &dyn Downloader, sink: &dyn crate::progress::ProgressSink) -> std::io::Result<()> {
+    let tmp_phar = paths.tmp().join("composer.phar");
+    std::fs::create_dir_all(paths.tmp())?;
+    downloader
+        .fetch_with_progress(COMPOSER_URL, &tmp_phar, sink)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    let php = paths.current_link("php").join("php");
+    let version = crate::layout::probe_version(&php, &[tmp_phar.to_string_lossy().as_ref(), "--version"])
+        .unwrap_or_else(|| COMPOSER_FALLBACK_VERSION.to_string());
+    place_composer_phar(paths, &version, &tmp_phar)
+}
+
+/// Download a SPECIFIC composer version into `bin/composer/<version>/` with a
+/// wrapper. Idempotent. An unknown version surfaces as an io error (404).
+pub fn install_composer_version(
+    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, sink: &dyn crate::progress::ProgressSink,
+) -> std::io::Result<String> {
+    if paths.version_dir("composer", version).join("composer").is_file() {
+        let _ = crate::layout::set_current(paths, "composer", version);
+        return Ok(version.to_string());
+    }
+    let tmp_phar = paths.tmp().join("composer.phar");
+    std::fs::create_dir_all(paths.tmp())?;
+    downloader
+        .fetch_with_progress(&composer_versioned_url(version), &tmp_phar, sink)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    place_composer_phar(paths, version, &tmp_phar)?;
+    Ok(version.to_string())
 }
 
 #[cfg(test)]

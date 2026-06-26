@@ -59,14 +59,10 @@ pub struct ToolVersion {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
-    #[error("installing additional versions is not supported for this tool yet")]
-    Unsupported,
     #[error("install failed: {0}")]
     Install(String),
 }
 
-/// Versions selectable for a tool. PHP exposes the known catalog (∪ installed);
-/// every other tool exposes only its installed version(s) (single, for now).
 /// A multi-version tool's catalog: the curated `known` list unioned with what's
 /// installed, newest-first, with `installed`/`active` flags set.
 fn known_catalog(known: &[&str], installed: Vec<String>, active: &str) -> Vec<ToolVersion> {
@@ -116,19 +112,15 @@ pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVe
             crate::layout::installed_versions(paths, "mkcert"),
             &cfg.versions.get("mkcert").cloned().unwrap_or_default(),
         ),
-        other => {
-            let k = key(other);
-            let active = cfg.versions.get(k).cloned().unwrap_or_default();
-            crate::layout::installed_versions(paths, k)
-                .into_iter()
-                .map(|v| ToolVersion { active: v == active, installed: true, version: v })
-                .collect()
-        }
+        ManagedTool::Composer => known_catalog(
+            &crate::php_cli::KNOWN_COMPOSER_VERSIONS,
+            crate::layout::installed_versions(paths, "composer"),
+            &cfg.versions.get("composer").cloned().unwrap_or_default(),
+        ),
     }
 }
 
-/// Install a specific version. Only PHP supports installing extra versions in this
-/// sub-project; other tools are installed (single-version) via the bulk Setup run.
+/// Install a specific version of a tool by dispatching to its installer.
 pub fn install_version(
     tool: ManagedTool,
     paths: &LaragonPaths,
@@ -150,7 +142,8 @@ pub fn install_version(
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Mkcert => crate::mkcert_static::install_mkcert_version(paths, version, downloader, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
-        _ => Err(ToolError::Unsupported),
+        ManagedTool::Composer => crate::php_cli::install_composer_version(paths, version, downloader, sink)
+            .map_err(|e| ToolError::Install(e.to_string())),
     }
 }
 
@@ -198,15 +191,14 @@ mod tests {
     }
 
     #[test]
-    fn single_version_tool_lists_installed_only() {
-        let root = std::env::temp_dir().join(format!("lara-tools-cp-{}", std::process::id()));
+    fn composer_available_versions_includes_known_set_newest_first() {
+        let root = std::env::temp_dir().join(format!("lara-tools-cmp-{}", std::process::id()));
         let paths = LaragonPaths::new(root.clone());
-        // composer is still single-version: only the installed version is listed.
-        std::fs::create_dir_all(paths.version_dir("composer", "2.8.0")).unwrap();
+        std::fs::create_dir_all(paths.version_dir("composer", "2.6.6")).unwrap();
         let vs = available_versions(ManagedTool::Composer, &paths);
-        assert_eq!(vs.len(), 1);
-        assert_eq!(vs[0].version, "2.8.0");
-        assert!(vs[0].installed);
+        assert_eq!(vs.len(), crate::php_cli::KNOWN_COMPOSER_VERSIONS.len());
+        assert!(vs.iter().find(|v| v.version == "2.6.6").unwrap().installed);
+        assert_eq!(vs[0].version, "2.8.9"); // newest first
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -259,16 +251,5 @@ mod tests {
         assert!(vs.iter().find(|v| v.version == "1.25.0").unwrap().installed);
         assert_eq!(vs[0].version, "1.30.2"); // newest first
         std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn install_version_unsupported_for_truly_single_version_tool() {
-        let paths = LaragonPaths::new("/tmp/lara".into());
-        let err = install_version(
-            ManagedTool::Composer, &paths, "2.8.0",
-            &crate::setup::FakeDownloader::new(), &crate::scaffold::FakeCommandRunner::new(),
-            &crate::progress::NullProgress,
-        );
-        assert!(matches!(err, Err(ToolError::Unsupported)));
     }
 }
