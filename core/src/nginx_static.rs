@@ -25,9 +25,14 @@ fn vkey(v: &str) -> Vec<u32> { v.split('.').map(|p| p.parse().unwrap_or(0)).coll
 
 /// Highest linux/<arch> nginx entry in the index → (version, filename). Tolerant of malformed entries.
 pub fn latest_nginx(arch: &str, index_json: &str) -> Option<(String, String)> {
-    let arr: Vec<serde_json::Value> = serde_json::from_str(index_json).ok()?;
+    // The real index is an object `{ "formatVersion": 2, "contents": [...] }`;
+    // accept either that or a bare top-level array (test fixtures / older format).
+    let root: serde_json::Value = serde_json::from_str(index_json).ok()?;
+    let arr = root
+        .as_array()
+        .or_else(|| root.get("contents").and_then(|c| c.as_array()))?;
     let mut best: Option<(Vec<u32>, String, String)> = None;
-    for e in &arr {
+    for e in arr {
         let name = e.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let os = e.get("os").and_then(|v| v.as_str()).unwrap_or("");
         let a = e.get("arch").and_then(|v| v.as_str()).unwrap_or("");
@@ -96,6 +101,17 @@ mod tests {
     #[test]
     fn arch_maps() {
         assert_eq!(nginx_arch(), match std::env::consts::ARCH { "x86_64" => Some("x86_64"), "aarch64" => Some("aarch64"), _ => None });
+    }
+    #[test]
+    fn parses_real_contents_wrapped_index() {
+        // The live index is `{ "formatVersion": 2, "contents": [...] }`, not a bare array.
+        let wrapped = r#"{"formatVersion":2,"contents":[
+          {"name":"nginx","version":"1.24.0","arch":"x86_64","os":"linux","filename":"nginx-1.24.0-x86_64-linux"},
+          {"name":"nginx","version":"1.31.2","arch":"x86_64","os":"linux","filename":"nginx-1.31.2-x86_64-linux"}
+        ]}"#;
+        let (v, f) = latest_nginx("x86_64", wrapped).unwrap();
+        assert_eq!(v, "1.31.2");
+        assert_eq!(f, "nginx-1.31.2-x86_64-linux");
     }
 
     use crate::setup::{Downloader, SetupError};
