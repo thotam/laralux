@@ -852,7 +852,7 @@
     if (state.setup.phase === "idle") {
       action =
         '<div class="setup-idle"><div class="info"><div class="t">' + miss + " component(s) missing</div>" +
-        '<div class="h">Installs via <code>apt</code> — asks for your password and can take a few minutes.</div></div>' +
+        '<div class="h">Downloads static binaries — may ask for your password for certificates &amp; bind permissions, and can take a few minutes.</div></div>' +
         '<button class="btn h36 btn-primary" data-action="run-setup" style="flex:none">' + I.download + "Install missing</button></div>";
     } else if (state.setup.phase === "installing") {
       action =
@@ -865,9 +865,9 @@
     } else {
       const rep = state.setup.report || {};
       const rows = [
-        ["apt packages", (rep.apt_packages ? rep.apt_packages.length : 0) + " installed"],
         ["Mailpit binary", rep.mailpit_fetched ? "fetched" : "skipped"],
         ["mkcert local CA", rep.mkcert_ca ? "trusted" : "skipped"],
+        ["Browser trust (NSS)", rep.mkcert_nss ? "trusted" : "skipped"],
         ["Nginx bind 80/443", rep.nginx_setcap ? "setcap ok" : "skipped"],
       ]
         .map(
