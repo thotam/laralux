@@ -16,9 +16,13 @@ impl MariadbService {
     fn datadir(&self, paths: &LaragonPaths) -> PathBuf {
         paths.data().join("mariadb")
     }
+    fn basedir(&self, paths: &LaragonPaths) -> PathBuf {
+        paths.bin().join("mariadb").join("current")
+    }
     fn install_db_args(&self, paths: &LaragonPaths) -> Vec<String> {
         vec![
             "--no-defaults".to_string(),
+            format!("--basedir={}", self.basedir(paths).display()),
             format!("--datadir={}", self.datadir(paths).display()),
             "--auth-root-authentication-method=normal".to_string(),
         ]
@@ -63,7 +67,9 @@ impl Service for MariadbService {
     }
     fn init(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
         self.write_config(paths)?;
-        let status = std::process::Command::new("mariadb-install-db")
+        let tool = crate::bin::resolve_bin("mariadb-install-db", &crate::layout::managed_bin_dirs(paths))
+            .ok_or_else(|| ServiceError::Init("mariadb-install-db not found".into()))?;
+        let status = std::process::Command::new(&tool)
             .args(self.install_db_args(paths))
             .status()
             .map_err(|e| ServiceError::Init(format!("mariadb-install-db: {e}")))?;
@@ -75,6 +81,7 @@ impl Service for MariadbService {
     fn command(&self, paths: &LaragonPaths) -> SpawnSpec {
         SpawnSpec::new("mariadbd")
             .arg(format!("--defaults-file={}", self.cnf_path(paths).display()))
+            .arg(format!("--basedir={}", self.basedir(paths).display()))
     }
     fn health_check(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
         probe_tcp(self.port)
@@ -102,6 +109,7 @@ mod tests {
         let spec = svc.command(&p);
         assert_eq!(spec.program, "mariadbd");
         assert!(spec.args.iter().any(|a| a.contains("--defaults-file=")));
+        assert!(spec.args.iter().any(|a| a.starts_with("--basedir=")));
         assert_eq!(svc.kind(), ServiceKind::Mariadb);
     }
 
@@ -137,5 +145,6 @@ mod tests {
         assert!(args.iter().any(|a| a.starts_with("--datadir=")));
         assert!(args.iter().any(|a| a.contains("auth-root-authentication-method=normal")));
         assert!(!args.iter().any(|a| a.contains("--defaults-file")));
+        assert!(args.iter().any(|a| a.starts_with("--basedir=")));
     }
 }
