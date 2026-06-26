@@ -1323,6 +1323,12 @@
   if (TAURI && TAURI.event && TAURI.event.listen) {
     TAURI.event.listen("download-progress", (e) => { applyProgress(e.payload); updateRing(); });
     TAURI.event.listen("services-changed", (e) => {
+      // While a command is in flight, the UI holds an optimistic state
+      // (e.g. "Starting" during an async Start All whose orch lock is briefly
+      // free mid-pkexec); don't let a monitor snapshot clobber it — the command
+      // return reconciles, and the monitor re-emits afterwards. Mirrors the old
+      // poll's `if (state.busy) return`.
+      if (state.busy) return;
       applyServices(e.payload);
       if (!state.modal) render();
     });
