@@ -47,10 +47,15 @@ fn place_composer_phar(paths: &LaragonPaths, version: &str, tmp_phar: &std::path
     std::fs::rename(tmp_phar, &phar).or_else(|_| {
         std::fs::copy(tmp_phar, &phar).map(|_| ()).and_then(|_| std::fs::remove_file(tmp_phar))
     })?;
+    // Bake ABSOLUTE paths (via the `current` symlinks) rather than $HOME: the
+    // wrapper may be invoked as another user (e.g. `sudo composer`, where $HOME
+    // becomes /root), so $HOME would resolve to the wrong laragon dir.
     let wrapper = dir.join("composer");
+    let php = paths.current_link("php").join("php");
+    let phar = paths.current_link("composer").join("composer.phar");
     std::fs::write(
         &wrapper,
-        "#!/bin/sh\nexec \"$HOME/laragon/bin/php/current/php\" \"$HOME/laragon/bin/composer/current/composer.phar\" \"$@\"\n",
+        format!("#!/bin/sh\nexec \"{}\" \"{}\" \"$@\"\n", php.display(), phar.display()),
     )?;
     #[cfg(unix)]
     {
@@ -156,7 +161,9 @@ mod tests {
         let wrapper = std::fs::read_to_string(dir.join("composer")).unwrap();
         assert!(wrapper.contains("exec"));
         assert!(wrapper.contains("composer.phar"));
-        assert!(wrapper.contains("$HOME/laragon/bin/php/current/php"));
+        // Absolute path baked in (not $HOME), so `sudo composer` works too.
+        assert!(!wrapper.contains("$HOME"));
+        assert!(wrapper.contains(&paths.current_link("php").join("php").display().to_string()));
         // current symlink points at the fallback version
         assert_eq!(
             std::fs::read_link(paths.current_link("composer")).unwrap(),
