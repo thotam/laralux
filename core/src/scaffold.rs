@@ -306,8 +306,11 @@ fn build_template(
         }
         SiteTemplate::Laravel => {
             // composer creates the dir itself; run from www/.
+            // Resolve the composer wrapper from the managed bin layout (no-apt:
+            // not on $PATH). The wrapper invokes the absolute php binary itself.
+            let composer = crate::bin::resolve_or_name("composer", &crate::layout::managed_bin_dirs(paths));
             let argv = laravel_create_argv(&dir.display().to_string());
-            runner.run("composer", &argv, Some(&paths.www()))?;
+            runner.run(&composer, &argv, Some(&paths.www()))?;
             // Best-effort .env DB wiring (only if composer produced an .env).
             let env_path = dir.join(".env");
             if let Ok(env) = std::fs::read_to_string(&env_path) {
