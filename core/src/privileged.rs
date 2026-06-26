@@ -17,6 +17,8 @@ pub trait Privileged: Send + Sync {
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError>;
     fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError>;
     fn remove_resolved_dropin(&self) -> Result<(), PrivError>;
+    fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError>;
+    fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError>;
 }
 
 // ---------- Shared free helpers ----------
@@ -57,6 +59,14 @@ fn remove_resolved_argv() -> Vec<String> {
         "-c".to_string(),
         format!("rm -f {RESOLVED_DROPIN}; systemctl reload systemd-resolved || systemctl restart systemd-resolved || true"),
     ]
+}
+
+fn ln_symlink_argv(src: &Path, dst: &Path) -> Vec<String> {
+    vec!["ln".to_string(), "-sfn".to_string(), src.display().to_string(), dst.display().to_string()]
+}
+
+fn rm_argv(dst: &Path) -> Vec<String> {
+    vec!["rm".to_string(), "-f".to_string(), dst.display().to_string()]
 }
 
 fn run_escalated(escalator: &str, argv: &[String]) -> Result<(), PrivError> {
@@ -122,6 +132,12 @@ impl Privileged for SudoPrivileged {
     fn remove_resolved_dropin(&self) -> Result<(), PrivError> {
         run_escalated("sudo", &remove_resolved_argv())
     }
+    fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError> {
+        run_escalated("sudo", &ln_symlink_argv(src, dst))
+    }
+    fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
+        run_escalated("sudo", &rm_argv(dst))
+    }
 }
 
 // ---------- Real: pkexec (graphical auth) ----------
@@ -150,6 +166,12 @@ impl Privileged for PkexecPrivileged {
     fn remove_resolved_dropin(&self) -> Result<(), PrivError> {
         run_escalated("pkexec", &remove_resolved_argv())
     }
+    fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError> {
+        run_escalated("pkexec", &ln_symlink_argv(src, dst))
+    }
+    fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
+        run_escalated("pkexec", &rm_argv(dst))
+    }
 }
 
 // ---------- Fake (used by sync tests) ----------
@@ -162,6 +184,8 @@ pub struct FakePrivileged {
     disabled_services: Arc<Mutex<Vec<Vec<String>>>>,
     resolved_dropins: Arc<Mutex<Vec<String>>>,
     resolved_removed: Arc<Mutex<bool>>,
+    symlinks_created: Arc<Mutex<Vec<(String, String)>>>,
+    symlinks_removed: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakePrivileged {
@@ -188,6 +212,12 @@ impl FakePrivileged {
     pub fn resolved_removed(&self) -> Arc<Mutex<bool>> {
         self.resolved_removed.clone()
     }
+    pub fn symlinks_created(&self) -> Arc<Mutex<Vec<(String, String)>>> {
+        self.symlinks_created.clone()
+    }
+    pub fn symlinks_removed(&self) -> Arc<Mutex<Vec<String>>> {
+        self.symlinks_removed.clone()
+    }
 }
 
 impl Privileged for FakePrivileged {
@@ -213,6 +243,14 @@ impl Privileged for FakePrivileged {
     }
     fn remove_resolved_dropin(&self) -> Result<(), PrivError> {
         *self.resolved_removed.lock().unwrap() = true;
+        Ok(())
+    }
+    fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError> {
+        self.symlinks_created.lock().unwrap().push((src.display().to_string(), dst.display().to_string()));
+        Ok(())
+    }
+    fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
+        self.symlinks_removed.lock().unwrap().push(dst.display().to_string());
         Ok(())
     }
 }
@@ -288,5 +326,29 @@ mod tests {
         assert_eq!(f.resolved_dropins().lock().unwrap().len(), 1);
         f.remove_resolved_dropin().unwrap();
         assert!(*f.resolved_removed().lock().unwrap());
+    }
+
+    #[test]
+    fn symlink_argv_builders_are_correct() {
+        assert_eq!(
+            ln_symlink_argv(Path::new("/home/u/laragon/bin/php/current/php"), Path::new("/usr/local/bin/php")),
+            vec!["ln".to_string(), "-sfn".to_string(),
+                 "/home/u/laragon/bin/php/current/php".to_string(), "/usr/local/bin/php".to_string()]
+        );
+        assert_eq!(
+            rm_argv(Path::new("/usr/local/bin/php")),
+            vec!["rm".to_string(), "-f".to_string(), "/usr/local/bin/php".to_string()]
+        );
+    }
+
+    #[test]
+    fn fake_records_symlink_create_and_remove() {
+        let p = FakePrivileged::new();
+        p.create_symlink(Path::new("/src/php"), Path::new("/usr/local/bin/php")).unwrap();
+        p.remove_symlink(Path::new("/usr/local/bin/php")).unwrap();
+        assert_eq!(p.symlinks_created().lock().unwrap().as_slice(),
+            &[("/src/php".to_string(), "/usr/local/bin/php".to_string())]);
+        assert_eq!(p.symlinks_removed().lock().unwrap().as_slice(),
+            &["/usr/local/bin/php".to_string()]);
     }
 }
