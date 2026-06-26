@@ -1,4 +1,4 @@
-# Laragon Linux — Orphan-process reaper on Start (incl. php-fpm)
+# Laralux Linux — Orphan-process reaper on Start (incl. php-fpm)
 
 **Date:** 2026-06-26
 **Status:** Design (goal-directed).
@@ -31,7 +31,7 @@ it lingers (holds the old socket fd, wastes RAM) and can respawn workers.
 ## 2. Approach
 
 Identify a "managed process" by resolving `/proc/<pid>/exe` (the kernel's canonical path
-to the running executable) and testing whether it lives under `~/laragon/bin`. This is
+to the running executable) and testing whether it lives under `~/laralux/bin`. This is
 robust where cmdline matching is not: nginx/php-fpm rewrite their argv (proctitle), but
 `/proc/<pid>/exe` always points at the real binary; php-fpm workers share the master's
 exe, so they match too. All managed processes run as the same user, so the symlink is
@@ -71,7 +71,7 @@ in `run_full_start`, before `start_all`'s reap, so it needs its own pre-clear.
 ## 4. Behavior & error handling
 - Best-effort and self-healing: `reap` is a no-op when `/proc` is unreadable or nothing
   matches; failures to signal a PID are ignored (it may have exited between scan and kill).
-- Only processes whose **executable** is under `~/laragon/bin` are ever signalled — an
+- Only processes whose **executable** is under `~/laralux/bin` are ever signalled — an
   unrelated system nginx/mariadb/redis (e.g. `/usr/sbin/...`) is never touched. (Legacy
   apt binaries lived outside `bin/`; post-no-apt they no longer exist, and were out of
   scope anyway.)
@@ -86,7 +86,7 @@ in `run_full_start`, before `start_all`'s reap, so it needs its own pre-clear.
   still alive (kept), then clean up. Covers scan + signal + wait end-to-end.
 - Existing orchestrator tests stay green: `start_all` with `FakeSpawner` under a `/tmp`
   root scans `/proc` but matches nothing there → reap is a no-op.
-- `cargo test -p laragon-core`; `cargo build -p laragon-desktop && cargo build -p laragonctl`.
+- `cargo test -p laralux-core`; `cargo build -p laralux-desktop && cargo build -p laraluxctl`.
 
 ## 6. Out of scope (backlog)
 - Hardening tracked `RealProcess::stop` with a SIGKILL fallback (the Start-time reaper is

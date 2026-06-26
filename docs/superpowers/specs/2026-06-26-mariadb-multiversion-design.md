@@ -1,4 +1,4 @@
-# Laragon Linux — MariaDB multi-version (catalog + version-parameterized install)
+# Laralux Linux — MariaDB multi-version (catalog + version-parameterized install)
 
 **Date:** 2026-06-26
 **Status:** Done (follow-on to the Versioned Tool Manager foundation; after nginx).
@@ -53,7 +53,7 @@ generic `Orchestrator::replace_version` path works as-is.
   **Redis**.
 - URLs HEAD-verified for all four curated versions. Full 360 MB download/extract is the same code path
   already live-proven for 11.4.12 — not re-run per version.
-- `cargo test -p laragon-core` (180 pass); `cargo build -p laragon-desktop && -p laragonctl`.
+- `cargo test -p laralux-core` (180 pass); `cargo build -p laralux-desktop && -p laraluxctl`.
 
 ## 4. Out of scope / backlog
 - A pre-switch warning in the UI for stateful tools (datadir downgrade risk) — currently surfaced only

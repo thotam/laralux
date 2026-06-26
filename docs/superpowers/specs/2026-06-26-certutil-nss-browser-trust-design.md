@@ -1,4 +1,4 @@
-# Laragon Linux — certutil bundle for browser (NSS) trust, no-apt
+# Laralux Linux — certutil bundle for browser (NSS) trust, no-apt
 
 **Date:** 2026-06-26
 **Status:** Design (goal-directed); end-to-end verified before implementation.
@@ -84,7 +84,7 @@ Pinned set — Ubuntu 24.04 LTS "noble" (glibc 2.39; coherent NSS 3.98 across ns
   mkcert), like the other heavy installers.
 - Existing `run_setup` tests stay green (they assert on disabled-services count and Step
   events, not on `report.errors`; the new step uses byte-progress, emits no Step events).
-- `cargo test -p laragon-core`; `cargo build -p laragon-desktop && -p laragonctl`.
+- `cargo test -p laralux-core`; `cargo build -p laralux-desktop && -p laraluxctl`.
 
 ## 6. Out of scope (backlog)
 - aarch64 (`arm64` debs map the same way; only amd64 is the verified target).

@@ -1,4 +1,4 @@
-# Laragon Linux — nginx multi-version (catalog + version-parameterized install)
+# Laralux Linux — nginx multi-version (catalog + version-parameterized install)
 
 **Date:** 2026-06-26
 **Status:** Design (follow-on to the Versioned Tool Manager foundation).
@@ -71,7 +71,7 @@ stop → set_current → setcap → start instead of the plain `replace_version`
   `install_version(Nginx, ...)` no longer returns `Unsupported`. Update the existing
   `single_version_tool_lists_installed_only` test to use a still-single-version tool (Mariadb) since
   nginx is now multi-version.
-- Build `-p laragon-desktop` (the `set_tool_version` nginx branch). Live: install + switch nginx in the app.
+- Build `-p laralux-desktop` (the `set_tool_version` nginx branch). Live: install + switch nginx in the app.
 
 ## 6. Out of scope
 - aarch64 curation (pattern maps; x86_64 verified).

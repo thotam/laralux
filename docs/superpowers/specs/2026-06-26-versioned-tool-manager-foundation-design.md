@@ -1,4 +1,4 @@
-# Laragon Linux — Versioned Tool Manager (Foundation) + Setup modals + /usr/local/bin symlinks
+# Laralux Linux — Versioned Tool Manager (Foundation) + Setup modals + /usr/local/bin symlinks
 
 **Date:** 2026-06-26
 **Status:** Design (approved for spec).
@@ -167,7 +167,7 @@ and PHP keeps its CLI extra in the command layer.
 - `config.rs`: `symlinks` de/serializes; an old config without it loads with an empty set; a config
   with a stale `shell_integration` key still loads.
 - Live: pkexec symlink create/remove; PHP install/switch (as today).
-- `cargo test -p laragon-core`; `cargo build -p laragon-desktop && -p laragonctl`.
+- `cargo test -p laralux-core`; `cargo build -p laralux-desktop && -p laraluxctl`.
 
 ## 7. Out of scope (this sub-project) / backlog
 - Real multi-version catalogs + version-parameterized installers for nginx, mariadb, redis, mailpit,

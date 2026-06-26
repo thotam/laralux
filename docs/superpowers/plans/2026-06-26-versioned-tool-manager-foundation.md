@@ -6,17 +6,17 @@
 
 **Architecture:** A new `core/src/tools.rs` registry describes each managed tool (`cli_binary`, `service_kind`, `available_versions`, `install_version`). The orchestrator's `replace_php_version` is generalized to `replace_version(kind, tool, version)`. A new `core/src/symlinks.rs` + two `Privileged` methods create/remove absolute symlinks under `/usr/local/bin` pointing at `bin/<tool>/current/<cli>`. Generic Tauri commands drive a per-app modal in `dist/app.js`. PHP is the only multi-version tool now; other tools expose their installed version.
 
-**Tech Stack:** Rust (Cargo workspace: `core` = laragon-core with ZERO Tauri deps, `src-tauri` = laragon-desktop, `laragonctl`), Tauri 2 (events + commands), vanilla JS (`dist/app.js`).
+**Tech Stack:** Rust (Cargo workspace: `core` = laralux-core with ZERO Tauri deps, `src-tauri` = laralux-desktop, `laraluxctl`), Tauri 2 (events + commands), vanilla JS (`dist/app.js`).
 
 ## Global Constraints
 
-- `core` (laragon-core) keeps ZERO Tauri dependencies — `tools.rs`/`symlinks.rs` use only `std` + existing core modules + `thiserror`. (verbatim from project rule)
+- `core` (laralux-core) keeps ZERO Tauri dependencies — `tools.rs`/`symlinks.rs` use only `std` + existing core modules + `thiserror`. (verbatim from project rule)
 - Commits MUST NOT contain a `Co-Authored-By` trailer.
 - Symlink target dir is exactly `/usr/local/bin` (no other location this sub-project).
 - CLI binary mapping (exact): Php→`php`, Composer→`composer`, Mariadb→`mariadb`, Mkcert→`mkcert`, Redis→`redis-cli`, Nginx→`nginx`, Mailpit→`None` (no symlink toggle).
 - `bin/<tool>/current/<cli>` directory keys (exact): `php`, `nginx`, `mariadb`, `redis`, `mailpit`, `mkcert`, `composer`.
 - Only PHP supports installing/switching multiple versions in this sub-project; other tools show their single installed version.
-- Build green after every task: `cargo build -p laragon-desktop && cargo build -p laragonctl`. Tests: `cargo test -p laragon-core`.
+- Build green after every task: `cargo build -p laralux-desktop && cargo build -p laraluxctl`. Tests: `cargo test -p laralux-core`.
 
 ---
 
@@ -27,15 +27,15 @@
 - Modify: `core/src/lib.rs` (add `pub mod tools;` after `pub mod orphans;`)
 
 **Interfaces:**
-- Consumes: `crate::service::ServiceKind` (variants `Nginx, PhpFpm, Mariadb, Redis, Mailpit`), `crate::paths::LaragonPaths` (`bin()`).
-- Produces: `enum ManagedTool { Php, Nginx, Mariadb, Redis, Mailpit, Mkcert, Composer }`, `ManagedTool::ALL: [ManagedTool; 7]`, `struct ToolInfo { key: &'static str, display: &'static str, cli_binary: Option<&'static str>, service_kind: Option<ServiceKind> }`, `fn info(ManagedTool) -> ToolInfo`, `fn key(ManagedTool) -> &'static str`, `fn from_key(&str) -> Option<ManagedTool>`, `fn cli_path(ManagedTool, &LaragonPaths) -> Option<PathBuf>`.
+- Consumes: `crate::service::ServiceKind` (variants `Nginx, PhpFpm, Mariadb, Redis, Mailpit`), `crate::paths::LaraluxPaths` (`bin()`).
+- Produces: `enum ManagedTool { Php, Nginx, Mariadb, Redis, Mailpit, Mkcert, Composer }`, `ManagedTool::ALL: [ManagedTool; 7]`, `struct ToolInfo { key: &'static str, display: &'static str, cli_binary: Option<&'static str>, service_kind: Option<ServiceKind> }`, `fn info(ManagedTool) -> ToolInfo`, `fn key(ManagedTool) -> &'static str`, `fn from_key(&str) -> Option<ManagedTool>`, `fn cli_path(ManagedTool, &LaraluxPaths) -> Option<PathBuf>`.
 
 - [ ] **Step 1: Write the failing test**
 
 Add to `core/src/tools.rs`:
 
 ```rust
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::service::ServiceKind;
 use std::path::PathBuf;
 
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn cli_path_is_under_current_and_none_for_mailpit() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         assert_eq!(cli_path(ManagedTool::Php, &p), Some(PathBuf::from("/tmp/lara/bin/php/current/php")));
         assert_eq!(cli_path(ManagedTool::Redis, &p), Some(PathBuf::from("/tmp/lara/bin/redis/current/redis-cli")));
         assert_eq!(cli_path(ManagedTool::Mailpit, &p), None);
@@ -91,7 +91,7 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p laragon-core tools:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core tools:: 2>&1 | tail -20`
 Expected: FAIL — `cannot find function 'info'` / `from_key` / `key` / `cli_path` not found, and `core/src/tools.rs` not yet a module (after Step 3 module wiring it compiles to the function errors).
 
 - [ ] **Step 3: Add the module to lib.rs and implement the functions**
@@ -127,7 +127,7 @@ pub fn from_key(k: &str) -> Option<ManagedTool> {
 }
 
 /// Absolute path to the tool's terminal CLI under `bin/<key>/current/<cli>`, if it has one.
-pub fn cli_path(tool: ManagedTool, paths: &LaragonPaths) -> Option<PathBuf> {
+pub fn cli_path(tool: ManagedTool, paths: &LaraluxPaths) -> Option<PathBuf> {
     info(tool)
         .cli_binary
         .map(|b| paths.bin().join(key(tool)).join("current").join(b))
@@ -136,7 +136,7 @@ pub fn cli_path(tool: ManagedTool, paths: &LaragonPaths) -> Option<PathBuf> {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p laragon-core tools:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core tools:: 2>&1 | tail -20`
 Expected: PASS — 3 tests in `tools::tests`.
 
 - [ ] **Step 5: Commit**
@@ -156,7 +156,7 @@ git commit -m "feat(core): tool registry skeleton (ManagedTool, info, cli_path)"
 
 **Interfaces:**
 - Consumes: `crate::php_versions::php_versions(paths, active) -> Vec<PhpVersionInfo{version,installed,active}>`, `crate::layout::installed_versions(paths, tool) -> Vec<String>`, `crate::config::Config` (`load`, `php_version`, `versions: BTreeMap<String,String>`), `crate::php_static::install_php_static(paths, requested, downloader, runner, sink) -> Result<String, PhpStaticError>`, `crate::setup::Downloader`, `crate::scaffold::CommandRunner`, `crate::progress::ProgressSink`.
-- Produces: `struct ToolVersion { version: String, installed: bool, active: bool }` (Serialize), `enum ToolError`, `fn available_versions(ManagedTool, &LaragonPaths) -> Vec<ToolVersion>`, `fn install_version(ManagedTool, &LaragonPaths, &str, &dyn Downloader, &dyn CommandRunner, &dyn ProgressSink) -> Result<String, ToolError>`.
+- Produces: `struct ToolVersion { version: String, installed: bool, active: bool }` (Serialize), `enum ToolError`, `fn available_versions(ManagedTool, &LaraluxPaths) -> Vec<ToolVersion>`, `fn install_version(ManagedTool, &LaraluxPaths, &str, &dyn Downloader, &dyn CommandRunner, &dyn ProgressSink) -> Result<String, ToolError>`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -166,7 +166,7 @@ Add these tests inside the existing `#[cfg(test)] mod tests` in `core/src/tools.
     #[test]
     fn php_available_versions_lists_known_set() {
         let root = std::env::temp_dir().join(format!("lara-tools-php-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         paths.ensure_dirs().unwrap();
         let vs = available_versions(ManagedTool::Php, &paths);
         // KNOWN_PHP_VERSIONS has 6 entries (8.0..8.5); none installed on a fresh root.
@@ -178,7 +178,7 @@ Add these tests inside the existing `#[cfg(test)] mod tests` in `core/src/tools.
     #[test]
     fn single_version_tool_lists_installed_only() {
         let root = std::env::temp_dir().join(format!("lara-tools-ng-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         // Seed an installed nginx version dir.
         std::fs::create_dir_all(paths.version_dir("nginx", "1.31.2")).unwrap();
         let vs = available_versions(ManagedTool::Nginx, &paths);
@@ -190,7 +190,7 @@ Add these tests inside the existing `#[cfg(test)] mod tests` in `core/src/tools.
 
     #[test]
     fn install_version_unsupported_for_non_php() {
-        let paths = LaragonPaths::new("/tmp/lara".into());
+        let paths = LaraluxPaths::new("/tmp/lara".into());
         let err = install_version(
             ManagedTool::Nginx, &paths, "1.31.2",
             &crate::setup::FakeDownloader::new(), &crate::scaffold::FakeCommandRunner::new(),
@@ -202,7 +202,7 @@ Add these tests inside the existing `#[cfg(test)] mod tests` in `core/src/tools.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p laragon-core tools:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core tools:: 2>&1 | tail -20`
 Expected: FAIL — `available_versions`, `install_version`, `ToolError`, `ToolVersion` not found.
 
 - [ ] **Step 3: Implement the catalog + dispatch**
@@ -231,7 +231,7 @@ pub enum ToolError {
 
 /// Versions selectable for a tool. PHP exposes the known catalog (∪ installed);
 /// every other tool exposes only its installed version(s) (single, for now).
-pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVersion> {
+pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVersion> {
     let cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
     match tool {
         ManagedTool::Php => crate::php_versions::php_versions(paths, &cfg.php_version)
@@ -253,7 +253,7 @@ pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVe
 /// sub-project; other tools are installed (single-version) via the bulk Setup run.
 pub fn install_version(
     tool: ManagedTool,
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     version: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
@@ -275,7 +275,7 @@ pub use tools::{available_versions, install_version, ManagedTool, ToolError, Too
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p laragon-core tools:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core tools:: 2>&1 | tail -20`
 Expected: PASS — 6 tests in `tools::tests`.
 
 - [ ] **Step 5: Commit**
@@ -304,7 +304,7 @@ Add to the `#[cfg(test)] mod tests` in `core/src/orchestrator.rs`:
     #[test]
     fn replace_version_restarts_running_service() {
         let tmp = std::env::temp_dir().join(format!("lara-orch-rv-{}", std::process::id()));
-        let paths = LaragonPaths::new(tmp.clone());
+        let paths = LaraluxPaths::new(tmp.clone());
         std::fs::create_dir_all(paths.version_dir("nginx", "1.31.2")).unwrap();
         crate::layout::set_current(&paths, "nginx", "1.31.2").unwrap();
         let spawner = crate::process::FakeSpawner::new();
@@ -323,7 +323,7 @@ Add to the `#[cfg(test)] mod tests` in `core/src/orchestrator.rs`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p laragon-core orchestrator::tests::replace_version 2>&1 | tail -20`
+Run: `cargo test -p laralux-core orchestrator::tests::replace_version 2>&1 | tail -20`
 Expected: FAIL — no method named `replace_version`.
 
 - [ ] **Step 3: Implement `replace_version` and rewrite the wrapper**
@@ -365,7 +365,7 @@ In `core/src/orchestrator.rs`, replace the entire `replace_php_version` function
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test -p laragon-core orchestrator:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core orchestrator:: 2>&1 | tail -20`
 Expected: PASS — including the existing `replace_php_version_restarts_when_running`, `replace_php_version_does_not_start_when_stopped`, and the new `replace_version_restarts_running_service`.
 
 - [ ] **Step 5: Commit**
@@ -394,9 +394,9 @@ Add to the `#[cfg(test)] mod tests` in `core/src/privileged.rs`:
     #[test]
     fn symlink_argv_builders_are_correct() {
         assert_eq!(
-            ln_symlink_argv(Path::new("/home/u/laragon/bin/php/current/php"), Path::new("/usr/local/bin/php")),
+            ln_symlink_argv(Path::new("/home/u/laralux/bin/php/current/php"), Path::new("/usr/local/bin/php")),
             vec!["ln".to_string(), "-sfn".to_string(),
-                 "/home/u/laragon/bin/php/current/php".to_string(), "/usr/local/bin/php".to_string()]
+                 "/home/u/laralux/bin/php/current/php".to_string(), "/usr/local/bin/php".to_string()]
         );
         assert_eq!(
             rm_argv(Path::new("/usr/local/bin/php")),
@@ -418,7 +418,7 @@ Add to the `#[cfg(test)] mod tests` in `core/src/privileged.rs`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p laragon-core privileged:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core privileged:: 2>&1 | tail -20`
 Expected: FAIL — `ln_symlink_argv` / `rm_argv` / `create_symlink` / `symlinks_created` not found.
 
 - [ ] **Step 3: Implement trait methods, argv builders, and impls**
@@ -499,7 +499,7 @@ In `impl Privileged for FakePrivileged`, add:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p laragon-core privileged:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core privileged:: 2>&1 | tail -20`
 Expected: PASS — `symlink_argv_builders_are_correct`, `fake_records_symlink_create_and_remove`, plus existing privileged tests.
 
 - [ ] **Step 5: Commit**
@@ -518,15 +518,15 @@ git commit -m "feat(core): Privileged create_symlink/remove_symlink (ln -sfn / r
 - Modify: `core/src/lib.rs` (add `pub mod symlinks;` and re-export `link_tool, unlink_tool, system_link_path, SymlinkError`)
 
 **Interfaces:**
-- Consumes: `crate::tools::{ManagedTool, info, cli_path}`, `crate::privileged::Privileged`, `crate::paths::LaragonPaths`.
-- Produces: `const SYSTEM_BIN_DIR: &str`, `fn system_link_path(ManagedTool) -> Option<PathBuf>`, `fn link_tool(&LaragonPaths, ManagedTool, &dyn Privileged) -> Result<(), SymlinkError>`, `fn unlink_tool(ManagedTool, &dyn Privileged) -> Result<(), SymlinkError>`, `enum SymlinkError { NoCli, NotInstalled, Priv(String) }`.
+- Consumes: `crate::tools::{ManagedTool, info, cli_path}`, `crate::privileged::Privileged`, `crate::paths::LaraluxPaths`.
+- Produces: `const SYSTEM_BIN_DIR: &str`, `fn system_link_path(ManagedTool) -> Option<PathBuf>`, `fn link_tool(&LaraluxPaths, ManagedTool, &dyn Privileged) -> Result<(), SymlinkError>`, `fn unlink_tool(ManagedTool, &dyn Privileged) -> Result<(), SymlinkError>`, `enum SymlinkError { NoCli, NotInstalled, Priv(String) }`.
 
 - [ ] **Step 1: Write the failing test**
 
 Create `core/src/symlinks.rs`:
 
 ```rust
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::privileged::Privileged;
 use crate::tools::{cli_path, info, ManagedTool};
 use std::path::{Path, PathBuf};
@@ -558,7 +558,7 @@ mod tests {
     #[test]
     fn link_tool_calls_create_symlink_with_resolved_src_and_dst() {
         let root = std::env::temp_dir().join(format!("lara-symlink-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         // Seed an installed php cli at bin/php/current/php.
         let cur = paths.bin().join("php").join("current");
         std::fs::create_dir_all(&cur).unwrap();
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn link_tool_errors_when_not_installed() {
-        let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-symlink2-{}", std::process::id())));
+        let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-symlink2-{}", std::process::id())));
         let p = FakePrivileged::new();
         assert!(matches!(link_tool(&paths, ManagedTool::Php, &p), Err(SymlinkError::NotInstalled)));
     }
@@ -584,7 +584,7 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p laragon-core symlinks:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core symlinks:: 2>&1 | tail -20`
 Expected: FAIL — module not declared / `system_link_path`, `link_tool` not found.
 
 - [ ] **Step 3: Wire the module and implement**
@@ -608,7 +608,7 @@ pub fn system_link_path(tool: ManagedTool) -> Option<PathBuf> {
     info(tool).cli_binary.map(|b| Path::new(SYSTEM_BIN_DIR).join(b))
 }
 
-pub fn link_tool(paths: &LaragonPaths, tool: ManagedTool, privileged: &dyn Privileged) -> Result<(), SymlinkError> {
+pub fn link_tool(paths: &LaraluxPaths, tool: ManagedTool, privileged: &dyn Privileged) -> Result<(), SymlinkError> {
     let src = cli_path(tool, paths).ok_or(SymlinkError::NoCli)?;
     if !src.exists() {
         return Err(SymlinkError::NotInstalled);
@@ -625,7 +625,7 @@ pub fn unlink_tool(tool: ManagedTool, privileged: &dyn Privileged) -> Result<(),
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p laragon-core symlinks:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core symlinks:: 2>&1 | tail -20`
 Expected: PASS — 3 tests in `symlinks::tests`.
 
 - [ ] **Step 5: Commit**
@@ -671,7 +671,7 @@ Add to the `#[cfg(test)] mod tests` in `core/src/config.rs`:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p laragon-core config:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core config:: 2>&1 | tail -20`
 Expected: FAIL — no field `symlinks` on `Config`.
 
 - [ ] **Step 3: Add the field**
@@ -689,7 +689,7 @@ In the `impl Default for Config` `Self { ... }` literal, add `symlinks: BTreeSet
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p laragon-core config:: 2>&1 | tail -20`
+Run: `cargo test -p laralux-core config:: 2>&1 | tail -20`
 Expected: PASS — both new tests plus existing config tests.
 
 - [ ] **Step 5: Commit**
@@ -708,7 +708,7 @@ git commit -m "feat(core): config.symlinks set of tools linked into /usr/local/b
 - Modify: `src-tauri/src/main.rs` (register the three commands in `generate_handler!`)
 
 **Interfaces:**
-- Consumes: `laragon_core::tools::{from_key, info, available_versions, install_version, key, ManagedTool, ToolVersion}`, `laragon_core::{Config, apply_versions, resolve_installed_version, set_current, ensure_active_php_cli, CurlDownloader, RealCommandRunner, ServiceStatus, ServiceKind}`, existing `AppState`, `TauriProgress`, `lock_err`.
+- Consumes: `laralux_core::tools::{from_key, info, available_versions, install_version, key, ManagedTool, ToolVersion}`, `laralux_core::{Config, apply_versions, resolve_installed_version, set_current, ensure_active_php_cli, CurlDownloader, RealCommandRunner, ServiceStatus, ServiceKind}`, existing `AppState`, `TauriProgress`, `lock_err`.
 - Produces: Tauri commands `tool_versions(tool: String) -> Result<Vec<ToolVersion>, String>`, `install_tool_version(tool: String, version: String) -> Result<Vec<ToolVersion>, String>`, `set_tool_version(tool: String, version: String) -> Result<Vec<ServiceStatus>, String>`.
 
 - [ ] **Step 1: Add the three commands**
@@ -720,9 +720,9 @@ In `src-tauri/src/commands.rs`, add (after `set_php_version`):
 pub fn tool_versions(
     state: tauri::State<AppState>,
     tool: String,
-) -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
-    let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
-    Ok(laragon_core::tools::available_versions(t, &state.paths))
+) -> Result<Vec<laralux_core::tools::ToolVersion>, String> {
+    let t = laralux_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+    Ok(laralux_core::tools::available_versions(t, &state.paths))
 }
 
 #[tauri::command]
@@ -730,18 +730,18 @@ pub async fn install_tool_version(
     app: tauri::AppHandle,
     tool: String,
     version: String,
-) -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
+) -> Result<Vec<laralux_core::tools::ToolVersion>, String> {
     let app_for_progress = app.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<laralux_core::tools::ToolVersion>, String> {
         let state = app.state::<AppState>();
-        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+        let t = laralux_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
         let progress = TauriProgress(app_for_progress);
-        laragon_core::tools::install_version(t, &state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress)
+        laralux_core::tools::install_version(t, &state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress)
             .map_err(|e| e.to_string())?;
         // Keep `current` symlinks reconciled to config after an install.
         let config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let _ = laragon_core::apply_versions(&state.paths, &config);
-        Ok(laragon_core::tools::available_versions(t, &state.paths))
+        let _ = laralux_core::apply_versions(&state.paths, &config);
+        Ok(laralux_core::tools::available_versions(t, &state.paths))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -756,14 +756,14 @@ pub async fn set_tool_version(
     let app_for_progress = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
         let state = app.state::<AppState>();
-        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
-        let info = laragon_core::tools::info(t);
+        let t = laralux_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+        let info = laralux_core::tools::info(t);
 
         let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let full = laragon_core::resolve_installed_version(&state.paths, info.key, &version)
+        let full = laralux_core::resolve_installed_version(&state.paths, info.key, &version)
             .unwrap_or_else(|| version.clone());
         config.versions.insert(info.key.to_string(), full.clone());
-        if t == laragon_core::tools::ManagedTool::Php {
+        if t == laralux_core::tools::ManagedTool::Php {
             config.php_version = full.clone();
         }
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
@@ -772,14 +772,14 @@ pub async fn set_tool_version(
             let mut orch = state.orch.lock().map_err(lock_err)?;
             match info.service_kind {
                 Some(kind) => { orch.replace_version(kind, info.key, &version).map_err(|e| e.to_string())?; }
-                None => { laragon_core::set_current(&state.paths, info.key, &full).map_err(|e| e.to_string())?; }
+                None => { laralux_core::set_current(&state.paths, info.key, &full).map_err(|e| e.to_string())?; }
             }
             orch.snapshot()
         };
 
-        if t == laragon_core::tools::ManagedTool::Php {
+        if t == laralux_core::tools::ManagedTool::Php {
             let progress = TauriProgress(app_for_progress);
-            let _ = laragon_core::ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress);
+            let _ = laralux_core::ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress);
         }
         Ok(snapshot)
     })
@@ -800,7 +800,7 @@ In `src-tauri/src/main.rs`, inside `tauri::generate_handler![ ... ]`, add after 
 
 - [ ] **Step 3: Build to verify it compiles**
 
-Run: `cargo build -p laragon-desktop 2>&1 | tail -15`
+Run: `cargo build -p laralux-desktop 2>&1 | tail -15`
 Expected: `Finished` with no errors.
 
 - [ ] **Step 4: Commit**
@@ -819,7 +819,7 @@ git commit -m "feat(desktop): generic tool_versions/install_tool_version/set_too
 - Modify: `src-tauri/src/main.rs` (register both)
 
 **Interfaces:**
-- Consumes: `laragon_core::{link_tool, unlink_tool, tools::{from_key, key}, Config, PkexecPrivileged}`, `AppState`.
+- Consumes: `laralux_core::{link_tool, unlink_tool, tools::{from_key, key}, Config, PkexecPrivileged}`, `AppState`.
 - Produces: Tauri commands `tool_symlinks() -> Result<Vec<String>, String>`, `set_tool_symlink(tool: String, enabled: bool) -> Result<Vec<String>, String>`.
 
 - [ ] **Step 1: Add the two commands**
@@ -841,14 +841,14 @@ pub async fn set_tool_symlink(
 ) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>, String> {
         let state = app.state::<AppState>();
-        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+        let t = laralux_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
         if enabled {
-            laragon_core::link_tool(&state.paths, t, &PkexecPrivileged).map_err(|e| e.to_string())?;
+            laralux_core::link_tool(&state.paths, t, &PkexecPrivileged).map_err(|e| e.to_string())?;
         } else {
-            laragon_core::unlink_tool(t, &PkexecPrivileged).map_err(|e| e.to_string())?;
+            laralux_core::unlink_tool(t, &PkexecPrivileged).map_err(|e| e.to_string())?;
         }
         let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let k = laragon_core::tools::key(t).to_string();
+        let k = laralux_core::tools::key(t).to_string();
         if enabled { config.symlinks.insert(k); } else { config.symlinks.remove(&k); }
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
         Ok(config.symlinks.into_iter().collect())
@@ -869,7 +869,7 @@ In `src-tauri/src/main.rs`, inside `generate_handler![ ... ]`, add after `comman
 
 - [ ] **Step 3: Build to verify it compiles**
 
-Run: `cargo build -p laragon-desktop 2>&1 | tail -15`
+Run: `cargo build -p laralux-desktop 2>&1 | tail -15`
 Expected: `Finished` with no errors.
 
 - [ ] **Step 4: Commit**
@@ -903,11 +903,11 @@ Delete the file `core/src/shell_env.rs`. In `core/src/lib.rs`, delete the line `
 
 - [ ] **Step 3: Remove the desktop commands**
 
-In `src-tauri/src/commands.rs`: delete the entire `terminal_integration_status` and `set_terminal_integration` functions. In the top `use laragon_core::{ ... }` imports, remove `enable_shell_path`, `disable_shell_path`, and `install_composer` (now unused in the desktop crate). In `src-tauri/src/main.rs`, delete the lines `commands::terminal_integration_status,` and `commands::set_terminal_integration,` from `generate_handler!`.
+In `src-tauri/src/commands.rs`: delete the entire `terminal_integration_status` and `set_terminal_integration` functions. In the top `use laralux_core::{ ... }` imports, remove `enable_shell_path`, `disable_shell_path`, and `install_composer` (now unused in the desktop crate). In `src-tauri/src/main.rs`, delete the lines `commands::terminal_integration_status,` and `commands::set_terminal_integration,` from `generate_handler!`.
 
 - [ ] **Step 4: Build the workspace to verify the removal compiles**
 
-Run: `cargo build -p laragon-desktop && cargo build -p laragonctl && cargo test -p laragon-core 2>&1 | tail -15`
+Run: `cargo build -p laralux-desktop && cargo build -p laraluxctl && cargo test -p laralux-core 2>&1 | tail -15`
 Expected: all `Finished` / tests PASS. If the compiler reports `install_composer`/`enable_shell_path` still used somewhere, that call site was missed — remove or update it (no terminal-integration caller should remain).
 
 - [ ] **Step 5: Commit**
@@ -1113,11 +1113,11 @@ Append to `dist/styles.css`:
 
 - [ ] **Step 8: Build the desktop app and manually verify**
 
-Run: `cargo build -p laragon-desktop 2>&1 | tail -5`
-Then run `cargo run -p laragon-desktop` and verify manually:
+Run: `cargo build -p laralux-desktop 2>&1 | tail -5`
+Then run `cargo run -p laralux-desktop` and verify manually:
 - Setup tab → click "PHP" → modal lists 8.0–8.5 with Active/Use/Install; switching works.
 - Click "Nginx" → modal shows the one installed version + a working "In terminal (/usr/local/bin)" toggle (`nginx`).
-- Toggle a symlink ON → pkexec prompt → `ls -l /usr/local/bin/php` is a symlink to `~/laragon/bin/php/current/php`; toggle OFF removes it.
+- Toggle a symlink ON → pkexec prompt → `ls -l /usr/local/bin/php` is a symlink to `~/laralux/bin/php/current/php`; toggle OFF removes it.
 - "Mailpit" modal shows versions but NO symlink toggle.
 - Settings tab no longer shows the PHP card or Terminal-integration row.
 

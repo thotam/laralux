@@ -1,14 +1,14 @@
-# Laragon Linux — UI Redesign Brief (for Claude Design)
+# Laralux Linux — UI Redesign Brief (for Claude Design)
 
-This is a complete, implementation-grounded brief to redesign the desktop UI of **Laragon Linux**. It is written so the resulting design can be implemented as-is in the existing tech stack. Read every section — the data contract and technical constraints are binding.
+This is a complete, implementation-grounded brief to redesign the desktop UI of **Laralux Linux**. It is written so the resulting design can be implemented as-is in the existing tech stack. Read every section — the data contract and technical constraints are binding.
 
 ---
 
 ## 1. Product context
 
-- **What it is:** A lightweight desktop app that manages a local web-dev stack on Linux (Ubuntu), like Laragon (Windows) / Laravel Herd (macOS) / DBngin. It installs, starts/stops, and configures: **nginx, PHP-FPM, MariaDB, Redis, Mailpit**, and auto-creates pretty HTTPS URLs (`*.dev`) per project.
+- **What it is:** A lightweight desktop app that manages a local web-dev stack on Linux (Ubuntu), like Laralux (Windows) / Laravel Herd (macOS) / DBngin. It installs, starts/stops, and configures: **nginx, PHP-FPM, MariaDB, Redis, Mailpit**, and auto-creates pretty HTTPS URLs (`*.dev`) per project.
 - **Target user:** PHP/Laravel developers on Linux. Comfortable with terminals but want a one-click GUI. Value speed, clarity, "it just works."
-- **Brand feel:** Lightweight, fast, trustworthy, developer-grade. Laragon's identity is a friendly emerald/green. Keep it clean and uncluttered (the original is famously minimal and low-RAM). Modern but not flashy.
+- **Brand feel:** Lightweight, fast, trustworthy, developer-grade. Laralux's identity is a friendly emerald/green. Keep it clean and uncluttered (the original is famously minimal and low-RAM). Modern but not flashy.
 - **Platform:** Linux desktop window (not web, not mobile). Also lives in the system tray.
 
 ## 2. Technical constraints (BINDING — design must fit these)
@@ -18,13 +18,13 @@ This is a complete, implementation-grounded brief to redesign the desktop UI of 
 - **Self-contained / offline:** The app may run with **no internet**. **Do NOT use CDN fonts, icon fonts, or remote images.** Use the `system-ui` font stack, or bundle font files locally in `dist/`. Use **inline SVG** for all icons (provide the SVG markup).
 - **Backend calls:** The UI talks to Rust via `window.__TAURI__.core.invoke("command_name", args)` returning JSON. See §5 for the exact contract. Design interactions around these calls (some are slow / prompt for a system password).
 - **Window:** Single window, default **900×600**, resizable. Design a layout that works from ~**720×480 up to large/maximized**. Define a sensible **min-width/min-height** and how the layout reflows.
-- **Performance/weight:** Keep CSS/JS small and snappy (Laragon's whole appeal is being lean). No heavy animation libraries.
+- **Performance/weight:** Keep CSS/JS small and snappy (Laralux's whole appeal is being lean). No heavy animation libraries.
 - **Dark mode:** Support **light + dark** via `prefers-color-scheme` and/or an in-app toggle. Provide both palettes as design tokens.
 
 ## 3. What exists today (baseline to replace)
 
 A bare, unstyled single page (`dist/index.html` + `main.js` + `styles.css`):
-- A header: title "Laragon Linux" + two buttons **Start All / Stop All**.
+- A header: title "Laralux Linux" + two buttons **Start All / Stop All**.
 - Three stacked sections: **Setup** (list of components installed/missing + "Install missing" button), **Services** (a `<table>` of service name / state / Start|Stop button), **Sites** (a list of links `name — https://name.dev`).
 - Status auto-refreshes every **2 seconds** via polling.
 - Feedback is via `alert()` popups (ugly — replace with in-app toasts/inline UI).
@@ -38,7 +38,7 @@ Design these screens/regions (single-window app; can be one dashboard with a sid
 
 1. **Dashboard / Home** (primary): at-a-glance stack status + global Start/Stop + per-service control + sites list. This is the screen the app opens to.
 2. **Setup / First-run state**: when components are missing, surface a prominent "Set up your environment" flow (install missing). When everything is installed, this collapses into a small, unobtrusive status (or moves to Settings).
-3. **Sites**: list of projects under `~/laragon/www`, each with its `https://<name>.dev` link, an "Open" action, and (future) "New site". Include the **empty state** ("No sites yet").
+3. **Sites**: list of projects under `~/laralux/www`, each with its `https://<name>.dev` link, an "Open" action, and (future) "New site". Include the **empty state** ("No sites yet").
 4. **Service detail (optional/secondary)**: clicking a service could reveal port(s), log path, and quick actions — design at least the hooks.
 5. **Global chrome:** app header/identity, light/dark toggle, and a place for global actions (Start All / Stop All / Settings).
 
@@ -99,7 +99,7 @@ For each, provide visual spec + every state:
 2. **Stack summary**: a compact indicator of overall health (e.g. "4/5 running"), maybe a single big Start/Stop primary button that toggles.
 3. **Service row/card** (×5). States: **Stopped** (neutral), **Starting** (spinner/pulse), **Running** (green, with a dot + maybe port chips + quick links), **Stopping**, **Crashed** (red, with "view logs" affordance). Each has a Start/Stop toggle (primary action) and room for secondary actions (logs, restart). Show the service's port(s) as small chips.
 4. **Setup panel / first-run card**: a checklist of the 6 components (installed ✓ / missing). A prominent **"Install missing"** primary button. **In-progress state** (disabled + "Installing… authorize when prompted" + progress feel; this can run minutes). **Result state** (success summary; or error list from `SetupReport.errors`). Special note row when `php_version` is set: "PHP 8.x installed — restart to apply."
-5. **Site row/card**: project `name`, the clickable `https://<hostname>` link (opens browser), an "Open" button, copy-URL affordance, secondary menu (open folder/terminal/DB — future). **Empty state**: friendly "No sites yet — add a project to ~/laragon/www" with guidance, and a future "New site" CTA.
+5. **Site row/card**: project `name`, the clickable `https://<hostname>` link (opens browser), an "Open" button, copy-URL affordance, secondary menu (open folder/terminal/DB — future). **Empty state**: friendly "No sites yet — add a project to ~/laralux/www" with guidance, and a future "New site" CTA.
 6. **Toasts / inline feedback** (replace `alert()`): success, error, info. Error toasts should be able to show a short message + "details" (the `errors[]` lines). Non-blocking.
 7. **Password/long-op affordance**: when an action triggers `pkexec`, show a subtle "waiting for authorization…" state.
 8. **Empty / loading / error states** for the whole dashboard (first paint, backend not responding).
@@ -115,7 +115,7 @@ For each, provide visual spec + every state:
 
 ## 8. Visual direction (give 1–2 concrete options)
 
-- **Brand color:** emerald/green primary (Laragon heritage). Suggested primary ~`#10b981`/`#0E9F6E` family; pick an accessible set. Provide full token ramp.
+- **Brand color:** emerald/green primary (Laralux heritage). Suggested primary ~`#10b981`/`#0E9F6E` family; pick an accessible set. Provide full token ramp.
 - **Layout proposal:** a clean **control center** — either (a) left sidebar nav (Dashboard / Sites / Setup / Settings) + content area, or (b) a single scrollable dashboard with clear section cards. Recommend one; the app is small so a single dashboard or a slim sidebar both fit.
 - **Surfaces:** card-based, soft borders/shadows, generous spacing, a clear visual hierarchy (status is the hero). Status uses color + an icon/dot, never color alone (accessibility).
 - **Typography:** `system-ui` stack (or bundle Inter). Define a type scale (e.g. 12/13/14/16/20/24) with weights.
@@ -141,7 +141,7 @@ Deliver as a table AND as ready-to-paste `:root { --token: value }` (+ `@media (
 
 ## 11. Future-proofing (leave room, don't fully design unless quick)
 
-The roadmap (Laragon parity) will add: **New site** (create blank/Laravel/WordPress), **switch PHP/Node version**, **PHP quick-settings**, **open terminal/DB client/folder per site**, **logs viewer**, **PostgreSQL/Mongo**, **share via ngrok/cloudflared**, **settings** (TLD, paths, autostart). Design the IA so these slot in (e.g. a Settings area, a per-site "…" menu, a versions control) without a rework.
+The roadmap (Laralux parity) will add: **New site** (create blank/Laravel/WordPress), **switch PHP/Node version**, **PHP quick-settings**, **open terminal/DB client/folder per site**, **logs viewer**, **PostgreSQL/Mongo**, **share via ngrok/cloudflared**, **settings** (TLD, paths, autostart). Design the IA so these slot in (e.g. a Settings area, a per-site "…" menu, a versions control) without a rework.
 
 ## 12. Deliverables expected from Claude Design
 
@@ -159,9 +159,9 @@ The roadmap (Laragon parity) will add: **New site** (create blank/Laravel/WordPr
 - No remote assets (offline-safe): system/bundled fonts, inline SVG icons.
 - WebKitGTK-compatible CSS (no `backdrop-filter` reliance).
 - Map exactly to the §5 data/actions and enum string values.
-- Keep it lean and fast (Laragon's core value). Replace `alert()` with in-app toasts.
+- Keep it lean and fast (Laralux's core value). Replace `alert()` with in-app toasts.
 - Support light + dark.
 
 ## 14. Reference inspiration
 
-Laragon (Windows) dashboard for spirit; Laravel Herd, DBngin, TablePlus, Docker Desktop's container list for clean dev-tool control-center patterns. Aim: as calm and legible as Herd, as lean as the original Laragon.
+Laralux (Windows) dashboard for spirit; Laravel Herd, DBngin, TablePlus, Docker Desktop's container list for clean dev-tool control-center patterns. Aim: as calm and legible as Herd, as lean as the original Laralux.
