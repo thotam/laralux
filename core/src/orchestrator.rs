@@ -118,27 +118,33 @@ impl Orchestrator {
         Ok(())
     }
 
-    /// Swap the active php-fpm version. Stops php-fpm if running, repoints
-    /// `bin/php/current` at the new version, and restarts it iff it had been
-    /// running. Returns whether php-fpm had been running. The socket is
-    /// version-independent, so nginx/vhosts are unaffected.
-    pub fn replace_php_version(&mut self, version: &str) -> Result<bool, ServiceError> {
-        let was_running = self.state(ServiceKind::PhpFpm) == ServiceState::Running;
+    /// Swap the active version of a tool. Stops the service `kind` if running,
+    /// reaps that tool's orphans, repoints `bin/<tool>/current`, and restarts iff
+    /// it had been running. Returns whether the service had been running.
+    pub fn replace_version(
+        &mut self,
+        kind: ServiceKind,
+        tool: &str,
+        version: &str,
+    ) -> Result<bool, ServiceError> {
+        let was_running = self.state(kind) == ServiceState::Running;
         if was_running {
-            let _ = self.stop(ServiceKind::PhpFpm);
+            let _ = self.stop(kind);
         }
-        // Reap any orphan php-fpm (master + workers) under bin/php and ensure the
-        // just-stopped master is fully dead before the new version binds the
-        // socket. Other tools live outside bin/php, so they are never touched.
-        let _ = crate::orphans::reap(&self.paths.bin().join("php"), &self.tracked_pids());
-        let full = crate::layout::resolve_installed_version(&self.paths, "php", version)
+        let _ = crate::orphans::reap(&self.paths.bin().join(tool), &self.tracked_pids());
+        let full = crate::layout::resolve_installed_version(&self.paths, tool, version)
             .unwrap_or_else(|| version.to_string());
-        crate::layout::set_current(&self.paths, "php", &full)
-            .map_err(|e| ServiceError::Config(format!("set php current: {e}")))?;
+        crate::layout::set_current(&self.paths, tool, &full)
+            .map_err(|e| ServiceError::Config(format!("set {tool} current: {e}")))?;
         if was_running {
-            self.start(ServiceKind::PhpFpm)?;
+            self.start(kind)?;
         }
         Ok(was_running)
+    }
+
+    /// Swap the active php-fpm version (thin wrapper over `replace_version`).
+    pub fn replace_php_version(&mut self, version: &str) -> Result<bool, ServiceError> {
+        self.replace_version(ServiceKind::PhpFpm, "php", version)
     }
 
     /// Swap the active CoreDNS bases. Stops and removes any existing CoreDNS service,
@@ -523,5 +529,24 @@ mod tests {
         orch.start(ServiceKind::Mailpit).unwrap();
         assert_eq!(log.lock().unwrap().len(), 1, "second start must not spawn a duplicate");
         assert_eq!(orch.state(ServiceKind::Mailpit), ServiceState::Running);
+    }
+
+    #[test]
+    fn replace_version_restarts_running_service() {
+        let tmp = std::env::temp_dir().join(format!("lara-orch-rv-{}", std::process::id()));
+        let paths = LaragonPaths::new(tmp.clone());
+        std::fs::create_dir_all(paths.version_dir("nginx", "1.31.2")).unwrap();
+        crate::layout::set_current(&paths, "nginx", "1.31.2").unwrap();
+        let spawner = crate::process::FakeSpawner::new();
+        let mut orch = Orchestrator::new(
+            paths,
+            vec![Box::new(Dummy { kind: ServiceKind::Nginx, name: "nginx" })],
+            Box::new(spawner),
+        );
+        orch.start(ServiceKind::Nginx).unwrap();
+        let was = orch.replace_version(ServiceKind::Nginx, "nginx", "1.31.2").unwrap();
+        assert!(was);
+        assert_eq!(orch.state(ServiceKind::Nginx), ServiceState::Running);
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }
