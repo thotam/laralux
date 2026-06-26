@@ -65,7 +65,7 @@ pub fn stack_status(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus>,
 pub fn run_full_start(state: &AppState) -> Vec<String> {
     let config = Config::load(&state.paths.config_file()).unwrap_or_default();
     let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-    let issuer = MkcertIssuer::new(state.paths.ssl());
+    let issuer = MkcertIssuer::resolved(&state.paths);
     let privileged = PkexecPrivileged;
     let bases = sync_sites(
         &state.paths,
@@ -203,7 +203,7 @@ pub async fn create_site(
         // Surface a sync failure as a warning instead of swallowing it — otherwise
         // the site exists on disk but never resolves (no /etc/hosts entry) silently.
         let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let issuer = MkcertIssuer::resolved(&state.paths);
         let privileged = PkexecPrivileged;
         if let Err(e) = sync_sites(
             &state.paths,
@@ -252,7 +252,7 @@ pub async fn link_site(
 
         // Make it reachable: sync vhost+cert+/etc/hosts, then reload nginx if running.
         let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let issuer = MkcertIssuer::resolved(&state.paths);
         let privileged = PkexecPrivileged;
         let _ = sync_sites(
             &state.paths,
@@ -305,7 +305,7 @@ pub async fn unlink_site(app: tauri::AppHandle, name: String) -> Result<(), Stri
 
         // Re-sync (rewrites /etc/hosts without this host) and reload nginx.
         let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let issuer = MkcertIssuer::resolved(&state.paths);
         let privileged = PkexecPrivileged;
         let _ = sync_sites(
             &state.paths,
@@ -330,7 +330,7 @@ pub async fn unlink_site(app: tauri::AppHandle, name: String) -> Result<(), Stri
 /// matching `link_site`/`create_site` (a sync failure must not fail the call).
 fn sync_and_reload(state: &AppState, config: &Config) {
     let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-    let issuer = MkcertIssuer::new(state.paths.ssl());
+    let issuer = MkcertIssuer::resolved(&state.paths);
     let privileged = PkexecPrivileged;
     let _ = sync_sites(
         &state.paths,
@@ -583,7 +583,7 @@ pub async fn set_site_domains(
         registry.save(&state.paths.sites_file()).map_err(|e| e.to_string())?;
 
         let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
-        let issuer = MkcertIssuer::new(state.paths.ssl());
+        let issuer = MkcertIssuer::resolved(&state.paths);
         let privileged = PkexecPrivileged;
         let outcome = sync_sites(
             &state.paths, &config.tld, &php_socket,

@@ -45,7 +45,7 @@ fn main() {
 
             // Sync sites (vhosts + certs + /etc/hosts) before starting nginx.
             let php_socket = PhpFpmService::new(cfg.php_version.clone()).socket_path(&paths);
-            let issuer = MkcertIssuer::new(paths.ssl());
+            let issuer = MkcertIssuer::resolved(&paths);
             let privileged = SudoPrivileged;
             match sync_sites(
                 &paths,

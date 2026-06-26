@@ -224,6 +224,7 @@ pub struct CreateReport {
 fn auto_create_db(
     name: &str,
     mariadb_running: bool,
+    mariadb_bin: &str,
     runner: &dyn CommandRunner,
     warnings: &mut Vec<String>,
     required: bool,
@@ -242,7 +243,7 @@ fn auto_create_db(
         "-u".to_string(), "root".to_string(),
         "-e".to_string(), sql,
     ];
-    match runner.run("mariadb", &args, None) {
+    match runner.run(mariadb_bin, &args, None) {
         Ok(()) => true,
         Err(e) => {
             warnings.push(format!("database creation failed: {e}"));
@@ -276,7 +277,9 @@ pub fn create_site(
     }
 
     let required_db = matches!(template, SiteTemplate::Wordpress);
-    let database_created = auto_create_db(name, mariadb_running, runner, &mut warnings, required_db);
+    // Resolve the mariadb client to its managed bin path (no-apt: not on $PATH).
+    let mariadb_bin = crate::bin::resolve_or_name("mariadb", &crate::layout::managed_bin_dirs(paths));
+    let database_created = auto_create_db(name, mariadb_running, &mariadb_bin, runner, &mut warnings, required_db);
 
     Ok(CreateReport {
         site_name: name.to_string(),

@@ -25,11 +25,25 @@ pub trait CertIssuer: Send + Sync {
 
 pub struct MkcertIssuer {
     ssl_dir: PathBuf,
+    /// The mkcert binary to spawn. Defaults to the bare name `mkcert`; use
+    /// `resolved` (or `with_mkcert_bin`) so it points at the managed
+    /// `bin/mkcert/current/mkcert` — no-apt, mkcert is not on `$PATH`.
+    mkcert_bin: PathBuf,
 }
 
 impl MkcertIssuer {
     pub fn new(ssl_dir: PathBuf) -> Self {
-        Self { ssl_dir }
+        Self { ssl_dir, mkcert_bin: PathBuf::from("mkcert") }
+    }
+    /// Build an issuer with the mkcert binary resolved from the managed bin layout.
+    pub fn resolved(paths: &crate::paths::LaragonPaths) -> Self {
+        let bin = crate::bin::resolve_bin("mkcert", &crate::layout::managed_bin_dirs(paths))
+            .unwrap_or_else(|| PathBuf::from("mkcert"));
+        Self { ssl_dir: paths.ssl(), mkcert_bin: bin }
+    }
+    pub fn with_mkcert_bin(mut self, bin: PathBuf) -> Self {
+        self.mkcert_bin = bin;
+        self
     }
     pub fn cert_path(&self, basename: &str) -> PathBuf {
         self.ssl_dir.join(format!("{basename}.pem"))
@@ -41,7 +55,7 @@ impl MkcertIssuer {
         self.ssl_dir.join(format!("{basename}.san"))
     }
     pub fn issue_command(&self, basename: &str, names: &[String]) -> SpawnSpec {
-        let mut spec = SpawnSpec::new("mkcert")
+        let mut spec = SpawnSpec::new(self.mkcert_bin.display().to_string())
             .arg("-cert-file")
             .arg(self.cert_path(basename).display().to_string())
             .arg("-key-file")
