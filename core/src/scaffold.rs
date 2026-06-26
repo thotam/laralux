@@ -463,7 +463,9 @@ mod tests {
         assert!(p.www().join("blog").join("index.php").is_file());
         // auto-db issued because mariadb_running = true
         let c = calls.lock().unwrap();
-        assert!(c.iter().any(|(prog, args, _)| prog == "mariadb"
+        // Compare on the basename: the runner receives the resolved path, which is
+        // absolute when the tool is installed system-wide (e.g. /usr/local/bin/mariadb).
+        assert!(c.iter().any(|(prog, args, _)| std::path::Path::new(prog).file_name().and_then(|s| s.to_str()) == Some("mariadb")
             && args.iter().any(|a| a.contains("CREATE DATABASE IF NOT EXISTS `blog`"))));
         assert!(rep.database_created);
         std::fs::remove_dir_all(p.root()).ok();
@@ -487,7 +489,9 @@ mod tests {
         let calls = runner.calls();
         create_site(&p, "app", "dev", SiteTemplate::Laravel, false, &runner, &FakeDownloader::new(), &crate::progress::NullProgress).unwrap();
         let c = calls.lock().unwrap();
-        assert!(c.iter().any(|(prog, args, _)| prog == "composer"
+        // Compare on the basename: the runner receives the resolved path, which is
+        // absolute when composer is installed system-wide (e.g. /usr/local/bin/composer).
+        assert!(c.iter().any(|(prog, args, _)| std::path::Path::new(prog).file_name().and_then(|s| s.to_str()) == Some("composer")
             && args == &vec!["create-project".to_string(), "laravel/laravel".to_string(),
                              p.www().join("app").display().to_string()]));
         std::fs::remove_dir_all(p.root()).ok();
