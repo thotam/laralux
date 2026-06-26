@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use std::path::PathBuf;
 
 /// Where a site came from: the `www/` scan, or the explicit registry.
@@ -41,7 +41,7 @@ impl Site {
     /// Generate the nginx vhost (HTTP→HTTPS redirect + HTTPS server) for this site.
     pub fn vhost_config(
         &self,
-        paths: &LaragonPaths,
+        paths: &LaraluxPaths,
         php_socket: &std::path::Path,
         cert: &std::path::Path,
         key: &std::path::Path,
@@ -129,7 +129,7 @@ impl Site {
 }
 
 /// Discover sites in `www/`: immediate subdirectories, skipping hidden ones.
-pub fn scan_sites(paths: &LaragonPaths, tld: &str) -> std::io::Result<Vec<Site>> {
+pub fn scan_sites(paths: &LaraluxPaths, tld: &str) -> std::io::Result<Vec<Site>> {
     let www = paths.www();
     let entries = match std::fs::read_dir(&www) {
         Ok(e) => e,
@@ -165,7 +165,7 @@ pub fn scan_sites(paths: &LaragonPaths, tld: &str) -> std::io::Result<Vec<Site>>
 /// Scanned sites shadow registry entries of the same name; registry entries
 /// whose folder is missing are skipped. Returns `(sites, warnings)`.
 pub fn list_all_sites(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     tld: &str,
 ) -> std::io::Result<(Vec<Site>, Vec<String>)> {
     let mut sites = scan_sites(paths, tld)?;
@@ -256,7 +256,7 @@ mod tests {
         std::fs::create_dir_all(www.join(".hidden")).unwrap();
         std::fs::write(www.join("index.php"), "x").unwrap();
 
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let sites = scan_sites(&paths, "dev").unwrap();
 
         let names: Vec<&str> = sites.iter().map(|s| s.name.as_str()).collect();
@@ -272,7 +272,7 @@ mod tests {
         std::fs::create_dir_all(www.join("laravelapp").join("public")).unwrap();
         std::fs::create_dir_all(www.join("plain")).unwrap();
 
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let sites = scan_sites(&paths, "dev").unwrap();
         let by = |n: &str| sites.iter().find(|s| s.name == n).unwrap().clone();
 
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn missing_www_returns_empty() {
-        let paths = LaragonPaths::new(temp_root());
+        let paths = LaraluxPaths::new(temp_root());
         assert!(scan_sites(&paths, "dev").unwrap().is_empty());
     }
 
@@ -292,7 +292,7 @@ mod tests {
         let root = temp_root();
         let www = root.join("www");
         std::fs::create_dir_all(www.join("app").join("public")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let site = scan_sites(&paths, "dev").unwrap().into_iter().find(|s| s.name == "app").unwrap();
 
         let sock = paths.tmp().join("php-fpm.sock");
@@ -315,7 +315,7 @@ mod tests {
     fn scan_marks_sites_as_scanned() {
         let root = temp_root();
         std::fs::create_dir_all(root.join("www").join("a")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let sites = scan_sites(&paths, "dev").unwrap();
         assert_eq!(sites[0].source, SiteSource::Scanned);
         std::fs::remove_dir_all(&root).ok();
@@ -327,7 +327,7 @@ mod tests {
         std::fs::create_dir_all(root.join("www").join("zeta")).unwrap();
         let external = root.join("external").join("alpha");
         std::fs::create_dir_all(&external).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
 
         let mut reg = crate::site_registry::SiteRegistry::default();
         reg.add("alpha", &external).unwrap();
@@ -347,7 +347,7 @@ mod tests {
     fn list_all_skips_stale_root_with_warning() {
         let root = temp_root();
         std::fs::create_dir_all(root.join("www")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
 
         // Write a registry entry pointing at a folder that does not exist.
         let toml = format!(
@@ -369,7 +369,7 @@ mod tests {
         std::fs::create_dir_all(root.join("www").join("dup")).unwrap();
         let external = root.join("external").join("dup");
         std::fs::create_dir_all(&external).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
 
         let mut reg = crate::site_registry::SiteRegistry::default();
         reg.add("dup", &external).unwrap();
@@ -387,7 +387,7 @@ mod tests {
     fn list_all_includes_proxy_sites() {
         let root = temp_root();
         std::fs::create_dir_all(root.join("www")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
 
         let mut reg = crate::site_registry::SiteRegistry::default();
         let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
@@ -408,7 +408,7 @@ mod tests {
     fn list_all_scanned_shadows_proxy_of_same_name() {
         let root = temp_root();
         std::fs::create_dir_all(root.join("www").join("api")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
 
         let mut reg = crate::site_registry::SiteRegistry::default();
         let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn proxy_vhost_has_proxy_pass_and_ws_headers() {
         let root = temp_root();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let route = crate::site_registry::ProxyRoute { path: "/".into(), upstream: "127.0.0.1:3000".into() };
         let site = proxy_site("app", vec![route], true);
         let sock = paths.tmp().join("php-fpm.sock");
@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn proxy_vhost_without_ws_omits_upgrade_and_supports_multiroute() {
         let root = temp_root();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let routes = vec![
             crate::site_registry::ProxyRoute { path: "/api".into(), upstream: "127.0.0.1:3001".into() },
             crate::site_registry::ProxyRoute { path: "/".into(), upstream: "127.0.0.1:3000".into() },
@@ -480,7 +480,7 @@ mod tests {
     fn site_has_domains_default_and_override() {
         let root = temp_root();
         std::fs::create_dir_all(root.join("www").join("demo")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         // default
         let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
         let d = sites.iter().find(|s| s.name == "demo").unwrap();
@@ -500,7 +500,7 @@ mod tests {
     fn empty_domain_override_is_ignored() {
         let root = temp_root();
         std::fs::create_dir_all(root.join("www").join("demo")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         // Write a sites.toml with an empty domains list for "demo".
         let sites_file = paths.sites_file();
         std::fs::create_dir_all(sites_file.parent().unwrap()).unwrap();
@@ -523,7 +523,7 @@ mod tests {
             proxy: None,
             domains: vec!["demo.dev".into(), "*.demo.dev".into()],
         };
-        let paths = LaragonPaths::new(temp_root());
+        let paths = LaraluxPaths::new(temp_root());
         let conf = site.vhost_config(&paths, std::path::Path::new("/x/php.sock"),
             std::path::Path::new("/x/c.pem"), std::path::Path::new("/x/k.pem"));
         assert!(conf.contains("server_name demo.dev *.demo.dev;"));

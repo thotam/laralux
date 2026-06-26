@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::php_static::{install_php_cli, PhpStaticError};
 use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
@@ -16,14 +16,14 @@ pub fn composer_versioned_url(version: &str) -> String {
 }
 
 /// Point `bin/php/current` at `<version>` (via layout::set_current).
-pub fn set_active_php(paths: &LaragonPaths, version: &str) -> std::io::Result<()> {
+pub fn set_active_php(paths: &LaraluxPaths, version: &str) -> std::io::Result<()> {
     crate::layout::set_current(paths, "php", version)
 }
 
 /// Ensure the active version's cli binary exists (download if missing), then
 /// point `bin/php/current` at it.
 pub fn ensure_active_php_cli(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     version: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
@@ -40,16 +40,21 @@ pub fn ensure_active_php_cli(
 /// Place a downloaded composer.phar into `bin/composer/<version>/composer.phar`,
 /// write the `composer` wrapper (invokes the absolute managed php), chmod it, and
 /// point `bin/composer/current` at the version dir.
-fn place_composer_phar(paths: &LaragonPaths, version: &str, tmp_phar: &std::path::Path) -> std::io::Result<()> {
+fn place_composer_phar(paths: &LaraluxPaths, version: &str, tmp_phar: &std::path::Path) -> std::io::Result<()> {
     let dir = paths.version_dir("composer", version);
     std::fs::create_dir_all(&dir)?;
     let phar = dir.join("composer.phar");
     std::fs::rename(tmp_phar, &phar).or_else(|_| {
         std::fs::copy(tmp_phar, &phar).map(|_| ()).and_then(|_| std::fs::remove_file(tmp_phar))
     })?;
-    // Bake ABSOLUTE paths (via the `current` symlinks) rather than $HOME: the
-    // wrapper may be invoked as another user (e.g. `sudo composer`, where $HOME
-    // becomes /root), so $HOME would resolve to the wrong laragon dir.
+    write_composer_wrapper(paths, &dir)?;
+    crate::layout::set_current(paths, "composer", version)
+}
+
+/// Write the `composer` wrapper into `dir` with ABSOLUTE paths (via the `current`
+/// symlinks) rather than $HOME: the wrapper may be invoked as another user (e.g.
+/// `sudo composer`, where $HOME becomes /root), so $HOME would resolve wrong.
+fn write_composer_wrapper(paths: &LaraluxPaths, dir: &std::path::Path) -> std::io::Result<()> {
     let wrapper = dir.join("composer");
     let php = paths.current_link("php").join("php");
     let phar = paths.current_link("composer").join("composer.phar");
@@ -62,12 +67,12 @@ fn place_composer_phar(paths: &LaragonPaths, version: &str, tmp_phar: &std::path
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755))?;
     }
-    crate::layout::set_current(paths, "composer", version)
+    Ok(())
 }
 
 /// Download the latest composer.phar, probe its version, and install it into
 /// `bin/composer/<version>/` with a wrapper. Used by the default Setup install.
-pub fn install_composer(paths: &LaragonPaths, downloader: &dyn Downloader, sink: &dyn crate::progress::ProgressSink) -> std::io::Result<()> {
+pub fn install_composer(paths: &LaraluxPaths, downloader: &dyn Downloader, sink: &dyn crate::progress::ProgressSink) -> std::io::Result<()> {
     let tmp_phar = paths.tmp().join("composer.phar");
     std::fs::create_dir_all(paths.tmp())?;
     downloader
@@ -82,7 +87,7 @@ pub fn install_composer(paths: &LaragonPaths, downloader: &dyn Downloader, sink:
 /// Download a SPECIFIC composer version into `bin/composer/<version>/` with a
 /// wrapper. Idempotent. An unknown version surfaces as an io error (404).
 pub fn install_composer_version(
-    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, sink: &dyn crate::progress::ProgressSink,
+    paths: &LaraluxPaths, version: &str, downloader: &dyn Downloader, sink: &dyn crate::progress::ProgressSink,
 ) -> std::io::Result<String> {
     if paths.version_dir("composer", version).join("composer").is_file() {
         let _ = crate::layout::set_current(paths, "composer", version);
@@ -103,12 +108,12 @@ mod tests {
     use crate::setup::FakeDownloader;
     use std::path::Path;
 
-    fn root() -> LaragonPaths {
+    fn root() -> LaraluxPaths {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);
         let p = std::env::temp_dir().join(format!("lara-phpcli-{}-{}", std::process::id(), id));
-        let paths = LaragonPaths::new(p);
+        let paths = LaraluxPaths::new(p);
         paths.ensure_dirs().unwrap();
         paths
     }

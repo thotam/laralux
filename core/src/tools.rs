@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::service::ServiceKind;
 use std::path::PathBuf;
 use crate::progress::ProgressSink;
@@ -44,7 +44,7 @@ pub fn from_key(k: &str) -> Option<ManagedTool> {
 }
 
 /// Absolute path to the tool's terminal CLI under `bin/<key>/current/<cli>`, if it has one.
-pub fn cli_path(tool: ManagedTool, paths: &LaragonPaths) -> Option<PathBuf> {
+pub fn cli_path(tool: ManagedTool, paths: &LaraluxPaths) -> Option<PathBuf> {
     info(tool)
         .cli_binary
         .map(|b| paths.bin().join(key(tool)).join("current").join(b))
@@ -80,7 +80,7 @@ fn known_catalog(known: &[&str], installed: Vec<String>, active: &str) -> Vec<To
         .collect()
 }
 
-pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVersion> {
+pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVersion> {
     let cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
     match tool {
         ManagedTool::Php => crate::php_versions::php_versions(paths, &cfg.php_version)
@@ -123,7 +123,7 @@ pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVe
 /// Install a specific version of a tool by dispatching to its installer.
 pub fn install_version(
     tool: ManagedTool,
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     version: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn cli_path_is_under_current_and_none_for_mailpit() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         assert_eq!(cli_path(ManagedTool::Php, &p), Some(PathBuf::from("/tmp/lara/bin/php/current/php")));
         assert_eq!(cli_path(ManagedTool::Redis, &p), Some(PathBuf::from("/tmp/lara/bin/redis/current/redis-cli")));
         assert_eq!(cli_path(ManagedTool::Mailpit, &p), None);
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn php_available_versions_lists_known_set() {
         let root = std::env::temp_dir().join(format!("lara-tools-php-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         paths.ensure_dirs().unwrap();
         let vs = available_versions(ManagedTool::Php, &paths);
         // KNOWN_PHP_VERSIONS has 6 entries (8.0..8.5); none installed on a fresh root.
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn composer_available_versions_includes_known_set_newest_first() {
         let root = std::env::temp_dir().join(format!("lara-tools-cmp-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("composer", "2.6.6")).unwrap();
         let vs = available_versions(ManagedTool::Composer, &paths);
         assert_eq!(vs.len(), crate::php_cli::KNOWN_COMPOSER_VERSIONS.len());
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn nginx_available_versions_includes_known_set_and_marks_installed() {
         let root = std::env::temp_dir().join(format!("lara-tools-ng-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         // Seed one installed nginx version; the catalog should still list the full known set.
         std::fs::create_dir_all(paths.version_dir("nginx", "1.30.3")).unwrap();
         let vs = available_versions(ManagedTool::Nginx, &paths);
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn mariadb_available_versions_includes_known_set_newest_first() {
         let root = std::env::temp_dir().join(format!("lara-tools-mdb-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("mariadb", "10.11.10")).unwrap();
         let vs = available_versions(ManagedTool::Mariadb, &paths);
         assert_eq!(vs.len(), crate::mariadb_static::KNOWN_MARIADB_VERSIONS.len());
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn redis_available_versions_includes_known_set_newest_first() {
         let root = std::env::temp_dir().join(format!("lara-tools-rds-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("redis", "8.0.4")).unwrap();
         let vs = available_versions(ManagedTool::Redis, &paths);
         assert_eq!(vs.len(), crate::redis_static::KNOWN_REDIS_VERSIONS.len());
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn mailpit_available_versions_includes_known_set_newest_first() {
         let root = std::env::temp_dir().join(format!("lara-tools-mpv-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("mailpit", "1.25.0")).unwrap();
         let vs = available_versions(ManagedTool::Mailpit, &paths);
         assert_eq!(vs.len(), crate::mailpit_static::KNOWN_MAILPIT_VERSIONS.len());

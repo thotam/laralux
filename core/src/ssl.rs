@@ -36,7 +36,7 @@ impl MkcertIssuer {
         Self { ssl_dir, mkcert_bin: PathBuf::from("mkcert") }
     }
     /// Build an issuer with the mkcert binary resolved from the managed bin layout.
-    pub fn resolved(paths: &crate::paths::LaragonPaths) -> Self {
+    pub fn resolved(paths: &crate::paths::LaraluxPaths) -> Self {
         let bin = crate::bin::resolve_bin("mkcert", &crate::layout::managed_bin_dirs(paths))
             .unwrap_or_else(|| PathBuf::from("mkcert"));
         Self { ssl_dir: paths.ssl(), mkcert_bin: bin }

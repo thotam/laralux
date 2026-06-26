@@ -1,5 +1,5 @@
-pub const HOSTS_BEGIN: &str = "# BEGIN laragon-linux";
-pub const HOSTS_END: &str = "# END laragon-linux";
+pub const HOSTS_BEGIN: &str = "# BEGIN laralux-linux";
+pub const HOSTS_END: &str = "# END laralux-linux";
 
 /// Render the managed block (markers + one mapping line per hostname).
 pub fn render_block(hostnames: &[String]) -> String {

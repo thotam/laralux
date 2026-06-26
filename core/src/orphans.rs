@@ -1,7 +1,7 @@
 //! Reaping of *managed* orphan processes left over from a prior session.
 //!
 //! A "managed" process is one whose running executable lives under
-//! `~/laragon/bin`. We identify it via `/proc/<pid>/exe` (the kernel's canonical
+//! `~/laralux/bin`. We identify it via `/proc/<pid>/exe` (the kernel's canonical
 //! path to the binary) rather than the cmdline: nginx and php-fpm rewrite their
 //! argv (proctitle), but the exe symlink always points at the real file, and
 //! php-fpm workers share the master's exe so they match too. All managed
@@ -122,32 +122,32 @@ mod tests {
 
     #[test]
     fn matches_dir_and_descendants() {
-        let base = Path::new("/home/u/laragon/bin");
-        assert!(is_managed_exe(Path::new("/home/u/laragon/bin"), base));
-        assert!(is_managed_exe(Path::new("/home/u/laragon/bin/nginx/1.31.2/nginx"), base));
-        assert!(is_managed_exe(Path::new("/home/u/laragon/bin/php/8.4/sbin/php-fpm"), base));
+        let base = Path::new("/home/u/laralux/bin");
+        assert!(is_managed_exe(Path::new("/home/u/laralux/bin"), base));
+        assert!(is_managed_exe(Path::new("/home/u/laralux/bin/nginx/1.31.2/nginx"), base));
+        assert!(is_managed_exe(Path::new("/home/u/laralux/bin/php/8.4/sbin/php-fpm"), base));
     }
 
     #[test]
     fn rejects_siblings_and_outsiders() {
-        let base = Path::new("/home/u/laragon/bin");
+        let base = Path::new("/home/u/laralux/bin");
         // Component-wise: a sibling that merely shares a name prefix must NOT match.
-        assert!(!is_managed_exe(Path::new("/home/u/laragon/binary/x"), base));
+        assert!(!is_managed_exe(Path::new("/home/u/laralux/binary/x"), base));
         assert!(!is_managed_exe(Path::new("/usr/sbin/mariadbd"), base));
     }
 
     #[test]
     fn php_sub_scope_excludes_other_tools() {
-        let php = Path::new("/home/u/laragon/bin/php");
-        assert!(is_managed_exe(Path::new("/home/u/laragon/bin/php/8.4/sbin/php-fpm"), php));
-        assert!(!is_managed_exe(Path::new("/home/u/laragon/bin/nginx/1.31.2/nginx"), php));
+        let php = Path::new("/home/u/laralux/bin/php");
+        assert!(is_managed_exe(Path::new("/home/u/laralux/bin/php/8.4/sbin/php-fpm"), php));
+        assert!(!is_managed_exe(Path::new("/home/u/laralux/bin/nginx/1.31.2/nginx"), php));
     }
 
     #[test]
     fn strips_deleted_suffix() {
-        let base = Path::new("/home/u/laragon/bin");
+        let base = Path::new("/home/u/laralux/bin");
         assert!(is_managed_exe(
-            Path::new("/home/u/laragon/bin/mariadb/11.4.12/bin/mariadbd (deleted)"),
+            Path::new("/home/u/laralux/bin/mariadb/11.4.12/bin/mariadbd (deleted)"),
             base
         ));
     }

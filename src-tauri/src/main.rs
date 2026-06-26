@@ -101,7 +101,7 @@ fn main() {
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    let mut last: Option<Vec<laragon_core::ServiceStatus>> = None;
+                    let mut last: Option<Vec<laralux_core::ServiceStatus>> = None;
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         let Some(state) = handle.try_state::<AppState>() else { continue };
@@ -117,7 +117,7 @@ fn main() {
                 });
             }
 
-            // Realtime site list: watch ~/laragon/www (non-recursive: immediate
+            // Realtime site list: watch ~/laralux/www (non-recursive: immediate
             // subdirs are sites) and sites.toml; push `sites-changed` (debounced)
             // so external folder/registry edits appear without polling.
             {
@@ -152,7 +152,7 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building Laragon Linux")
+        .expect("error while building Laralux")
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {

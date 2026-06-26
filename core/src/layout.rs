@@ -1,10 +1,10 @@
 use crate::config::Config;
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use std::path::{Path, PathBuf};
 
 /// (Re)point `bin/<tool>/current` at `<version>` (relative target, so it
 /// resolves inside the tool dir). Removes any existing `current` first.
-pub fn set_current(paths: &LaragonPaths, tool: &str, version: &str) -> std::io::Result<()> {
+pub fn set_current(paths: &LaraluxPaths, tool: &str, version: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(paths.tool_dir(tool))?;
     let link = paths.current_link(tool);
     let _ = std::fs::remove_file(&link);
@@ -17,7 +17,7 @@ pub fn set_current(paths: &LaragonPaths, tool: &str, version: &str) -> std::io::
 
 /// Every `bin/<tool>/current` dir that exists — the search path for resolving
 /// managed binaries. Sorted for determinism.
-pub fn managed_bin_dirs(paths: &LaragonPaths) -> Vec<PathBuf> {
+pub fn managed_bin_dirs(paths: &LaraluxPaths) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Ok(entries) = std::fs::read_dir(paths.bin()) {
         for e in entries.flatten() {
@@ -35,7 +35,7 @@ pub fn managed_bin_dirs(paths: &LaragonPaths) -> Vec<PathBuf> {
 
 /// Installed version dirs under `bin/<tool>`, excluding the `current` symlink.
 /// Sorted by numeric version components.
-pub fn installed_versions(paths: &LaragonPaths, tool: &str) -> Vec<String> {
+pub fn installed_versions(paths: &LaraluxPaths, tool: &str) -> Vec<String> {
     let mut versions: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(paths.tool_dir(tool)) {
         for e in entries.flatten() {
@@ -60,7 +60,7 @@ fn version_key(v: &str) -> Vec<u32> {
 /// Resolve a requested version to an installed one: an exact `version_dir` wins;
 /// otherwise the highest installed full version whose major.minor equals
 /// `requested` (so a minor like "8.3" maps to e.g. "8.3.31"). None if nothing matches.
-pub fn resolve_installed_version(paths: &LaragonPaths, tool: &str, requested: &str) -> Option<String> {
+pub fn resolve_installed_version(paths: &LaraluxPaths, tool: &str, requested: &str) -> Option<String> {
     if paths.version_dir(tool, requested).is_dir() {
         return Some(requested.to_string());
     }
@@ -79,7 +79,7 @@ pub fn resolve_installed_version(paths: &LaragonPaths, tool: &str, requested: &s
 
 /// Materialize `current` symlinks from config. Returns a warning per tool whose
 /// configured version dir is missing. Best-effort: never aborts.
-pub fn apply_versions(paths: &LaragonPaths, config: &Config) -> Vec<String> {
+pub fn apply_versions(paths: &LaraluxPaths, config: &Config) -> Vec<String> {
     let mut warnings = Vec::new();
     for (tool, version) in &config.versions {
         if paths.version_dir(tool, version).is_dir() {
@@ -129,12 +129,12 @@ mod tests {
     use super::*;
     use crate::bin::resolve_bin;
 
-    fn root() -> LaragonPaths {
+    fn root() -> LaraluxPaths {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static C: AtomicUsize = AtomicUsize::new(0);
         let id = C.fetch_add(1, Ordering::SeqCst);
         let p = std::env::temp_dir().join(format!("lara-layout-{}-{}", std::process::id(), id));
-        let paths = LaragonPaths::new(p);
+        let paths = LaraluxPaths::new(p);
         std::fs::create_dir_all(paths.bin()).unwrap();
         paths
     }

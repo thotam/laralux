@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::progress::ProgressSink;
 use crate::setup::Downloader;
 
@@ -65,7 +65,7 @@ pub fn nginx_filename(version: &str, arch: &str) -> String {
 /// point `current` at it, and return the version. Idempotent for the caller —
 /// callers check `installed` before deciding to skip.
 fn place_nginx(
-    paths: &LaragonPaths, ver: &str, url: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, ver: &str, url: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
 ) -> Result<String, NginxError> {
     let dir = paths.version_dir("nginx", ver);
     let dest = dir.join("nginx");
@@ -85,7 +85,7 @@ fn place_nginx(
 
 /// Download the static nginx binary (latest from the index) into bin/nginx/<ver>/nginx.
 pub fn install_nginx(
-    paths: &LaragonPaths, downloader: &dyn Downloader, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, downloader: &dyn Downloader, sink: &dyn ProgressSink,
 ) -> Result<String, NginxError> {
     let arch = nginx_arch().ok_or_else(|| NginxError::Arch(std::env::consts::ARCH.to_string()))?;
     std::fs::create_dir_all(paths.tmp())?;
@@ -105,7 +105,7 @@ pub fn install_nginx(
 /// filename directly — no index fetch). Idempotent. An unknown version surfaces
 /// as `NginxError::Download` (the URL 404s).
 pub fn install_nginx_version(
-    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, version: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
 ) -> Result<String, NginxError> {
     let arch = nginx_arch().ok_or_else(|| NginxError::Arch(std::env::consts::ARCH.to_string()))?;
     let dest = paths.version_dir("nginx", version).join("nginx");
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn install_nginx_downloads_to_versioned_dir() {
         let root = std::env::temp_dir().join(format!("lara-nginx-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let arch = nginx_arch().expect("supported test arch");
         let index_json = format!(
             r#"[{{"name":"nginx","version":"1.31.2","arch":"{arch}","os":"linux","filename":"nginx-1.31.2-{arch}-linux"}}]"#
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn install_nginx_skips_if_already_installed() {
         let root = std::env::temp_dir().join(format!("lara-nginx-skip-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let arch = nginx_arch().expect("supported test arch");
         let index_json = format!(
             r#"[{{"name":"nginx","version":"1.31.2","arch":"{arch}","os":"linux","filename":"nginx-1.31.2-{arch}-linux"}}]"#
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn install_nginx_version_places_specific_version_and_sets_current() {
         let root = std::env::temp_dir().join(format!("lara-nginx-ver-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let dl = StubNginxDownloader { index_json: String::new(), fetched: Arc::new(Mutex::new(Vec::new())) };
         let ver = install_nginx_version(&paths, "1.30.3", &dl, &crate::progress::NullProgress).unwrap();
         assert_eq!(ver, "1.30.3");

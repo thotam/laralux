@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::service::{probe_tcp, Service, ServiceError, ServiceKind, SpawnSpec};
 use std::path::PathBuf;
 
@@ -10,16 +10,16 @@ impl MariadbService {
     pub fn new() -> Self {
         Self { port: 3306 }
     }
-    fn cnf_path(&self, paths: &LaragonPaths) -> PathBuf {
+    fn cnf_path(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.etc_for("mariadb").join("my.cnf")
     }
-    fn datadir(&self, paths: &LaragonPaths) -> PathBuf {
+    fn datadir(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.data().join("mariadb")
     }
-    fn basedir(&self, paths: &LaragonPaths) -> PathBuf {
+    fn basedir(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.bin().join("mariadb").join("current")
     }
-    fn install_db_args(&self, paths: &LaragonPaths) -> Vec<String> {
+    fn install_db_args(&self, paths: &LaraluxPaths) -> Vec<String> {
         vec![
             "--no-defaults".to_string(),
             format!("--basedir={}", self.basedir(paths).display()),
@@ -42,7 +42,7 @@ impl Service for MariadbService {
     fn name(&self) -> &str {
         "mariadb"
     }
-    fn write_config(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn write_config(&self, paths: &LaraluxPaths) -> Result<(), ServiceError> {
         std::fs::create_dir_all(paths.etc_for("mariadb"))?;
         std::fs::create_dir_all(self.datadir(paths))?;
         let conf = format!(
@@ -62,10 +62,10 @@ impl Service for MariadbService {
         std::fs::write(self.cnf_path(paths), conf)?;
         Ok(())
     }
-    fn needs_init(&self, paths: &LaragonPaths) -> bool {
+    fn needs_init(&self, paths: &LaraluxPaths) -> bool {
         !self.datadir(paths).join("mysql").is_dir()
     }
-    fn init(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn init(&self, paths: &LaraluxPaths) -> Result<(), ServiceError> {
         self.write_config(paths)?;
         let tool = crate::bin::resolve_bin("mariadb-install-db", &crate::layout::managed_bin_dirs(paths))
             .ok_or_else(|| ServiceError::Init("mariadb-install-db not found".into()))?;
@@ -78,15 +78,15 @@ impl Service for MariadbService {
         }
         Ok(())
     }
-    fn command(&self, paths: &LaragonPaths) -> SpawnSpec {
+    fn command(&self, paths: &LaraluxPaths) -> SpawnSpec {
         SpawnSpec::new("mariadbd")
             .arg(format!("--defaults-file={}", self.cnf_path(paths).display()))
             .arg(format!("--basedir={}", self.basedir(paths).display()))
     }
-    fn health_check(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn health_check(&self, _paths: &LaraluxPaths) -> Result<(), ServiceError> {
         probe_tcp(self.port)
     }
-    fn pre_start(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn pre_start(&self, paths: &LaraluxPaths) -> Result<(), ServiceError> {
         // Clear a stale unix socket / orphaned mariadbd from a previous run.
         crate::service::cleanup_stale_endpoint(
             Some(&paths.tmp().join("mariadb.pid")),
@@ -99,12 +99,12 @@ impl Service for MariadbService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
     use crate::service::{Service, ServiceKind};
 
     #[test]
     fn command_and_kind() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         let svc = MariadbService::new();
         let spec = svc.command(&p);
         assert_eq!(spec.program, "mariadbd");
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn needs_init_true_when_datadir_empty() {
         let tmp = std::env::temp_dir().join(format!("lara-maria-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         let svc = MariadbService::new();
         assert!(svc.needs_init(&p));
         std::fs::create_dir_all(p.data().join("mariadb").join("mysql")).unwrap();
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn write_config_sets_datadir_and_port() {
         let tmp = std::env::temp_dir().join(format!("lara-mariacfg-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         let svc = MariadbService::new();
         svc.write_config(&p).unwrap();
         let conf = std::fs::read_to_string(p.etc_for("mariadb").join("my.cnf")).unwrap();
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn install_db_args_use_no_defaults_not_defaults_file() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         let svc = MariadbService::new();
         let args = svc.install_db_args(&p);
         assert!(args.contains(&"--no-defaults".to_string()));

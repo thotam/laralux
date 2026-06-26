@@ -1,5 +1,5 @@
 use crate::layout::installed_versions;
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use serde::Serialize;
 
 pub const KNOWN_PHP_VERSIONS: [&str; 6] = ["8.0", "8.1", "8.2", "8.3", "8.4", "8.5"];
@@ -57,7 +57,7 @@ pub fn installed_minors(full_versions: &[String]) -> Vec<String> {
 }
 
 /// Version catalog using the live filesystem layout (bin/php/*/).
-pub fn php_versions(paths: &LaragonPaths, active: &str) -> Vec<PhpVersionInfo> {
+pub fn php_versions(paths: &LaraluxPaths, active: &str) -> Vec<PhpVersionInfo> {
     let full = installed_versions(paths, "php");
     let installed = installed_minors(&full);
     // `active` may be a full version ("8.3.31") or a minor ("8.3"); compare on minor.

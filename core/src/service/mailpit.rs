@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::service::{probe_tcp, Service, ServiceError, ServiceKind, SpawnSpec};
 
 pub struct MailpitService {
@@ -25,14 +25,14 @@ impl Service for MailpitService {
     fn name(&self) -> &str {
         "mailpit"
     }
-    fn command(&self, _paths: &LaragonPaths) -> SpawnSpec {
+    fn command(&self, _paths: &LaraluxPaths) -> SpawnSpec {
         SpawnSpec::new("mailpit")
             .arg("--listen")
             .arg(format!("127.0.0.1:{}", self.ui_port))
             .arg("--smtp")
             .arg(format!("127.0.0.1:{}", self.smtp_port))
     }
-    fn health_check(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn health_check(&self, _paths: &LaraluxPaths) -> Result<(), ServiceError> {
         probe_tcp(self.ui_port)
     }
 }
@@ -40,12 +40,12 @@ impl Service for MailpitService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
     use crate::service::{Service, ServiceKind};
 
     #[test]
     fn command_sets_listen_and_smtp_flags() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         let svc = MailpitService::new();
         let spec = svc.command(&p);
         assert_eq!(spec.program, "mailpit");

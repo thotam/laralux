@@ -1,4 +1,4 @@
-//! Laragon Linux core: GUI-independent service orchestration.
+//! Laralux core: GUI-independent service orchestration.
 
 pub mod paths;
 pub mod bin;
@@ -37,7 +37,7 @@ pub use layout::{managed_bin_dirs, set_current, installed_versions, apply_versio
 pub use config::Config;
 pub use tools::{available_versions, install_version, ManagedTool, ToolError, ToolInfo, ToolVersion};
 pub use orchestrator::{Orchestrator, ServiceStatus};
-pub use paths::LaragonPaths;
+pub use paths::LaraluxPaths;
 pub use process::RealSpawner;
 pub use service::registry::build_services;
 pub use service::{ServiceKind, ServiceState};

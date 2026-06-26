@@ -1,5 +1,5 @@
 use crate::hosts::apply_block;
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::privileged::Privileged;
 use crate::sites::{list_all_sites, Site};
 use crate::ssl::CertIssuer;
@@ -24,7 +24,7 @@ pub struct SyncOutcome {
 /// Scan sites, issue certs, write per-site vhosts, and update the managed
 /// `/etc/hosts` block — writing hosts only when the block actually changes.
 pub fn sync_sites(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     tld: &str,
     php_socket: &Path,
     hosts_path: &Path,
@@ -73,7 +73,7 @@ pub fn sync_sites(
 mod tests {
     use super::sync_sites;
     use crate::hosts::apply_block;
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
     use crate::privileged::FakePrivileged;
     use crate::ssl::FakeCertIssuer;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -90,7 +90,7 @@ mod tests {
         let www = r.join("www");
         std::fs::create_dir_all(www.join("app")).unwrap();
         std::fs::create_dir_all(www.join("blog")).unwrap();
-        let paths = LaragonPaths::new(r.clone());
+        let paths = LaraluxPaths::new(r.clone());
 
         let hosts_path = r.join("hosts");
         std::fs::write(&hosts_path, "127.0.0.1 localhost\n").unwrap();
@@ -123,7 +123,7 @@ mod tests {
         let r = root();
         let www = r.join("www");
         std::fs::create_dir_all(www.join("app")).unwrap();
-        let paths = LaragonPaths::new(r.clone());
+        let paths = LaraluxPaths::new(r.clone());
 
         // Pre-populate hosts with the exact block sync would produce.
         let hosts_path = r.join("hosts");
@@ -146,7 +146,7 @@ mod tests {
     fn sync_splits_explicit_hosts_and_wildcard_bases() {
         let r = root();
         std::fs::create_dir_all(r.join("www").join("demo")).unwrap();
-        let paths = LaragonPaths::new(r.clone());
+        let paths = LaraluxPaths::new(r.clone());
         let mut reg = crate::site_registry::SiteRegistry::default();
         reg.set_domains("demo", &["demo.dev".into(), "api.demo.dev".into(), "*.demo.dev".into()]).unwrap();
         reg.save(&paths.sites_file()).unwrap();
@@ -173,7 +173,7 @@ mod tests {
         std::fs::create_dir_all(r.join("www")).unwrap();
         let external = r.join("ext").join("linked");
         std::fs::create_dir_all(&external).unwrap();
-        let paths = LaragonPaths::new(r.clone());
+        let paths = LaraluxPaths::new(r.clone());
 
         let mut reg = crate::site_registry::SiteRegistry::default();
         reg.add("linked", &external).unwrap();

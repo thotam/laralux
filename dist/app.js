@@ -1,4 +1,4 @@
-/* Laragon Linux — control-center frontend (vanilla, wired to Tauri IPC).
+/* Laralux — control-center frontend (vanilla, wired to Tauri IPC).
    Ported from the Claude Design handoff. No framework / build step. */
 
 (() => {
@@ -69,7 +69,7 @@
   };
 
   // ---- state ----
-  const stored = localStorage.getItem("laragon-theme");
+  const stored = localStorage.getItem("laralux-theme");
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   const state = {
     view: "dashboard",
@@ -322,7 +322,7 @@
       type: "error",
       sticky: true,
       title: DISP[kind] + " crashed",
-      details: ["Check ~/laragon/log/" + f, "or: journalctl --user -n 50"],
+      details: ["Check ~/laralux/log/" + f, "or: journalctl --user -n 50"],
     });
   }
 
@@ -583,7 +583,7 @@
   }
   function toggleDark() {
     state.dark = !state.dark;
-    localStorage.setItem("laragon-theme", state.dark ? "dark" : "light");
+    localStorage.setItem("laralux-theme", state.dark ? "dark" : "light");
     render();
   }
 
@@ -639,7 +639,7 @@
     return (
       '<header class="header">' +
       '<div class="brand"><div class="brand-mark">' + I.cube + "</div>" +
-      '<div class="brand-name">Laragon <span>Linux</span></div></div>' +
+      '<div class="brand-name">Laralux</div></div>' +
       '<span class="spacer"></span>' +
       '<div class="health-pill"><span class="dot ' + health + '"></span>' +
       '<span class="txt">' + run + "/5 running</span></div>" +
@@ -771,7 +771,7 @@
     const empty = state.sites.length === 0;
     const head =
       '<div class="sites-head"><div><h1 class="h1">Sites</h1>' +
-      '<p class="subtitle">Projects under <code class="chip-code">~/laragon/www</code></p></div>' +
+      '<p class="subtitle">Projects under <code class="chip-code">~/laralux/www</code></p></div>' +
       '<div class="sites-actions">' +
       '<button class="btn-newsite ghost" data-action="proxy-site">' + I.navSites + "Reverse proxy</button>" +
       '<button class="btn-newsite ghost" data-action="link-site">' + I.folder18 + "Add existing folder</button>" +
@@ -781,7 +781,7 @@
       bodyHtml =
         '<div class="sites-empty"><div class="glyph">' + I.folderBig + "</div>" +
         '<div class="t">No sites yet</div>' +
-        '<div class="h">Drop a project folder into <code class="chip-code">~/laragon/www</code> and it gets a pretty <code class="chip-code">https://&lt;name&gt;.dev</code> URL automatically.</div>' +
+        '<div class="h">Drop a project folder into <code class="chip-code">~/laralux/www</code> and it gets a pretty <code class="chip-code">https://&lt;name&gt;.dev</code> URL automatically.</div>' +
         '<button class="btn-newsite" data-action="new-site" style="margin-top:4px">' + I.plus + "New site</button></div>";
     } else {
       bodyHtml =
@@ -932,11 +932,11 @@
       '<div class="set-row"><div class="grow"><div class="t">Local TLD</div><div class="h">Pretty-URL domain suffix</div></div>' +
       '<code class="code-chip">.dev</code></div>' +
       '<div class="set-row"><div class="grow"><div class="t">Sites directory</div><div class="h">Where projects are scanned</div></div>' +
-      '<code class="code-chip">~/laragon/www</code></div>' +
+      '<code class="code-chip">~/laralux/www</code></div>' +
       '<div class="set-row"><div class="grow"><div class="t">Start on login</div><div class="h">Autostart in system tray — coming soon</div></div>' +
       '<span class="toggle-off"><span class="knob"></span></span></div>' +
       "</div>" +
-      '<div class="settings-foot">Laragon Linux · window 900×600 · min 720×480 · tray: Start All · Stop All · Dashboard · Quit</div>' +
+      '<div class="settings-foot">Laralux · window 900×600 · min 720×480 · tray: Start All · Stop All · Dashboard · Quit</div>' +
       "</div>"
     );
   }

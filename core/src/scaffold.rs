@@ -52,7 +52,7 @@ $exts = ['pdo_mysql','redis','curl','mbstring','gd'];
 ?><!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{name} — Laragon Linux</title>
+<title>{name} — Laralux</title>
 <style>
   body{{font-family:system-ui,sans-serif;margin:0;background:#0f1115;color:#e6e8ee;}}
   .wrap{{max-width:680px;margin:8vh auto;padding:0 24px;}}
@@ -64,7 +64,7 @@ $exts = ['pdo_mysql','redis','curl','mbstring','gd'];
   a{{color:#60a5fa;}}
 </style></head><body><div class="wrap">
   <h1>🚀 {name}</h1>
-  <div class="muted">powered by <strong>Laragon Linux</strong> · <code><?= $_SERVER['HTTP_HOST'] ?? '{name}.dev' ?></code></div>
+  <div class="muted">powered by <strong>Laralux</strong> · <code><?= $_SERVER['HTTP_HOST'] ?? '{name}.dev' ?></code></div>
   <div class="card">
     <div class="row"><span>PHP version</span><code><?= phpversion() ?></code></div>
     <div class="row"><span>SAPI</span><code><?= PHP_SAPI ?></code></div>
@@ -209,7 +209,7 @@ impl CommandRunner for FakeCommandRunner {
     }
 }
 
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::setup::Downloader;
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -253,7 +253,7 @@ fn auto_create_db(
 }
 
 pub fn create_site(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     name: &str,
     tld: &str,
     template: SiteTemplate,
@@ -291,7 +291,7 @@ pub fn create_site(
 }
 
 fn build_template(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     dir: &std::path::Path,
     name: &str,
     template: SiteTemplate,
@@ -378,7 +378,7 @@ mod tests {
         assert!(s.contains("<?php"));
         assert!(s.contains("blog"));
         assert!(s.contains("phpversion("));
-        assert!(s.contains("Laragon Linux"));
+        assert!(s.contains("Laralux"));
         assert!(s.contains("phpinfo")); // ?phpinfo toggle
     }
 
@@ -441,7 +441,7 @@ mod tests {
         assert!(r.run("false", &[], None).is_err());
     }
 
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
     use crate::setup::FakeDownloader;
 
     fn root() -> std::path::PathBuf {
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn blank_creates_index_and_optionally_db() {
-        let p = LaragonPaths::new(root());
+        let p = LaraluxPaths::new(root());
         p.ensure_dirs().unwrap();
         let runner = FakeCommandRunner::new();
         let calls = runner.calls();
@@ -473,7 +473,7 @@ mod tests {
 
     #[test]
     fn rejects_existing_site() {
-        let p = LaragonPaths::new(root());
+        let p = LaraluxPaths::new(root());
         p.ensure_dirs().unwrap();
         std::fs::create_dir_all(p.www().join("dup")).unwrap();
         let r = create_site(&p, "dup", "dev", SiteTemplate::Blank, false, &FakeCommandRunner::new(), &FakeDownloader::new(), &crate::progress::NullProgress);
@@ -483,7 +483,7 @@ mod tests {
 
     #[test]
     fn laravel_runs_composer() {
-        let p = LaragonPaths::new(root());
+        let p = LaraluxPaths::new(root());
         p.ensure_dirs().unwrap();
         let runner = FakeCommandRunner::new();
         let calls = runner.calls();
@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn wordpress_downloads_extracts_and_writes_config() {
-        let p = LaragonPaths::new(root());
+        let p = LaraluxPaths::new(root());
         p.ensure_dirs().unwrap();
         let runner = FakeCommandRunner::new();
         let calls = runner.calls();
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn rolls_back_dir_on_failure() {
-        let p = LaragonPaths::new(root());
+        let p = LaraluxPaths::new(root());
         p.ensure_dirs().unwrap();
         let runner = FakeCommandRunner::failing(); // composer will "fail"
         let r = create_site(&p, "boom", "dev", SiteTemplate::Laravel, false, &runner, &FakeDownloader::new(), &crate::progress::NullProgress);

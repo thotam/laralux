@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
 
@@ -55,9 +55,9 @@ pub fn coredns_installed(dest: &std::path::Path) -> bool {
     std::fs::metadata(dest).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
 }
 
-/// Download the static CoreDNS binary into ~/laragon/bin/<version>/ (no apt/root) if missing.
+/// Download the static CoreDNS binary into ~/laralux/bin/<version>/ (no apt/root) if missing.
 pub fn ensure_coredns(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
     sink: &dyn crate::progress::ProgressSink,

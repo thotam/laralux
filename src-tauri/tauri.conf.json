@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Laragon Linux",
+  "productName": "Laralux",
   "version": "0.1.0",
-  "identifier": "com.laragon.linux",
+  "identifier": "com.laralux.linux",
   "build": {
     "frontendDist": "../dist"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Laragon Linux",
+        "title": "Laralux",
         "width": 900,
         "height": 820,
         "minWidth": 720,

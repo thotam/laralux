@@ -1,13 +1,13 @@
-use laragon_core::service::php_fpm::PhpFpmService;
-use laragon_core::{
-    build_services, detect_components, scan_sites, sync_sites, Config, CurlDownloader, LaragonPaths,
+use laralux_core::service::php_fpm::PhpFpmService;
+use laralux_core::{
+    build_services, detect_components, scan_sites, sync_sites, Config, CurlDownloader, LaraluxPaths,
     MkcertIssuer, Orchestrator, Privileged, RealCommandRunner, RealSpawner, run_setup, SudoPrivileged,
     NullProgress,
 };
 
 fn main() {
     let cmd = std::env::args().nth(1).unwrap_or_else(|| "help".into());
-    let paths = LaragonPaths::new(LaragonPaths::default_root());
+    let paths = LaraluxPaths::new(LaraluxPaths::default_root());
 
     match cmd.as_str() {
         "config-init" => {
@@ -29,11 +29,11 @@ fn main() {
         "setup-perms" => {
             let priv_ = SudoPrivileged;
             println!("Installing mkcert local CA (may prompt for sudo)...");
-            match laragon_core::bin::resolve_bin("mkcert", &laragon_core::layout::managed_bin_dirs(&paths)) {
+            match laralux_core::bin::resolve_bin("mkcert", &laralux_core::layout::managed_bin_dirs(&paths)) {
                 Some(mk) => priv_.install_mkcert_ca(&mk).expect("mkcert -install"),
                 None => eprintln!("warning: mkcert not found in managed bin dirs; skipping CA install"),
             }
-            let nginx_bin = laragon_core::bin::resolve_bin("nginx", &laragon_core::layout::managed_bin_dirs(&paths))
+            let nginx_bin = laralux_core::bin::resolve_bin("nginx", &laralux_core::layout::managed_bin_dirs(&paths))
                 .unwrap_or_else(|| std::path::PathBuf::from("/usr/sbin/nginx"));
             println!("Granting nginx permission to bind low ports via setcap...");
             priv_.setcap_nginx(&nginx_bin).expect("setcap nginx");
@@ -101,14 +101,14 @@ fn main() {
                 report.mailpit_fetched, report.mkcert_ca, report.nginx_setcap
             );
             if let Some(ver) = &report.php_version {
-                println!("PHP {ver} installed — restart laragon to use it.");
+                println!("PHP {ver} installed — restart laralux to use it.");
             }
             for e in &report.errors {
                 eprintln!("  error: {e}");
             }
         }
         _ => {
-            println!("usage: laragonctl <config-init|up|status|sites|setup-perms|setup>");
+            println!("usage: laraluxctl <config-init|up|status|sites|setup-perms|setup>");
         }
     }
 }
