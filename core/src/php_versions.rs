@@ -28,7 +28,8 @@ pub fn php_versions_from(installed: &[String], active: &str) -> Vec<PhpVersionIn
             versions.push(v.clone());
         }
     }
-    versions.sort_by_key(|v| vkey(v));
+    // Newest first (e.g. 8.5 above 8.0), matching the nginx catalog ordering.
+    versions.sort_by(|a, b| vkey(b).cmp(&vkey(a)));
     versions
         .into_iter()
         .map(|v| PhpVersionInfo {
@@ -80,14 +81,16 @@ mod tests {
         assert!(by("8.4").installed && by("8.4").active);
         assert!(by("8.2").installed && !by("8.2").active);
         assert!(!by("8.3").installed && !by("8.3").active);
-        // sorted ascending
+        // sorted descending (newest first)
         let vers: Vec<String> = infos.iter().map(|i| i.version.clone()).collect();
         let mut sorted = vers.clone();
         sorted.sort_by_key(|v| {
             let mut it = v.split('.');
             (it.next().unwrap().parse::<u32>().unwrap(), it.next().unwrap().parse::<u32>().unwrap())
         });
+        sorted.reverse();
         assert_eq!(vers, sorted);
+        assert_eq!(vers.first().map(String::as_str), Some("8.5"));
     }
 
     #[test]
