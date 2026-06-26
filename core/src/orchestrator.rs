@@ -102,6 +102,22 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Reload a running service's config in place (SIGHUP) — used after writing
+    /// new vhosts so nginx picks them up WITHOUT a stop/start that would rebind
+    /// :80/:443 and race the dying process. No-op if the service isn't running.
+    pub fn reload(&mut self, kind: ServiceKind) -> Result<(), ServiceError> {
+        if self.state(kind) == ServiceState::Running {
+            if let Some(h) = self.handles.get_mut(&kind) {
+                if h.is_alive() {
+                    return h
+                        .reload()
+                        .map_err(|e| ServiceError::Config(format!("reload {kind:?}: {e}")));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Swap the active php-fpm version. Stops php-fpm if running, repoints
     /// `bin/php/current` at the new version, and restarts it iff it had been
     /// running. Returns whether php-fpm had been running. The socket is
@@ -479,6 +495,20 @@ mod tests {
         assert_eq!(orch.state(ServiceKind::PhpFpm), ServiceState::Stopped);
         assert!(log.lock().unwrap().is_empty()); // nothing spawned
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn reload_is_ok_when_running_and_noop_when_stopped() {
+        let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-reload-{}", std::process::id())));
+        let services: Vec<Box<dyn Service>> =
+            vec![Box::new(Dummy { kind: ServiceKind::Nginx, name: "nginx" })];
+        let mut orch = Orchestrator::new(paths, services, Box::new(FakeSpawner::new()));
+        // Stopped: reload is a no-op that still succeeds.
+        assert!(orch.reload(ServiceKind::Nginx).is_ok());
+        orch.start(ServiceKind::Nginx).unwrap();
+        // Running: reload succeeds and leaves the service running (no respawn).
+        assert!(orch.reload(ServiceKind::Nginx).is_ok());
+        assert_eq!(orch.state(ServiceKind::Nginx), ServiceState::Running);
     }
 
     #[test]

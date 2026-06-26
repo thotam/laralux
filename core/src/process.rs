@@ -1,10 +1,15 @@
 use crate::service::SpawnSpec;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// A running process handle.
 pub trait Process: Send + Sync {
     fn is_alive(&mut self) -> bool;
     fn stop(&mut self) -> std::io::Result<()>;
+    /// Ask the process to reload its configuration in place (SIGHUP). For nginx
+    /// this re-reads vhosts WITHOUT closing the listening sockets, so applying a
+    /// new site never rebinds :80/:443 (no "Address in use", zero downtime).
+    fn reload(&mut self) -> std::io::Result<()>;
     fn pid(&self) -> u32;
 }
 
@@ -27,10 +32,37 @@ impl Process for RealProcess {
         matches!(self.child.try_wait(), Ok(None))
     }
     fn stop(&mut self) -> std::io::Result<()> {
-        // Graceful shutdown: send SIGTERM. No SIGKILL fallback yet — children that ignore SIGTERM are handled in a later plan.
+        // Graceful shutdown then guaranteed termination: SIGTERM, wait up to ~3s
+        // for the process to actually exit (and reap it), else SIGKILL and reap.
+        // Blocking until the process is gone means a subsequent start() rebinds a
+        // freed port instead of racing the dying process ("Address in use").
         let pid = self.child.id() as i32;
         unsafe {
             libc_kill(pid, 15); // SIGTERM
+        }
+        let deadline = Instant::now() + Duration::from_millis(3000);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return Ok(()),
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(30));
+                }
+                Err(_) => break,
+            }
+        }
+        unsafe {
+            libc_kill(pid, 9); // SIGKILL
+        }
+        let _ = self.child.wait(); // reap so it can't linger as a zombie
+        Ok(())
+    }
+    fn reload(&mut self) -> std::io::Result<()> {
+        let pid = self.child.id() as i32;
+        unsafe {
+            libc_kill(pid, 1); // SIGHUP
         }
         Ok(())
     }
@@ -88,6 +120,9 @@ impl Process for FakeProcess {
     }
     fn stop(&mut self) -> std::io::Result<()> {
         self.alive = false;
+        Ok(())
+    }
+    fn reload(&mut self) -> std::io::Result<()> {
         Ok(())
     }
     fn pid(&self) -> u32 {

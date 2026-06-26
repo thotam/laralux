@@ -187,7 +187,7 @@ pub async fn create_site(
 
         // Scaffold (slow; no orchestrator lock held).
         let progress = TauriProgress(app_for_progress);
-        let report = core_create_site(
+        let mut report = core_create_site(
             &state.paths,
             &name,
             &config.tld,
@@ -200,23 +200,28 @@ pub async fn create_site(
         .map_err(|e| e.to_string())?;
 
         // Make it reachable: sync vhost+cert+/etc/hosts, then reload nginx if running.
+        // Surface a sync failure as a warning instead of swallowing it — otherwise
+        // the site exists on disk but never resolves (no /etc/hosts entry) silently.
         let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
         let issuer = MkcertIssuer::new(state.paths.ssl());
         let privileged = PkexecPrivileged;
-        let _ = sync_sites(
+        if let Err(e) = sync_sites(
             &state.paths,
             &config.tld,
             &php_socket,
             std::path::Path::new("/etc/hosts"),
             &issuer,
             &privileged,
-        );
+        ) {
+            report.warnings.push(format!(
+                "Site created, but updating /etc/hosts & vhosts did not complete ({e}). \
+                 Click Start All (and approve the password prompt) to finish."
+            ));
+        }
         {
             let mut orch = state.orch.lock().map_err(|_| "internal lock poisoned".to_string())?;
-            if orch.state(ServiceKind::Nginx) == ServiceState::Running {
-                let _ = orch.stop(ServiceKind::Nginx);
-                let _ = orch.start(ServiceKind::Nginx);
-            }
+            // Apply new vhosts via SIGHUP reload (no rebind, no downtime).
+            let _ = orch.reload(ServiceKind::Nginx);
         }
 
         Ok(report)
@@ -259,10 +264,8 @@ pub async fn link_site(
         );
         {
             let mut orch = state.orch.lock().map_err(lock_err)?;
-            if orch.state(ServiceKind::Nginx) == ServiceState::Running {
-                let _ = orch.stop(ServiceKind::Nginx);
-                let _ = orch.start(ServiceKind::Nginx);
-            }
+            // Apply new vhosts via SIGHUP reload (no rebind, no downtime).
+            let _ = orch.reload(ServiceKind::Nginx);
         }
 
         // Return the freshly linked site from the merged list.
@@ -314,10 +317,8 @@ pub async fn unlink_site(app: tauri::AppHandle, name: String) -> Result<(), Stri
         );
         {
             let mut orch = state.orch.lock().map_err(lock_err)?;
-            if orch.state(ServiceKind::Nginx) == ServiceState::Running {
-                let _ = orch.stop(ServiceKind::Nginx);
-                let _ = orch.start(ServiceKind::Nginx);
-            }
+            // Apply new vhosts via SIGHUP reload (no rebind, no downtime).
+            let _ = orch.reload(ServiceKind::Nginx);
         }
         Ok(())
     })
@@ -340,10 +341,8 @@ fn sync_and_reload(state: &AppState, config: &Config) {
         &privileged,
     );
     if let Ok(mut orch) = state.orch.lock() {
-        if orch.state(ServiceKind::Nginx) == ServiceState::Running {
-            let _ = orch.stop(ServiceKind::Nginx);
-            let _ = orch.start(ServiceKind::Nginx);
-        }
+        // Apply new vhosts via SIGHUP reload (no rebind, no downtime).
+        let _ = orch.reload(ServiceKind::Nginx);
     }
 }
 
@@ -594,10 +593,8 @@ pub async fn set_site_domains(
         let warnings = apply_wildcard_dns(&state, &bases);
         {
             let mut orch = state.orch.lock().map_err(lock_err)?;
-            if orch.state(ServiceKind::Nginx) == ServiceState::Running {
-                let _ = orch.stop(ServiceKind::Nginx);
-                let _ = orch.start(ServiceKind::Nginx);
-            }
+            // Apply new vhosts via SIGHUP reload (no rebind, no downtime).
+            let _ = orch.reload(ServiceKind::Nginx);
         }
         let (sites, _w) = list_all_sites(&state.paths, &config.tld).map_err(|e| e.to_string())?;
         Ok(SetDomainsResult { sites, warnings })
