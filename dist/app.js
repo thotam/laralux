@@ -695,7 +695,7 @@
       navItem("setup", "Setup", I.navSetup, { dot: miss > 0, badge: miss > 0 ? miss : null, grow: true }) +
       navItem("settings", "Settings", I.navSettings) +
       '<span class="spacer"></span>' +
-      '<div class="sidebar-footer label-only"><span class="dot"></span>Auto-refresh 2s</div>' +
+      '<div class="sidebar-footer label-only"><span class="dot"></span>Live</div>' +
       "</nav>"
     );
   }
@@ -1128,8 +1128,8 @@
     if (sig === lastSig) return;
     lastSig = sig;
 
-    // Preserve focus + caret across the full innerHTML replacement, so the 2s
-    // auto-refresh (or any background render) can't kick the user out of an
+    // Preserve focus + caret across the full innerHTML replacement, so an
+    // event-driven background render can't kick the user out of an
     // input they are typing into. Identify the focused field by id, or by
     // data-action(+data-idx) for the modal route fields (which have no id).
     const ae = document.activeElement;
@@ -1142,8 +1142,8 @@
     }
 
     // Preserve the scroll position of the main content area across the full
-    // innerHTML replacement (the 2s auto-refresh, or a download-progress tick,
-    // otherwise yanks the user back to the top). Only restore when the view is
+    // innerHTML replacement (a background services/sites event, or a
+    // download-progress tick, otherwise yanks the user back to the top). Only restore when the view is
     // unchanged — a deliberate navigation should start at the top.
     const scroller = app.querySelector(".main");
     const prevScroll = scroller ? scroller.scrollTop : 0;
@@ -1322,8 +1322,23 @@
   // ---- boot ----
   if (TAURI && TAURI.event && TAURI.event.listen) {
     TAURI.event.listen("download-progress", (e) => { applyProgress(e.payload); updateRing(); });
+    TAURI.event.listen("services-changed", (e) => {
+      // While a command is in flight, the UI holds an optimistic state
+      // (e.g. "Starting" during an async Start All whose orch lock is briefly
+      // free mid-pkexec); don't let a monitor snapshot clobber it — the command
+      // return reconciles, and the monitor re-emits afterwards. Mirrors the old
+      // poll's `if (state.busy) return`.
+      if (state.busy) return;
+      applyServices(e.payload);
+      if (!state.modal) render();
+    });
+    TAURI.event.listen("sites-changed", () => {
+      invoke("list_sites").then((s) => {
+        state.sites = Array.isArray(s) ? s : [];
+        if (!state.modal) render();
+      }).catch(() => {});
+    });
   }
   render();
   refresh();
-  setInterval(refresh, 2000);
 })();
