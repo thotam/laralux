@@ -51,23 +51,38 @@ fn rel_symlink(basedir: &std::path::Path, link_name: &str, target_rel: &str) -> 
     Ok(())
 }
 
-/// Download + extract the MariaDB binary tarball into bin/mariadb/<ver>/ (the basedir)
-/// with top-level mariadbd/mariadb-install-db/mariadb symlinks for the resolver.
+/// Curated MariaDB versions offered in the Setup modal (latest stable + LTS
+/// lines). All verified present on archive.mariadb.org as
+/// `bintar-linux-systemd-<arch>` tarballs. Note: the data directory is shared
+/// across versions and is version-sensitive — switching to a version OLDER than
+/// the one that created the datadir (a major downgrade) may refuse to start.
+pub const KNOWN_MARIADB_VERSIONS: [&str; 4] = ["11.8.2", "11.4.12", "10.11.10", "10.6.20"];
+
+/// Download + extract the default (pinned) MariaDB version.
 pub fn install_mariadb(
     paths: &LaragonPaths, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
 ) -> Result<String, MariadbError> {
-    let basedir = paths.version_dir("mariadb", MARIADB_VERSION);
+    install_mariadb_version(paths, MARIADB_VERSION, downloader, runner, sink)
+}
+
+/// Download + extract a SPECIFIC MariaDB binary tarball into bin/mariadb/<version>/
+/// (the basedir) with top-level mariadbd/mariadb-install-db/mariadb symlinks for
+/// the resolver. Idempotent. An unknown version surfaces as `MariadbError::Download`.
+pub fn install_mariadb_version(
+    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
+) -> Result<String, MariadbError> {
+    let basedir = paths.version_dir("mariadb", version);
     // Require BOTH the server and the init tool — these are the last symlinks
     // created, so a half-finished prior install (process died mid-symlink) is
     // NOT treated as complete and is re-done rather than left broken.
     if basedir.join("mariadbd").exists() && basedir.join("mariadb-install-db").exists() {
-        let _ = crate::layout::set_current(paths, "mariadb", MARIADB_VERSION);
-        return Ok(MARIADB_VERSION.to_string());
+        let _ = crate::layout::set_current(paths, "mariadb", version);
+        return Ok(version.to_string());
     }
     let arch = mariadb_arch().ok_or_else(|| MariadbError::Arch(std::env::consts::ARCH.to_string()))?;
     std::fs::create_dir_all(paths.tmp())?;
     let tgz = paths.tmp().join("mariadb.tar.gz");
-    downloader.fetch_with_progress(&mariadb_url(MARIADB_VERSION, arch), &tgz, sink)
+    downloader.fetch_with_progress(&mariadb_url(version, arch), &tgz, sink)
         .map_err(|e| MariadbError::Download(e.to_string()))?;
     let xdir = paths.tmp().join("mariadb-extract");
     let _ = std::fs::remove_dir_all(&xdir);
@@ -101,8 +116,8 @@ pub fn install_mariadb(
             let _ = rel_symlink(&basedir, "mariadb", &rel);
         }
     }
-    crate::layout::set_current(paths, "mariadb", MARIADB_VERSION)?;
-    Ok(MARIADB_VERSION.to_string())
+    crate::layout::set_current(paths, "mariadb", version)?;
+    Ok(version.to_string())
 }
 
 #[cfg(test)]
@@ -113,5 +128,15 @@ mod tests {
         assert_eq!(mariadb_url("11.4.12", "x86_64"),
             "https://archive.mariadb.org/mariadb-11.4.12/bintar-linux-systemd-x86_64/mariadb-11.4.12-linux-systemd-x86_64.tar.gz");
         assert_eq!(mariadb_arch(), match std::env::consts::ARCH { "x86_64" => Some("x86_64"), "aarch64" => Some("aarch64"), _ => None });
+    }
+
+    #[test]
+    fn known_versions_include_pinned_default_and_build_urls() {
+        assert!(KNOWN_MARIADB_VERSIONS.contains(&MARIADB_VERSION));
+        // A non-default catalog version builds the expected systemd-bintar URL.
+        assert_eq!(
+            mariadb_url("10.11.10", "x86_64"),
+            "https://archive.mariadb.org/mariadb-10.11.10/bintar-linux-systemd-x86_64/mariadb-10.11.10-linux-systemd-x86_64.tar.gz"
+        );
     }
 }

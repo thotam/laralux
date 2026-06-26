@@ -67,6 +67,23 @@ pub enum ToolError {
 
 /// Versions selectable for a tool. PHP exposes the known catalog (∪ installed);
 /// every other tool exposes only its installed version(s) (single, for now).
+/// A multi-version tool's catalog: the curated `known` list unioned with what's
+/// installed, newest-first, with `installed`/`active` flags set.
+fn known_catalog(known: &[&str], installed: Vec<String>, active: &str) -> Vec<ToolVersion> {
+    let mut versions: Vec<String> = known.iter().map(|s| s.to_string()).collect();
+    for v in &installed {
+        if !versions.contains(v) {
+            versions.push(v.clone());
+        }
+    }
+    let vkey = |v: &str| v.split('.').map(|p| p.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
+    versions.sort_by(|a, b| vkey(b).cmp(&vkey(a)));
+    versions
+        .into_iter()
+        .map(|v| ToolVersion { installed: installed.contains(&v), active: v == active, version: v })
+        .collect()
+}
+
 pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVersion> {
     let cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
     match tool {
@@ -74,24 +91,16 @@ pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVe
             .into_iter()
             .map(|p| ToolVersion { version: p.version, installed: p.installed, active: p.active })
             .collect(),
-        ManagedTool::Nginx => {
-            let active = cfg.versions.get("nginx").cloned().unwrap_or_default();
-            let installed = crate::layout::installed_versions(paths, "nginx");
-            let mut versions: Vec<String> =
-                crate::nginx_static::KNOWN_NGINX_VERSIONS.iter().map(|s| s.to_string()).collect();
-            for v in &installed {
-                if !versions.contains(v) {
-                    versions.push(v.clone());
-                }
-            }
-            // Newest first.
-            let vkey = |v: &str| v.split('.').map(|p| p.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
-            versions.sort_by(|a, b| vkey(b).cmp(&vkey(a)));
-            versions
-                .into_iter()
-                .map(|v| ToolVersion { installed: installed.contains(&v), active: v == active, version: v })
-                .collect()
-        }
+        ManagedTool::Nginx => known_catalog(
+            &crate::nginx_static::KNOWN_NGINX_VERSIONS,
+            crate::layout::installed_versions(paths, "nginx"),
+            &cfg.versions.get("nginx").cloned().unwrap_or_default(),
+        ),
+        ManagedTool::Mariadb => known_catalog(
+            &crate::mariadb_static::KNOWN_MARIADB_VERSIONS,
+            crate::layout::installed_versions(paths, "mariadb"),
+            &cfg.versions.get("mariadb").cloned().unwrap_or_default(),
+        ),
         other => {
             let k = key(other);
             let active = cfg.versions.get(k).cloned().unwrap_or_default();
@@ -117,6 +126,8 @@ pub fn install_version(
         ManagedTool::Php => crate::php_static::install_php_static(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Nginx => crate::nginx_static::install_nginx_version(paths, version, downloader, sink)
+            .map_err(|e| ToolError::Install(e.to_string())),
+        ManagedTool::Mariadb => crate::mariadb_static::install_mariadb_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         _ => Err(ToolError::Unsupported),
     }
@@ -167,13 +178,13 @@ mod tests {
 
     #[test]
     fn single_version_tool_lists_installed_only() {
-        let root = std::env::temp_dir().join(format!("lara-tools-md-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("lara-tools-rd-{}", std::process::id()));
         let paths = LaragonPaths::new(root.clone());
-        // Mariadb is still single-version: only the installed version is listed.
-        std::fs::create_dir_all(paths.version_dir("mariadb", "11.4.12")).unwrap();
-        let vs = available_versions(ManagedTool::Mariadb, &paths);
+        // Redis is still single-version: only the installed version is listed.
+        std::fs::create_dir_all(paths.version_dir("redis", "9.1.0")).unwrap();
+        let vs = available_versions(ManagedTool::Redis, &paths);
         assert_eq!(vs.len(), 1);
-        assert_eq!(vs[0].version, "11.4.12");
+        assert_eq!(vs[0].version, "9.1.0");
         assert!(vs[0].installed);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -194,10 +205,22 @@ mod tests {
     }
 
     #[test]
+    fn mariadb_available_versions_includes_known_set_newest_first() {
+        let root = std::env::temp_dir().join(format!("lara-tools-mdb-{}", std::process::id()));
+        let paths = LaragonPaths::new(root.clone());
+        std::fs::create_dir_all(paths.version_dir("mariadb", "10.11.10")).unwrap();
+        let vs = available_versions(ManagedTool::Mariadb, &paths);
+        assert_eq!(vs.len(), crate::mariadb_static::KNOWN_MARIADB_VERSIONS.len());
+        assert!(vs.iter().find(|v| v.version == "10.11.10").unwrap().installed);
+        assert_eq!(vs[0].version, "11.8.2"); // newest first
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn install_version_unsupported_for_truly_single_version_tool() {
         let paths = LaragonPaths::new("/tmp/lara".into());
         let err = install_version(
-            ManagedTool::Mariadb, &paths, "11.4.12",
+            ManagedTool::Redis, &paths, "9.1.0",
             &crate::setup::FakeDownloader::new(), &crate::scaffold::FakeCommandRunner::new(),
             &crate::progress::NullProgress,
         );
