@@ -34,6 +34,7 @@ pub use bin::ensure_nginx_bind_cap;
 pub use progress::{ProgressEvent, ProgressSink, NullProgress};
 pub use layout::{managed_bin_dirs, set_current, installed_versions, apply_versions, probe_version, resolve_installed_version};
 pub use config::Config;
+pub use tools::{available_versions, install_version, ManagedTool, ToolError, ToolInfo, ToolVersion};
 pub use orchestrator::{Orchestrator, ServiceStatus};
 pub use paths::LaragonPaths;
 pub use process::RealSpawner;
