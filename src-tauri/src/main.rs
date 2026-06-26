@@ -37,8 +37,6 @@ fn main() {
             commands::set_tool_version,
             commands::tool_symlinks,
             commands::set_tool_symlink,
-            commands::terminal_integration_status,
-            commands::set_terminal_integration,
             commands::open_terminal,
             commands::set_site_domains,
         ])

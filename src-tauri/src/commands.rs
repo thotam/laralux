@@ -3,8 +3,7 @@ use laragon_core::{
     ensure_nginx_bind_cap, list_all_sites, resolved_dropin, run_setup, sync_sites, Config,
     CreateReport, LaragonPaths, MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged,
     ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site,
-    SiteRegistry, SiteTemplate, ensure_active_php_cli, install_composer, enable_shell_path,
-    disable_shell_path,
+    SiteRegistry, SiteTemplate, ensure_active_php_cli,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
@@ -560,41 +559,6 @@ pub async fn set_tool_symlink(
         if enabled { config.symlinks.insert(k); } else { config.symlinks.remove(&k); }
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
         Ok(config.symlinks.into_iter().collect())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub fn terminal_integration_status(state: tauri::State<AppState>) -> Result<bool, String> {
-    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
-    Ok(config.shell_integration)
-}
-
-#[tauri::command]
-pub async fn set_terminal_integration(
-    app: tauri::AppHandle,
-    enabled: bool,
-) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<bool, String> {
-        let state = app.state::<AppState>();
-        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-        let home = std::path::PathBuf::from(home);
-
-        if enabled {
-            ensure_active_php_cli(&state.paths, &config.php_version, &CurlDownloader, &RealCommandRunner, &laragon_core::NullProgress)
-                .map_err(|e| e.to_string())?;
-            install_composer(&state.paths, &CurlDownloader, &laragon_core::NullProgress).map_err(|e| e.to_string())?;
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-            enable_shell_path(&home, &shell).map_err(|e| e.to_string())?;
-        } else {
-            disable_shell_path(&home).map_err(|e| e.to_string())?;
-        }
-
-        config.shell_integration = enabled;
-        config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
-        Ok(enabled)
     })
     .await
     .map_err(|e| e.to_string())?
