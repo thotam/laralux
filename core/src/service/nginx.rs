@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::service::{probe_tcp, Service, ServiceError, ServiceKind, SpawnSpec};
 use std::path::PathBuf;
 
@@ -11,7 +11,7 @@ impl NginxService {
     pub fn new(php_socket: PathBuf) -> Self {
         Self { http_port: 80, php_socket }
     }
-    fn conf_path(&self, paths: &LaragonPaths) -> PathBuf {
+    fn conf_path(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.etc_for("nginx").join("nginx.conf")
     }
 }
@@ -27,7 +27,7 @@ impl Service for NginxService {
         const DEPS: [ServiceKind; 1] = [ServiceKind::PhpFpm];
         &DEPS
     }
-    fn write_config(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn write_config(&self, paths: &LaraluxPaths) -> Result<(), ServiceError> {
         std::fs::create_dir_all(paths.etc_for("nginx").join("sites"))?;
         std::fs::create_dir_all(paths.tmp())?;
         std::fs::create_dir_all(paths.log())?;
@@ -85,7 +85,7 @@ impl Service for NginxService {
         )?;
         Ok(())
     }
-    fn command(&self, paths: &LaragonPaths) -> SpawnSpec {
+    fn command(&self, paths: &LaraluxPaths) -> SpawnSpec {
         SpawnSpec::new("nginx")
             .arg("-p")
             .arg(paths.etc_for("nginx").display().to_string())
@@ -94,7 +94,7 @@ impl Service for NginxService {
             .arg("-g")
             .arg("daemon off;")
     }
-    fn health_check(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn health_check(&self, _paths: &LaraluxPaths) -> Result<(), ServiceError> {
         probe_tcp(self.http_port)
     }
 }
@@ -102,12 +102,12 @@ impl Service for NginxService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
     use crate::service::{Service, ServiceKind};
 
     #[test]
     fn command_runs_nginx_with_prefix_and_daemon_off() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         let svc = NginxService::new("/tmp/lara/tmp/php-fpm.sock".into());
         let spec = svc.command(&p);
         assert_eq!(spec.program, "nginx");
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn write_config_wires_php_socket_and_includes_sites() {
         let tmp = std::env::temp_dir().join(format!("lara-nginx-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         let sock = p.tmp().join("php-fpm.sock");
         let svc = NginxService::new(sock.clone());
         svc.write_config(&p).unwrap();
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn write_config_includes_websocket_map() {
         let tmp = std::env::temp_dir().join(format!("lara-nginx-ws-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         let svc = NginxService::new(p.tmp().join("php-fpm.sock"));
         svc.write_config(&p).unwrap();
         let conf = std::fs::read_to_string(p.etc_for("nginx").join("nginx.conf")).unwrap();

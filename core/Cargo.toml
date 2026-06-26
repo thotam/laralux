@@ -1,11 +1,11 @@
 [package]
-name = "laragon-core"
+name = "laralux-core"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [lib]
-name = "laragon_core"
+name = "laralux_core"
 path = "src/lib.rs"
 
 [dependencies]

@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::progress::ProgressSink;
 use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
@@ -46,7 +46,7 @@ fn installed(p: &Path) -> bool {
 }
 
 /// Extract the single `mailpit` entry from `tgz` into a fresh tmp dir; return its path.
-fn extract_mailpit(paths: &LaragonPaths, tgz: &Path, runner: &dyn CommandRunner) -> Result<PathBuf, MailpitError> {
+fn extract_mailpit(paths: &LaraluxPaths, tgz: &Path, runner: &dyn CommandRunner) -> Result<PathBuf, MailpitError> {
     let xdir = paths.tmp().join("mailpit-extract");
     let _ = std::fs::remove_dir_all(&xdir);
     std::fs::create_dir_all(&xdir)?;
@@ -62,7 +62,7 @@ fn extract_mailpit(paths: &LaragonPaths, tgz: &Path, runner: &dyn CommandRunner)
 
 /// Move the extracted binary into bin/mailpit/<version>/mailpit (chmod 0755) and
 /// point `current` at it. Returns the version.
-fn place_mailpit(paths: &LaragonPaths, version: &str, extracted: &Path) -> Result<String, MailpitError> {
+fn place_mailpit(paths: &LaraluxPaths, version: &str, extracted: &Path) -> Result<String, MailpitError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -81,7 +81,7 @@ fn place_mailpit(paths: &LaragonPaths, version: &str, extracted: &Path) -> Resul
 /// Install the latest mailpit into bin/mailpit/<probed-version>/mailpit.
 /// Returns the version reported by `mailpit version` (or the fallback).
 pub fn install_mailpit(
-    paths: &LaragonPaths, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
 ) -> Result<String, MailpitError> {
     let arch = mailpit_arch().ok_or_else(|| MailpitError::Arch(std::env::consts::ARCH.to_string()))?;
     std::fs::create_dir_all(paths.tmp())?;
@@ -97,7 +97,7 @@ pub fn install_mailpit(
 /// Install a SPECIFIC mailpit version into bin/mailpit/<version>/mailpit. Idempotent.
 /// An unknown version surfaces as `MailpitError::Download` (the asset URL 404s).
 pub fn install_mailpit_version(
-    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, version: &str, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
 ) -> Result<String, MailpitError> {
     let dest = paths.version_dir("mailpit", version).join("mailpit");
     if installed(&dest) {

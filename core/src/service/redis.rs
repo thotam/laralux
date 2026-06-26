@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::service::{probe_tcp, Service, ServiceError, ServiceKind, SpawnSpec};
 
 pub struct RedisService {
@@ -9,7 +9,7 @@ impl RedisService {
     pub fn new() -> Self {
         Self { port: 6379 }
     }
-    fn conf_path(&self, paths: &LaragonPaths) -> std::path::PathBuf {
+    fn conf_path(&self, paths: &LaraluxPaths) -> std::path::PathBuf {
         paths.etc_for("redis").join("redis.conf")
     }
 }
@@ -27,7 +27,7 @@ impl Service for RedisService {
     fn name(&self) -> &str {
         "redis"
     }
-    fn write_config(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn write_config(&self, paths: &LaraluxPaths) -> Result<(), ServiceError> {
         std::fs::create_dir_all(paths.etc_for("redis"))?;
         std::fs::create_dir_all(paths.data().join("redis"))?;
         let conf = format!(
@@ -43,10 +43,10 @@ impl Service for RedisService {
         std::fs::write(self.conf_path(paths), conf)?;
         Ok(())
     }
-    fn command(&self, paths: &LaragonPaths) -> SpawnSpec {
+    fn command(&self, paths: &LaraluxPaths) -> SpawnSpec {
         SpawnSpec::new("redis-server").arg(self.conf_path(paths).display().to_string())
     }
-    fn health_check(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn health_check(&self, _paths: &LaraluxPaths) -> Result<(), ServiceError> {
         probe_tcp(self.port)
     }
 }
@@ -54,12 +54,12 @@ impl Service for RedisService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
     use crate::service::{Service, ServiceKind};
 
     #[test]
     fn command_runs_redis_server_with_conf() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         let svc = RedisService::new();
         let spec = svc.command(&p);
         assert_eq!(spec.program, "redis-server");
@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn write_config_creates_conf_with_port_and_dir() {
         let tmp = std::env::temp_dir().join(format!("lara-redis-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         let svc = RedisService::new();
         svc.write_config(&p).unwrap();
         let conf = std::fs::read_to_string(p.etc_for("redis").join("redis.conf")).unwrap();

@@ -1,5 +1,5 @@
 use crate::bin::resolve_bin;
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use serde::Serialize;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
@@ -56,8 +56,8 @@ fn detect_binary(component: Component) -> String {
     }
 }
 
-/// Detect presence of every component. Mailpit also searches `~/laragon/bin`.
-pub fn detect(paths: &LaragonPaths) -> Vec<ComponentStatus> {
+/// Detect presence of every component. Mailpit also searches `~/laralux/bin`.
+pub fn detect(paths: &LaraluxPaths) -> Vec<ComponentStatus> {
     Component::ALL
         .iter()
         .map(|&component| {
@@ -226,7 +226,7 @@ fn stack_units_to_disable() -> Vec<String> {
 }
 
 /// Persist a tool version into config.versions (used by apply_versions for `current` symlinks).
-fn record_version(paths: &LaragonPaths, tool: &str, version: &str) {
+fn record_version(paths: &LaraluxPaths, tool: &str, version: &str) {
     let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
     cfg.versions.insert(tool.to_string(), version.to_string());
     let _ = cfg.save(&paths.config_file());
@@ -235,7 +235,7 @@ fn record_version(paths: &LaragonPaths, tool: &str, version: &str) {
 /// Install missing components, fetch mailpit, install the mkcert CA, and setcap nginx.
 /// Non-fatal: each failure is collected into `report.errors`.
 pub fn run_setup(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     privileged: &dyn Privileged,
     downloader: &dyn Downloader,
     runner: &dyn crate::scaffold::CommandRunner,
@@ -402,7 +402,7 @@ pub fn run_setup(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
     use crate::privileged::FakePrivileged;
 
     #[test]
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn detect_reports_all_components() {
-        let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-detect-{}", std::process::id())));
+        let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-detect-{}", std::process::id())));
         let statuses = detect(&paths);
         assert_eq!(statuses.len(), 7);
         assert!(!statuses.iter().find(|s| s.component == Component::Mailpit).unwrap().present);
@@ -462,7 +462,7 @@ mod tests {
     fn run_setup_disables_distro_stack_services() {
         let root = std::env::temp_dir().join(format!("lara-disable-{}", std::process::id()));
         std::fs::create_dir_all(root.join("bin")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let priv_ = FakePrivileged::new();
         let disabled = priv_.disabled_services();
         let dl = FakeDownloader::new();
@@ -500,7 +500,7 @@ mod tests {
     #[test]
     fn run_setup_emits_a_step_per_missing_component() {
         let root = std::env::temp_dir().join(format!("lara-setup-prog-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         paths.ensure_dirs().unwrap();
         let priv_ = FakePrivileged::new();
         let dl = FakeDownloader::new();

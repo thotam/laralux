@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::progress::ProgressSink;
 use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
@@ -60,7 +60,7 @@ pub const KNOWN_MARIADB_VERSIONS: [&str; 4] = ["11.8.2", "11.4.12", "10.11.10", 
 
 /// Download + extract the default (pinned) MariaDB version.
 pub fn install_mariadb(
-    paths: &LaragonPaths, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
 ) -> Result<String, MariadbError> {
     install_mariadb_version(paths, MARIADB_VERSION, downloader, runner, sink)
 }
@@ -69,7 +69,7 @@ pub fn install_mariadb(
 /// (the basedir) with top-level mariadbd/mariadb-install-db/mariadb symlinks for
 /// the resolver. Idempotent. An unknown version surfaces as `MariadbError::Download`.
 pub fn install_mariadb_version(
-    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, version: &str, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
 ) -> Result<String, MariadbError> {
     let basedir = paths.version_dir("mariadb", version);
     // Require BOTH the server and the init tool — these are the last symlinks

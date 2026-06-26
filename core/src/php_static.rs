@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
 
@@ -52,7 +52,7 @@ pub fn latest_patch(version: &str, arch: &str, sapi: &str, listing_json: &str) -
 }
 
 /// Fetch the `bulk` directory index JSON once.
-fn fetch_index(paths: &LaragonPaths, downloader: &dyn Downloader) -> Result<String, PhpStaticError> {
+fn fetch_index(paths: &LaraluxPaths, downloader: &dyn Downloader) -> Result<String, PhpStaticError> {
     std::fs::create_dir_all(paths.tmp())?;
     let index = paths.tmp().join("static-php-index.json");
     downloader
@@ -65,7 +65,7 @@ fn fetch_index(paths: &LaragonPaths, downloader: &dyn Downloader) -> Result<Stri
 /// `<dest_dir>/<dest_name>` (0755). The caller pre-resolves the full version
 /// so both SAPIs always share the same patch level.
 fn download_static_php(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     full: &str,
     sapi: &str,
     member: &str,
@@ -99,7 +99,7 @@ fn download_static_php(
 /// Install both the php-fpm and php (cli) static binaries for `version`.
 /// Returns the full resolved version string (e.g. `"8.4.22"`).
 pub fn install_php_static(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     requested: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
@@ -126,7 +126,7 @@ pub fn install_php_static(
 
 /// Install only the php (cli) static binary. Returns the full resolved version string.
 pub fn install_php_cli(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     requested: &str,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
@@ -224,7 +224,7 @@ mod tests {
     fn install_php_static_installs_fpm_and_cli() {
         let root = std::env::temp_dir().join(format!("lara-spi-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         paths.ensure_dirs().unwrap();
         let arch = arch_tag().expect("supported test arch");
         let json = format!(
@@ -253,7 +253,7 @@ mod tests {
     fn install_php_static_unavailable_version_errors() {
         let root = std::env::temp_dir().join(format!("lara-spi2-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         paths.ensure_dirs().unwrap();
         let dl = StubDownloader { index_json: "[]".to_string(), fetched: Arc::new(Mutex::new(Vec::new())) };
         let runner = TarRunner { calls: Arc::new(Mutex::new(Vec::new())) };

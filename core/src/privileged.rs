@@ -41,14 +41,14 @@ fn systemctl_disable_argv(units: &[String]) -> Vec<String> {
     argv
 }
 
-const RESOLVED_DROPIN: &str = "/etc/systemd/resolved.conf.d/laragon.conf";
+const RESOLVED_DROPIN: &str = "/etc/systemd/resolved.conf.d/laralux.conf";
 
 fn write_resolved_argv(contents: &str) -> Vec<String> {
     vec![
         "sh".to_string(),
         "-c".to_string(),
         format!(
-            "mkdir -p /etc/systemd/resolved.conf.d && cat > {RESOLVED_DROPIN} <<'LARAGONEOF'\n{contents}\nLARAGONEOF\nsystemctl reload systemd-resolved || systemctl restart systemd-resolved || true"
+            "mkdir -p /etc/systemd/resolved.conf.d && cat > {RESOLVED_DROPIN} <<'LARALUXEOF'\n{contents}\nLARALUXEOF\nsystemctl reload systemd-resolved || systemctl restart systemd-resolved || true"
         ),
     ]
 }
@@ -113,7 +113,7 @@ impl SudoPrivileged {
 
 impl Privileged for SudoPrivileged {
     fn write_etc_hosts(&self, new_content: &str) -> Result<(), PrivError> {
-        let tmp = std::env::temp_dir().join("laragon-hosts.new");
+        let tmp = std::env::temp_dir().join("laralux-hosts.new");
         std::fs::write(&tmp, new_content)?;
         run_escalated("sudo", &cp_argv(&tmp))
     }
@@ -147,7 +147,7 @@ pub struct PkexecPrivileged;
 
 impl Privileged for PkexecPrivileged {
     fn write_etc_hosts(&self, new_content: &str) -> Result<(), PrivError> {
-        let tmp = std::env::temp_dir().join("laragon-hosts.new");
+        let tmp = std::env::temp_dir().join("laralux-hosts.new");
         std::fs::write(&tmp, new_content)?;
         run_escalated("pkexec", &cp_argv(&tmp))
     }
@@ -282,9 +282,9 @@ mod tests {
     fn fake_records_hosts_write() {
         let f = FakePrivileged::new();
         let log = f.hosts_writes();
-        f.write_etc_hosts("# BEGIN laragon-linux\n# END laragon-linux\n").unwrap();
+        f.write_etc_hosts("# BEGIN laralux-linux\n# END laralux-linux\n").unwrap();
         assert_eq!(log.lock().unwrap().len(), 1);
-        assert!(log.lock().unwrap()[0].contains("laragon-linux"));
+        assert!(log.lock().unwrap()[0].contains("laralux-linux"));
     }
 
     #[test]
@@ -331,9 +331,9 @@ mod tests {
     #[test]
     fn symlink_argv_builders_are_correct() {
         assert_eq!(
-            ln_symlink_argv(Path::new("/home/u/laragon/bin/php/current/php"), Path::new("/usr/local/bin/php")),
+            ln_symlink_argv(Path::new("/home/u/laralux/bin/php/current/php"), Path::new("/usr/local/bin/php")),
             vec!["ln".to_string(), "-sfn".to_string(),
-                 "/home/u/laragon/bin/php/current/php".to_string(), "/usr/local/bin/php".to_string()]
+                 "/home/u/laralux/bin/php/current/php".to_string(), "/usr/local/bin/php".to_string()]
         );
         assert_eq!(
             rm_argv(Path::new("/usr/local/bin/php")),

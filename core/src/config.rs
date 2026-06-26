@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn load_missing_file_returns_normalized_default() {
-        let c = Config::load(std::path::Path::new("/no/such/laragon.toml")).unwrap();
+        let c = Config::load(std::path::Path::new("/no/such/laralux.toml")).unwrap();
         // load applies normalize(), so compare against normalized default
         assert_eq!(c, Config::default().normalize());
     }

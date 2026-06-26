@@ -1,12 +1,12 @@
 [package]
-name = "laragonctl"
+name = "laraluxctl"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "laragonctl"
+name = "laraluxctl"
 path = "src/main.rs"
 
 [dependencies]
-laragon-core = { path = "../core" }
+laralux-core = { path = "../core" }

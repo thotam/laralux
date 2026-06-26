@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::progress::ProgressSink;
 use crate::setup::Downloader;
 
@@ -34,7 +34,7 @@ pub const KNOWN_MKCERT_VERSIONS: [&str; 3] = ["1.4.4", "1.4.3", "1.4.2"];
 
 /// Download the default (pinned) mkcert version.
 pub fn install_mkcert(
-    paths: &LaragonPaths, downloader: &dyn Downloader, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, downloader: &dyn Downloader, sink: &dyn ProgressSink,
 ) -> Result<String, MkcertError> {
     install_mkcert_version(paths, MKCERT_VERSION, downloader, sink)
 }
@@ -42,7 +42,7 @@ pub fn install_mkcert(
 /// Download a SPECIFIC mkcert version into bin/mkcert/<version>/mkcert (no apt).
 /// Idempotent. An unknown version surfaces as `MkcertError::Download`.
 pub fn install_mkcert_version(
-    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, version: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
 ) -> Result<String, MkcertError> {
     let dir = paths.version_dir("mkcert", version);
     let dest = dir.join("mkcert");
@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn install_mkcert_downloads_to_versioned_dir() {
         let root = std::env::temp_dir().join(format!("lara-mkcert-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let dl = crate::setup::FakeDownloader::new();
         let _ = install_mkcert(&paths, &dl, &crate::progress::NullProgress);
         // FakeDownloader writes "fake" bytes to dest; the binary should exist.
@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn install_mkcert_skips_if_already_installed() {
         let root = std::env::temp_dir().join(format!("lara-mkcert-skip-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         let dir = paths.version_dir("mkcert", MKCERT_VERSION);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("mkcert"), b"ELF-fake").unwrap();

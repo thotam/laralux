@@ -7,7 +7,7 @@
 //!
 //! Debian/Ubuntu only (the target platform): extraction uses `dpkg-deb`.
 
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::progress::ProgressSink;
 use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
@@ -55,13 +55,13 @@ pub fn deb_url(rel: &str) -> String {
     format!("{POOL_BASE}/{rel}")
 }
 
-pub fn certutil_dir(paths: &LaragonPaths) -> PathBuf {
+pub fn certutil_dir(paths: &LaraluxPaths) -> PathBuf {
     paths.version_dir("certutil", CERTUTIL_VERSION)
 }
-pub fn certutil_bin(paths: &LaragonPaths) -> PathBuf {
+pub fn certutil_bin(paths: &LaraluxPaths) -> PathBuf {
     certutil_dir(paths).join("bin").join("certutil")
 }
-pub fn certutil_lib_dir(paths: &LaragonPaths) -> PathBuf {
+pub fn certutil_lib_dir(paths: &LaraluxPaths) -> PathBuf {
     certutil_dir(paths).join("lib")
 }
 
@@ -72,7 +72,7 @@ fn installed(p: &Path) -> bool {
 /// Download + extract the certutil bundle into `bin/certutil/<ver>/{bin,lib}`.
 /// Idempotent (skips when the certutil binary already exists). Returns its path.
 pub fn install_certutil(
-    paths: &LaragonPaths,
+    paths: &LaraluxPaths,
     downloader: &dyn Downloader,
     runner: &dyn CommandRunner,
     sink: &dyn ProgressSink,
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn bundle_paths_are_under_versioned_layout() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         assert_eq!(certutil_bin(&p), Path::new("/tmp/lara/bin/certutil/3.98/bin/certutil"));
         assert_eq!(certutil_lib_dir(&p), Path::new("/tmp/lara/bin/certutil/3.98/lib"));
     }

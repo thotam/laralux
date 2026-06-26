@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::progress::ProgressSink;
 use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
@@ -53,7 +53,7 @@ pub const KNOWN_REDIS_VERSIONS: [&str; 4] = ["9.1.0", "8.1.3", "8.0.4", "7.2.10"
 
 /// Download + install the default (pinned) Valkey version.
 pub fn install_redis(
-    paths: &LaragonPaths, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
 ) -> Result<String, RedisError> {
     install_redis_version(paths, VALKEY_VERSION, downloader, runner, sink)
 }
@@ -62,7 +62,7 @@ pub fn install_redis(
 /// bin/redis/<version>/{redis-server,redis-cli} (drop-in for redis). Idempotent.
 /// An unknown version surfaces as `RedisError::Download`.
 pub fn install_redis_version(
-    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
+    paths: &LaraluxPaths, version: &str, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
 ) -> Result<String, RedisError> {
     let dir = paths.version_dir("redis", version);
     let server = dir.join("redis-server");

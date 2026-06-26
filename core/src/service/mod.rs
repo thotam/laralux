@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
@@ -75,21 +75,21 @@ pub trait Service: Send + Sync {
     fn deps(&self) -> &[ServiceKind] {
         &[]
     }
-    fn write_config(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn write_config(&self, _paths: &LaraluxPaths) -> Result<(), ServiceError> {
         Ok(())
     }
-    fn command(&self, paths: &LaragonPaths) -> SpawnSpec;
-    fn health_check(&self, paths: &LaragonPaths) -> Result<(), ServiceError>;
-    fn needs_init(&self, _paths: &LaragonPaths) -> bool {
+    fn command(&self, paths: &LaraluxPaths) -> SpawnSpec;
+    fn health_check(&self, paths: &LaraluxPaths) -> Result<(), ServiceError>;
+    fn needs_init(&self, _paths: &LaraluxPaths) -> bool {
         false
     }
-    fn init(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn init(&self, _paths: &LaraluxPaths) -> Result<(), ServiceError> {
         Ok(())
     }
     /// Cleanup run immediately before spawning (after `write_config`).
     /// Used to clear a stale unix socket / orphaned process left by a previous
     /// run so the daemon can bind cleanly. Default: no-op.
-    fn pre_start(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn pre_start(&self, _paths: &LaraluxPaths) -> Result<(), ServiceError> {
         Ok(())
     }
 }
@@ -139,7 +139,7 @@ pub mod registry;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
 
     struct Fake;
     impl Service for Fake {
@@ -149,10 +149,10 @@ mod tests {
         fn name(&self) -> &str {
             "fake"
         }
-        fn command(&self, _paths: &LaragonPaths) -> SpawnSpec {
+        fn command(&self, _paths: &LaraluxPaths) -> SpawnSpec {
             SpawnSpec::new("true")
         }
-        fn health_check(&self, _paths: &LaragonPaths) -> Result<(), ServiceError> {
+        fn health_check(&self, _paths: &LaraluxPaths) -> Result<(), ServiceError> {
             Ok(())
         }
     }
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn trait_defaults_work() {
         let f = Fake;
-        let p = LaragonPaths::new("/tmp/x".into());
+        let p = LaraluxPaths::new("/tmp/x".into());
         assert_eq!(f.name(), "fake");
         assert_eq!(f.kind(), ServiceKind::Redis);
         assert!(f.deps().is_empty());

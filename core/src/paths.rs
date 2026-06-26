@@ -2,22 +2,22 @@
 
 use std::path::{Path, PathBuf};
 
-/// Resolves the `~/laragon/` directory layout.
+/// Resolves the `~/laralux/` directory layout.
 #[derive(Clone, Debug)]
-pub struct LaragonPaths {
+pub struct LaraluxPaths {
     root: PathBuf,
 }
 
-impl LaragonPaths {
+impl LaraluxPaths {
     pub fn new(root: PathBuf) -> Self {
         Self { root }
     }
 
-    /// `$HOME/laragon`, falling back to `./laragon` if `$HOME` is unset.
+    /// `$HOME/laralux`, falling back to `./laralux` if `$HOME` is unset.
     pub fn default_root() -> PathBuf {
         match std::env::var_os("HOME") {
-            Some(home) => PathBuf::from(home).join("laragon"),
-            None => PathBuf::from("laragon"),
+            Some(home) => PathBuf::from(home).join("laralux"),
+            None => PathBuf::from("laralux"),
         }
     }
 
@@ -59,7 +59,7 @@ impl LaragonPaths {
         self.etc().join(sub)
     }
     pub fn config_file(&self) -> PathBuf {
-        self.root.join("laragon.toml")
+        self.root.join("laralux.toml")
     }
 
     pub fn sites_file(&self) -> PathBuf {
@@ -80,18 +80,18 @@ mod tests {
 
     #[test]
     fn builds_subpaths_under_root() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         assert_eq!(p.root(), std::path::Path::new("/tmp/lara"));
         assert_eq!(p.www(), std::path::Path::new("/tmp/lara/www"));
         assert_eq!(p.etc(), std::path::Path::new("/tmp/lara/etc"));
         assert_eq!(p.etc_for("nginx"), std::path::Path::new("/tmp/lara/etc/nginx"));
-        assert_eq!(p.config_file(), std::path::Path::new("/tmp/lara/laragon.toml"));
+        assert_eq!(p.config_file(), std::path::Path::new("/tmp/lara/laralux.toml"));
     }
 
     #[test]
     fn ensure_dirs_creates_layout() {
         let tmp = std::env::temp_dir().join(format!("lara-test-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         p.ensure_dirs().unwrap();
         for sub in ["www", "etc", "data", "log", "tmp", "ssl"] {
             assert!(tmp.join(sub).is_dir(), "missing {sub}");

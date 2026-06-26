@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::service::{Service, ServiceError, ServiceKind, SpawnSpec};
 use std::path::PathBuf;
 
@@ -10,10 +10,10 @@ impl PhpFpmService {
     pub fn new(version: impl Into<String>) -> Self {
         Self { version: version.into() }
     }
-    pub fn socket_path(&self, paths: &LaragonPaths) -> PathBuf {
+    pub fn socket_path(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.tmp().join("php-fpm.sock")
     }
-    fn conf_path(&self, paths: &LaragonPaths) -> PathBuf {
+    fn conf_path(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.etc_for("php").join(&self.version).join("php-fpm.conf")
     }
 }
@@ -25,7 +25,7 @@ impl Service for PhpFpmService {
     fn name(&self) -> &str {
         "php-fpm"
     }
-    fn write_config(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn write_config(&self, paths: &LaraluxPaths) -> Result<(), ServiceError> {
         std::fs::create_dir_all(self.conf_path(paths).parent().unwrap())?;
         std::fs::create_dir_all(paths.tmp())?;
         let conf = format!(
@@ -49,20 +49,20 @@ impl Service for PhpFpmService {
         std::fs::write(self.conf_path(paths), conf)?;
         Ok(())
     }
-    fn command(&self, paths: &LaragonPaths) -> SpawnSpec {
+    fn command(&self, paths: &LaraluxPaths) -> SpawnSpec {
         SpawnSpec::new("php-fpm")
             .arg("-F") // foreground, so the orchestrator owns the process
             .arg("-y")
             .arg(self.conf_path(paths).display().to_string())
     }
-    fn health_check(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn health_check(&self, paths: &LaraluxPaths) -> Result<(), ServiceError> {
         if self.socket_path(paths).exists() {
             Ok(())
         } else {
             Err(ServiceError::HealthCheck("php-fpm socket missing".into()))
         }
     }
-    fn pre_start(&self, paths: &LaragonPaths) -> Result<(), ServiceError> {
+    fn pre_start(&self, paths: &LaraluxPaths) -> Result<(), ServiceError> {
         // Clear a stale socket / orphaned master from a previous run so php-fpm
         // doesn't error with "Another FPM instance seems to already listen".
         crate::service::cleanup_stale_endpoint(
@@ -76,12 +76,12 @@ impl Service for PhpFpmService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::LaragonPaths;
+    use crate::paths::LaraluxPaths;
     use crate::service::{Service, ServiceKind};
 
     #[test]
     fn command_uses_versioned_binary_and_foreground() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         let svc = PhpFpmService::new("8.4");
         let spec = svc.command(&p);
         assert_eq!(spec.program, "php-fpm");
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn socket_path_is_under_tmp() {
-        let p = LaragonPaths::new("/tmp/lara".into());
+        let p = LaraluxPaths::new("/tmp/lara".into());
         let svc = PhpFpmService::new("8.4");
         assert_eq!(svc.socket_path(&p), std::path::Path::new("/tmp/lara/tmp/php-fpm.sock"));
     }
@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn write_config_defines_pool_with_socket() {
         let tmp = std::env::temp_dir().join(format!("lara-php-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         let svc = PhpFpmService::new("8.4");
         svc.write_config(&p).unwrap();
         let conf =
@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn write_config_omits_user_directive() {
         let tmp = std::env::temp_dir().join(format!("lara-php-nouser-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         let svc = PhpFpmService::new("8.4");
         svc.write_config(&p).unwrap();
         let conf =
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn pre_start_removes_stale_socket() {
         let tmp = std::env::temp_dir().join(format!("lara-php-prestart-{}", std::process::id()));
-        let p = LaragonPaths::new(tmp.clone());
+        let p = LaraluxPaths::new(tmp.clone());
         std::fs::create_dir_all(p.tmp()).unwrap();
         let sock = p.tmp().join("php-fpm.sock");
         std::fs::write(&sock, b"stale").unwrap();

@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::privileged::Privileged;
 use crate::tools::{cli_path, info, ManagedTool};
 use std::path::PathBuf;
@@ -19,7 +19,7 @@ pub fn system_link_path(tool: ManagedTool) -> Option<PathBuf> {
     info(tool).cli_binary.map(|b| std::path::Path::new(SYSTEM_BIN_DIR).join(b))
 }
 
-pub fn link_tool(paths: &LaragonPaths, tool: ManagedTool, privileged: &dyn Privileged) -> Result<(), SymlinkError> {
+pub fn link_tool(paths: &LaraluxPaths, tool: ManagedTool, privileged: &dyn Privileged) -> Result<(), SymlinkError> {
     let src = cli_path(tool, paths).ok_or(SymlinkError::NoCli)?;
     if !src.exists() {
         return Err(SymlinkError::NotInstalled);
@@ -48,7 +48,7 @@ mod tests {
     #[test]
     fn link_tool_calls_create_symlink_with_resolved_src_and_dst() {
         let root = std::env::temp_dir().join(format!("lara-symlink-{}", std::process::id()));
-        let paths = LaragonPaths::new(root.clone());
+        let paths = LaraluxPaths::new(root.clone());
         // Seed an installed php cli at bin/php/current/php.
         let cur = paths.bin().join("php").join("current");
         std::fs::create_dir_all(&cur).unwrap();
@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn link_tool_errors_when_not_installed() {
-        let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-symlink2-{}", std::process::id())));
+        let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-symlink2-{}", std::process::id())));
         let p = FakePrivileged::new();
         assert!(matches!(link_tool(&paths, ManagedTool::Php, &p), Err(SymlinkError::NotInstalled)));
     }

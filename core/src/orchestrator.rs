@@ -1,4 +1,4 @@
-use crate::paths::LaragonPaths;
+use crate::paths::LaraluxPaths;
 use crate::process::{Process, ProcessSpawner};
 use crate::service::{Service, ServiceError, ServiceKind, ServiceState};
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ pub struct ServiceStatus {
 }
 
 pub struct Orchestrator {
-    paths: LaragonPaths,
+    paths: LaraluxPaths,
     services: Vec<Box<dyn Service>>,
     spawner: Box<dyn ProcessSpawner>,
     handles: HashMap<ServiceKind, Box<dyn Process>>,
@@ -21,7 +21,7 @@ pub struct Orchestrator {
 
 impl Orchestrator {
     pub fn new(
-        paths: LaragonPaths,
+        paths: LaraluxPaths,
         services: Vec<Box<dyn Service>>,
         spawner: Box<dyn ProcessSpawner>,
     ) -> Self {
@@ -264,10 +264,10 @@ mod tests {
         fn name(&self) -> &str {
             self.name
         }
-        fn command(&self, _p: &LaragonPaths) -> SpawnSpec {
+        fn command(&self, _p: &LaraluxPaths) -> SpawnSpec {
             SpawnSpec::new(self.name)
         }
-        fn health_check(&self, _p: &LaragonPaths) -> Result<(), ServiceError> {
+        fn health_check(&self, _p: &LaraluxPaths) -> Result<(), ServiceError> {
             Ok(())
         }
     }
@@ -286,10 +286,10 @@ mod tests {
         fn deps(&self) -> &[ServiceKind] {
             &self.deps
         }
-        fn command(&self, _p: &LaragonPaths) -> SpawnSpec {
+        fn command(&self, _p: &LaraluxPaths) -> SpawnSpec {
             SpawnSpec::new(format!("{:?}", self.kind))
         }
-        fn health_check(&self, _p: &LaragonPaths) -> Result<(), ServiceError> {
+        fn health_check(&self, _p: &LaraluxPaths) -> Result<(), ServiceError> {
             Ok(())
         }
     }
@@ -297,7 +297,7 @@ mod tests {
     fn orch(spawner: FakeSpawner) -> Orchestrator {
         let services: Vec<Box<dyn Service>> =
             vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
-        Orchestrator::new(LaragonPaths::new("/tmp/lara".into()), services, Box::new(spawner))
+        Orchestrator::new(LaraluxPaths::new("/tmp/lara".into()), services, Box::new(spawner))
     }
 
     struct FailingSpawner;
@@ -341,7 +341,7 @@ mod tests {
         let services: Vec<Box<dyn Service>> =
             vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
         let mut o = Orchestrator::new(
-            LaragonPaths::new("/tmp/lara".into()),
+            LaraluxPaths::new("/tmp/lara".into()),
             services,
             Box::new(FailingSpawner),
         );
@@ -359,7 +359,7 @@ mod tests {
             Box::new(DepDummy { kind: ServiceKind::Mariadb, deps: vec![] }),
         ];
         let o = Orchestrator::new(
-            LaragonPaths::new("/tmp/lara".into()),
+            LaraluxPaths::new("/tmp/lara".into()),
             services,
             Box::new(FakeSpawner::new()),
         );
@@ -378,7 +378,7 @@ mod tests {
             Box::new(DepDummy { kind: ServiceKind::PhpFpm, deps: vec![] }),
         ];
         let mut o = Orchestrator::new(
-            LaragonPaths::new("/tmp/lara".into()),
+            LaraluxPaths::new("/tmp/lara".into()),
             services,
             Box::new(spawner),
         );
@@ -396,7 +396,7 @@ mod tests {
         let services: Vec<Box<dyn Service>> =
             vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
         let mut o = Orchestrator::new(
-            LaragonPaths::new("/tmp/lara".into()),
+            LaraluxPaths::new("/tmp/lara".into()),
             services,
             Box::new(spawner),
         );
@@ -425,7 +425,7 @@ mod tests {
         let log = spawner.log();
         let services: Vec<Box<dyn Service>> =
             vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
-        let mut o = Orchestrator::new(LaragonPaths::new(root.clone()), services, Box::new(spawner));
+        let mut o = Orchestrator::new(LaraluxPaths::new(root.clone()), services, Box::new(spawner));
 
         o.start(ServiceKind::Redis).unwrap();
         assert_eq!(log.lock().unwrap()[0].program, exe.display().to_string());
@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn replace_php_version_restarts_when_running() {
         let tmp = std::env::temp_dir().join(format!("lara-orch-php-{}", std::process::id()));
-        let paths = LaragonPaths::new(tmp.clone());
+        let paths = LaraluxPaths::new(tmp.clone());
         // Seed bin/php/8.3/ and bin/php/8.4/ so set_current has a target dir
         std::fs::create_dir_all(paths.version_dir("php", "8.4")).unwrap();
         std::fs::create_dir_all(paths.version_dir("php", "8.3")).unwrap();
@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn set_coredns_runs_when_bases_present_and_stops_when_empty() {
         let tmp = std::env::temp_dir().join(format!("lara-cdns-{}", std::process::id()));
-        let paths = LaragonPaths::new(tmp.clone());
+        let paths = LaraluxPaths::new(tmp.clone());
         let spawner = crate::process::FakeSpawner::new();
         let log = spawner.log();
         let mut orch = Orchestrator::new(paths, vec![], Box::new(spawner));
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn replace_php_version_does_not_start_when_stopped() {
         let tmp = std::env::temp_dir().join(format!("lara-orch-php2-{}", std::process::id()));
-        let paths = LaragonPaths::new(tmp.clone());
+        let paths = LaraluxPaths::new(tmp.clone());
         // Seed bin/php/8.3/ so set_current has a target dir
         std::fs::create_dir_all(paths.version_dir("php", "8.3")).unwrap();
         let spawner = crate::process::FakeSpawner::new();
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn reload_is_ok_when_running_and_noop_when_stopped() {
-        let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-reload-{}", std::process::id())));
+        let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-reload-{}", std::process::id())));
         let services: Vec<Box<dyn Service>> =
             vec![Box::new(Dummy { kind: ServiceKind::Nginx, name: "nginx" })];
         let mut orch = Orchestrator::new(paths, services, Box::new(FakeSpawner::new()));
@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn start_is_idempotent_for_running_service() {
-        let paths = LaragonPaths::new(std::env::temp_dir().join(format!("lara-idem-{}", std::process::id())));
+        let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-idem-{}", std::process::id())));
         let spawner = FakeSpawner::new();
         let log = spawner.log();
         let services: Vec<Box<dyn Service>> =
@@ -534,7 +534,7 @@ mod tests {
     #[test]
     fn replace_version_restarts_running_service() {
         let tmp = std::env::temp_dir().join(format!("lara-orch-rv-{}", std::process::id()));
-        let paths = LaragonPaths::new(tmp.clone());
+        let paths = LaraluxPaths::new(tmp.clone());
         std::fs::create_dir_all(paths.version_dir("nginx", "1.31.2")).unwrap();
         crate::layout::set_current(&paths, "nginx", "1.31.2").unwrap();
         let spawner = crate::process::FakeSpawner::new();

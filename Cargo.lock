@@ -1917,7 +1917,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "laragon-core"
+name = "laralux-core"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -1927,10 +1927,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "laragon-desktop"
+name = "laralux-desktop"
 version = "0.1.0"
 dependencies = [
- "laragon-core",
+ "laralux-core",
  "notify",
  "serde",
  "serde_json",
@@ -1941,10 +1941,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "laragonctl"
+name = "laraluxctl"
 version = "0.1.0"
 dependencies = [
- "laragon-core",
+ "laralux-core",
 ]
 
 [[package]]
