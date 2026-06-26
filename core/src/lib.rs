@@ -22,6 +22,7 @@ pub mod terminal;
 pub mod coredns;
 pub mod mkcert_static;
 pub mod nginx_static;
+pub mod redis_static;
 pub mod layout;
 pub mod progress;
 
@@ -51,3 +52,4 @@ pub use terminal::{open_terminal, TerminalError};
 pub use coredns::{ensure_coredns, corefile, resolved_dropin, CorednsError};
 pub use mkcert_static::{install_mkcert, MkcertError};
 pub use nginx_static::{install_nginx, NginxError};
+pub use redis_static::{install_redis, RedisError};
