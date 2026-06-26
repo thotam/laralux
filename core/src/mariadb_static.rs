@@ -57,7 +57,10 @@ pub fn install_mariadb(
     paths: &LaragonPaths, downloader: &dyn Downloader, runner: &dyn CommandRunner, sink: &dyn ProgressSink,
 ) -> Result<String, MariadbError> {
     let basedir = paths.version_dir("mariadb", MARIADB_VERSION);
-    if basedir.join("mariadbd").exists() {
+    // Require BOTH the server and the init tool — these are the last symlinks
+    // created, so a half-finished prior install (process died mid-symlink) is
+    // NOT treated as complete and is re-done rather than left broken.
+    if basedir.join("mariadbd").exists() && basedir.join("mariadb-install-db").exists() {
         let _ = crate::layout::set_current(paths, "mariadb", MARIADB_VERSION);
         return Ok(MARIADB_VERSION.to_string());
     }
