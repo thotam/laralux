@@ -10,6 +10,36 @@ use tauri::{
     Emitter, Manager,
 };
 
+/// Overall stack state shown in the tray. Priority:
+/// crashed > starting > running (any up) > stopped (all down).
+#[derive(PartialEq, Clone, Copy)]
+enum TrayState { Stopped, Starting, Running, Crashed }
+
+/// `starting_flag` is the in-progress Start-All guard (`AppState.starting`); a
+/// synchronous start barely passes through `Starting` per service, so the guard
+/// is what makes the "starting" icon actually visible during a start.
+fn tray_state(snap: &[laralux_core::ServiceStatus], starting_flag: bool) -> TrayState {
+    use laralux_core::ServiceState;
+    if snap.iter().any(|s| s.state == ServiceState::Crashed) {
+        TrayState::Crashed
+    } else if starting_flag || snap.iter().any(|s| s.state == ServiceState::Starting) {
+        TrayState::Starting
+    } else if snap.iter().any(|s| s.state == ServiceState::Running) {
+        TrayState::Running
+    } else {
+        TrayState::Stopped
+    }
+}
+
+fn tray_state_bytes(s: TrayState) -> &'static [u8] {
+    match s {
+        TrayState::Stopped => include_bytes!("../icons/tray-stopped.png"),
+        TrayState::Starting => include_bytes!("../icons/tray-starting.png"),
+        TrayState::Running => include_bytes!("../icons/tray-running.png"),
+        TrayState::Crashed => include_bytes!("../icons/tray-crashed.png"),
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -46,9 +76,10 @@ fn main() {
                 .items(&[&start, &stop, &dashboard, &quit])
                 .build()?;
 
-            let icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
-            TrayIconBuilder::new()
-                .icon(icon)
+            // Start on the "stopped" icon; the monitor below swaps it to reflect
+            // the live stack state (running / starting / crashed).
+            let tray = TrayIconBuilder::new()
+                .icon(Image::from_bytes(include_bytes!("../icons/tray-stopped.png"))?)
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id().as_ref() {
@@ -100,18 +131,30 @@ fn main() {
             // crashes surface within ~1s and the UI never re-renders while idle.
             {
                 let handle = app.handle().clone();
+                let tray = tray.clone();
                 std::thread::spawn(move || {
                     let mut last: Option<Vec<laralux_core::ServiceStatus>> = None;
+                    let mut last_tray: Option<TrayState> = None;
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         let Some(state) = handle.try_state::<AppState>() else { continue };
+                        let starting_flag = state.starting.load(std::sync::atomic::Ordering::SeqCst);
                         let snap = match state.orch.lock() {
                             Ok(mut orch) => { orch.refresh(); orch.snapshot() }
                             Err(_) => continue,
                         };
                         if last.as_ref() != Some(&snap) {
                             let _ = handle.emit("services-changed", &snap);
-                            last = Some(snap);
+                            last = Some(snap.clone());
+                        }
+                        // Update the tray whenever the VISUAL state changes (incl. the
+                        // `starting` guard flipping), not only when the snapshot does.
+                        let ts = tray_state(&snap, starting_flag);
+                        if last_tray != Some(ts) {
+                            if let Ok(img) = Image::from_bytes(tray_state_bytes(ts)) {
+                                let _ = tray.set_icon(Some(img));
+                            }
+                            last_tray = Some(ts);
                         }
                     }
                 });
