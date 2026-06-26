@@ -1,4 +1,4 @@
-# Laralux Linux — MariaDB multi-version (catalog + version-parameterized install)
+# Laralux — MariaDB multi-version (catalog + version-parameterized install)
 
 **Date:** 2026-06-26
 **Status:** Done (follow-on to the Versioned Tool Manager foundation; after nginx).

@@ -1,4 +1,4 @@
-# Laralux Linux — No-apt Spec 2 (MariaDB) into the versioned layout
+# Laralux — No-apt Spec 2 (MariaDB) into the versioned layout
 
 **Date:** 2026-06-26
 **Status:** Design (goal-directed); the final no-apt step.

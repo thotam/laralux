@@ -1,4 +1,4 @@
-# Laralux Linux — Reverse Proxy Sites (Phase 2, Slice 3) Design Spec
+# Laralux — Reverse Proxy Sites (Phase 2, Slice 3) Design Spec
 
 **Date:** 2026-06-23
 **Status:** Design approved, pending spec review

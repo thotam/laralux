@@ -1,4 +1,4 @@
-# Laralux Linux — Static PHP Binaries (Phase 2, Version slice 1b) Design Spec
+# Laralux — Static PHP Binaries (Phase 2, Version slice 1b) Design Spec
 
 **Date:** 2026-06-24
 **Status:** Design approved, pending spec review

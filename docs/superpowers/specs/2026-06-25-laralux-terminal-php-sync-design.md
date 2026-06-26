@@ -1,4 +1,4 @@
-# Laralux Linux — Terminal PHP/composer Sync (Phase 2, Version slice 1c) Design Spec
+# Laralux — Terminal PHP/composer Sync (Phase 2, Version slice 1c) Design Spec
 
 **Date:** 2026-06-25
 **Status:** Design approved, pending spec review

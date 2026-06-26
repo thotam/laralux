@@ -1,4 +1,4 @@
-# Laralux Linux — Plan 1: Core Orchestration (headless) Implementation Plan
+# Laralux — Plan 1: Core Orchestration (headless) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -70,7 +70,7 @@ thiserror.workspace = true
 - [ ] **Step 3: Create `core/src/lib.rs`**
 
 ```rust
-//! Laralux Linux core: GUI-independent service orchestration.
+//! Laralux core: GUI-independent service orchestration.
 
 pub mod paths;
 ```

@@ -1,4 +1,4 @@
-# Laralux Linux — nginx multi-version (catalog + version-parameterized install)
+# Laralux — nginx multi-version (catalog + version-parameterized install)
 
 **Date:** 2026-06-26
 **Status:** Design (follow-on to the Versioned Tool Manager foundation).

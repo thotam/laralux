@@ -1,4 +1,4 @@
-# Laralux Linux — No-apt Spec 1 (nginx + redis/Valkey + mkcert) into the versioned layout
+# Laralux — No-apt Spec 1 (nginx + redis/Valkey + mkcert) into the versioned layout
 
 **Date:** 2026-06-26
 **Status:** Design (goal-directed); supersedes the 2026-06-25 Spec-1 draft (which predated the versioned-binary layout).

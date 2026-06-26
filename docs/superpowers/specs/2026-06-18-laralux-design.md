@@ -1,4 +1,4 @@
-# Laralux Linux — Design Spec
+# Laralux — Design Spec
 
 **Ngày:** 2026-06-18
 **Trạng thái:** Đã duyệt thiết kế, chờ review spec

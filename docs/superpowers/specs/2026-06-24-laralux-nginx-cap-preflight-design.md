@@ -1,4 +1,4 @@
-# Laralux Linux — nginx bind-capability preflight on Start Design Spec
+# Laralux — nginx bind-capability preflight on Start Design Spec
 
 **Date:** 2026-06-24
 **Status:** Design approved, pending spec review

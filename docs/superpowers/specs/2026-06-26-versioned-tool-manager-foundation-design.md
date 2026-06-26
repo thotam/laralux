@@ -1,4 +1,4 @@
-# Laralux Linux — Versioned Tool Manager (Foundation) + Setup modals + /usr/local/bin symlinks
+# Laralux — Versioned Tool Manager (Foundation) + Setup modals + /usr/local/bin symlinks
 
 **Date:** 2026-06-26
 **Status:** Design (approved for spec).

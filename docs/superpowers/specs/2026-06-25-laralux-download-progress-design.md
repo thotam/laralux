@@ -1,4 +1,4 @@
-# Laralux Linux — Download Progress (combined ring) Design
+# Laralux — Download Progress (combined ring) Design
 
 **Date:** 2026-06-25
 **Status:** Design approved, pending spec review

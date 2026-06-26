@@ -1,4 +1,4 @@
-# Laralux Linux — No-apt Static Binaries (Spec 1: mkcert + composer + nginx + redis/Valkey) Design
+# Laralux — No-apt Static Binaries (Spec 1: mkcert + composer + nginx + redis/Valkey) Design
 
 **Date:** 2026-06-25
 **Status:** Design approved, pending spec review

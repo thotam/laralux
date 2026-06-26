@@ -1,4 +1,4 @@
-# Laralux Linux — PHP Version Management (Phase 2, Version slice 1) Design Spec
+# Laralux — PHP Version Management (Phase 2, Version slice 1) Design Spec
 
 **Date:** 2026-06-24
 **Status:** Design approved, pending spec review

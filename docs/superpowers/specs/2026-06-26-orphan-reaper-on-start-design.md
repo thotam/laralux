@@ -1,4 +1,4 @@
-# Laralux Linux — Orphan-process reaper on Start (incl. php-fpm)
+# Laralux — Orphan-process reaper on Start (incl. php-fpm)
 
 **Date:** 2026-06-26
 **Status:** Design (goal-directed).

@@ -1,4 +1,4 @@
-# Laralux Linux — Plan 3a: Tauri GUI Shell, Tray & Dashboard Implementation Plan
+# Laralux — Plan 3a: Tauri GUI Shell, Tray & Dashboard Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- App identifier: `com.laralux.linux`. Product/window title: `Laralux Linux`. Window label: `main`.
+- App identifier: `com.laralux.linux`. Product/window title: `Laralux`. Window label: `main`.
 - Frontend is static files in `dist/`; `tauri.conf.json` sets `build.frontendDist = "../dist"` and `app.withGlobalTauri = true` (frontend calls `window.__TAURI__.core.invoke`). No npm/bundler.
 - The `Orchestrator` lives for the app's lifetime in managed state; the app MUST `stop_all()` before exiting so no child processes are orphaned.
 - Tray menu items (exact labels): `Start All`, `Stop All`, `Dashboard`, `Quit`.
@@ -236,7 +236,7 @@ fn main() {
 ```json
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Laralux Linux",
+  "productName": "Laralux",
   "version": "0.1.0",
   "identifier": "com.laralux.linux",
   "build": {
@@ -247,7 +247,7 @@ fn main() {
     "windows": [
       {
         "label": "main",
-        "title": "Laralux Linux",
+        "title": "Laralux",
         "width": 900,
         "height": 600,
         "visible": true
@@ -310,7 +310,7 @@ Expected: prints `wrote <N> bytes` and creates `src-tauri/icons/icon.png`.
 fn main() {
     tauri::Builder::default()
         .run(tauri::generate_context!())
-        .expect("error while running Laralux Linux");
+        .expect("error while running Laralux");
 }
 ```
 
@@ -322,10 +322,10 @@ fn main() {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Laralux Linux</title>
+    <title>Laralux</title>
   </head>
   <body>
-    <h1>Laralux Linux</h1>
+    <h1>Laralux</h1>
     <p>Dashboard loading…</p>
   </body>
 </html>
@@ -345,7 +345,7 @@ git commit -m "feat(desktop): scaffold Tauri 2 app with empty window"
 
 - [ ] **Step 11: Manual smoke (human, optional now)**
 
-`cargo run -p laralux-desktop` should open a 900×600 window titled "Laralux Linux". Note in the report that the live window check is a human step.
+`cargo run -p laralux-desktop` should open a 900×600 window titled "Laralux". Note in the report that the live window check is a human step.
 
 ---
 
@@ -479,7 +479,7 @@ fn main() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running Laralux Linux");
+        .expect("error while running Laralux");
 }
 ```
 
@@ -590,7 +590,7 @@ fn main() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running Laralux Linux");
+        .expect("error while running Laralux");
 }
 ```
 
@@ -630,12 +630,12 @@ git commit -m "feat(desktop): add system-tray icon and menu"
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Laralux Linux</title>
+    <title>Laralux</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header>
-      <h1>Laralux Linux</h1>
+      <h1>Laralux</h1>
       <div class="actions">
         <button id="start-all">Start All</button>
         <button id="stop-all">Stop All</button>

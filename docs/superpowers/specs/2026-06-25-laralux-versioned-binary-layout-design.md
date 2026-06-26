@@ -1,4 +1,4 @@
-# Laralux Linux — Versioned Binary Layout (Spec 0, foundational) Design
+# Laralux — Versioned Binary Layout (Spec 0, foundational) Design
 
 **Date:** 2026-06-25
 **Status:** Design approved, pending spec review

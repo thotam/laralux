@@ -668,7 +668,7 @@ Then insert `phpCard` into the returned markup, immediately before the `'<div cl
 ```js
       "</div>" +          // end of the existing settings-card
       phpCard +
-      '<div class="settings-foot">Laralux Linux · window 900×600 · min 720×480 · tray: Start All · Stop All · Dashboard · Quit</div>' +
+      '<div class="settings-foot">Laralux · window 900×600 · min 720×480 · tray: Start All · Stop All · Dashboard · Quit</div>' +
       "</div>"
 ```
 

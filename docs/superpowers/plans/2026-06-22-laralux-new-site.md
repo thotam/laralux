@@ -1,4 +1,4 @@
-# Laralux Linux — New Site / Quick App Creation Implementation Plan
+# Laralux — New Site / Quick App Creation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -156,7 +156,7 @@ Add to the `tests` module in `core/src/scaffold.rs`:
         assert!(s.contains("<?php"));
         assert!(s.contains("blog"));
         assert!(s.contains("phpversion("));
-        assert!(s.contains("Laralux Linux"));
+        assert!(s.contains("Laralux"));
         assert!(s.contains("phpinfo")); // ?phpinfo toggle
     }
 
@@ -215,7 +215,7 @@ $exts = ['pdo_mysql','redis','curl','mbstring','gd'];
 ?><!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{name} — Laralux Linux</title>
+<title>{name} — Laralux</title>
 <style>
   body{{font-family:system-ui,sans-serif;margin:0;background:#0f1115;color:#e6e8ee;}}
   .wrap{{max-width:680px;margin:8vh auto;padding:0 24px;}}
@@ -227,7 +227,7 @@ $exts = ['pdo_mysql','redis','curl','mbstring','gd'];
   a{{color:#60a5fa;}}
 </style></head><body><div class="wrap">
   <h1>🚀 {name}</h1>
-  <div class="muted">powered by <strong>Laralux Linux</strong> · <code><?= $_SERVER['HTTP_HOST'] ?? '{name}.dev' ?></code></div>
+  <div class="muted">powered by <strong>Laralux</strong> · <code><?= $_SERVER['HTTP_HOST'] ?? '{name}.dev' ?></code></div>
   <div class="card">
     <div class="row"><span>PHP version</span><code><?= phpversion() ?></code></div>
     <div class="row"><span>SAPI</span><code><?= PHP_SAPI ?></code></div>

@@ -1,6 +1,6 @@
-# Laralux Linux — UI Redesign Brief (for Claude Design)
+# Laralux — UI Redesign Brief (for Claude Design)
 
-This is a complete, implementation-grounded brief to redesign the desktop UI of **Laralux Linux**. It is written so the resulting design can be implemented as-is in the existing tech stack. Read every section — the data contract and technical constraints are binding.
+This is a complete, implementation-grounded brief to redesign the desktop UI of **Laralux**. It is written so the resulting design can be implemented as-is in the existing tech stack. Read every section — the data contract and technical constraints are binding.
 
 ---
 
@@ -24,7 +24,7 @@ This is a complete, implementation-grounded brief to redesign the desktop UI of 
 ## 3. What exists today (baseline to replace)
 
 A bare, unstyled single page (`dist/index.html` + `main.js` + `styles.css`):
-- A header: title "Laralux Linux" + two buttons **Start All / Stop All**.
+- A header: title "Laralux" + two buttons **Start All / Stop All**.
 - Three stacked sections: **Setup** (list of components installed/missing + "Install missing" button), **Services** (a `<table>` of service name / state / Start|Stop button), **Sites** (a list of links `name — https://name.dev`).
 - Status auto-refreshes every **2 seconds** via polling.
 - Feedback is via `alert()` popups (ugly — replace with in-app toasts/inline UI).

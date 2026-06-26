@@ -1,4 +1,4 @@
-# Laralux Linux — Open Terminal Button (Phase 2, Terminal slice B) Design Spec
+# Laralux — Open Terminal Button (Phase 2, Terminal slice B) Design Spec
 
 **Date:** 2026-06-25
 **Status:** Design approved, pending spec review

@@ -1,4 +1,4 @@
-# Laralux Linux — Custom Domains per Site (Phase 2/3) Design Spec
+# Laralux — Custom Domains per Site (Phase 2/3) Design Spec
 
 **Date:** 2026-06-25
 **Status:** Design approved, pending spec review

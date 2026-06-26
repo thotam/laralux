@@ -1,4 +1,4 @@
-# Laralux Linux — Site Registry / Add Existing Folder (Phase 2, Slice 2) Design Spec
+# Laralux — Site Registry / Add Existing Folder (Phase 2, Slice 2) Design Spec
 
 **Date:** 2026-06-23
 **Status:** Design approved, pending spec review

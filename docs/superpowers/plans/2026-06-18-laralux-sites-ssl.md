@@ -1,4 +1,4 @@
-# Laralux Linux — Plan 2: Sites, Pretty URLs & SSL Implementation Plan
+# Laralux — Plan 2: Sites, Pretty URLs & SSL Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -14,7 +14,7 @@
 - `.dev` is HSTS-preloaded → every site MUST be served over HTTPS (443) with a mkcert cert; port 80 redirects to 443.
 - Document root: if `<site>/public` is a directory use it (Laravel), else the site dir itself.
 - `core` crate keeps zero Tauri deps. All root-requiring operations go through the `Privileged` trait; all cert issuance through the `CertIssuer` trait — both mockable, so `cargo test` needs no root and no mkcert.
-- Managed `/etc/hosts` region is delimited by exact markers `# BEGIN laralux-linux` and `# END laralux-linux`; only that region is ever rewritten; unrelated lines are preserved.
+- Managed `/etc/hosts` region is delimited by exact markers `# BEGIN laralux` and `# END laralux`; only that region is ever rewritten; unrelated lines are preserved.
 - Per-site vhost files live in `~/laralux/etc/nginx/sites/<name>.conf` (already `include`d by Plan 1's `nginx.conf`). Certs live in `~/laralux/ssl/`.
 - nginx fastcgi target is the php-fpm unix socket `~/laralux/tmp/php-fpm.sock` (from `PhpFpmService::new(php_version).socket_path(paths)` — thread it in, do not re-hardcode).
 - Commit messages MUST NOT contain a `Co-Authored-By` trailer.
@@ -292,8 +292,8 @@ git commit -m "feat(core): add per-site nginx vhost generation"
 
 **Interfaces:**
 - Produces:
-  - `pub const HOSTS_BEGIN: &str = "# BEGIN laralux-linux";`
-  - `pub const HOSTS_END: &str = "# END laralux-linux";`
+  - `pub const HOSTS_BEGIN: &str = "# BEGIN laralux";`
+  - `pub const HOSTS_END: &str = "# END laralux";`
   - `pub fn render_block(hostnames: &[String]) -> String` — the managed block: BEGIN marker, one `127.0.0.1 <host>` line per hostname (in given order), END marker; trailing newline; no extra blank lines.
   - `pub fn apply_block(existing: &str, hostnames: &[String]) -> String` — return `existing` with any current managed block (BEGIN..END inclusive) removed, then the freshly rendered block appended. Non-managed lines are preserved in order. Idempotent: applying twice with the same hostnames yields the same output.
 
@@ -368,8 +368,8 @@ Expected: FAIL — `cannot find function render_block`.
 Prepend to `core/src/hosts.rs`:
 
 ```rust
-pub const HOSTS_BEGIN: &str = "# BEGIN laralux-linux";
-pub const HOSTS_END: &str = "# END laralux-linux";
+pub const HOSTS_BEGIN: &str = "# BEGIN laralux";
+pub const HOSTS_END: &str = "# END laralux";
 
 /// Render the managed block (markers + one mapping line per hostname).
 pub fn render_block(hostnames: &[String]) -> String {
@@ -688,9 +688,9 @@ mod tests {
     fn fake_records_hosts_write() {
         let f = FakePrivileged::new();
         let log = f.hosts_writes();
-        f.write_etc_hosts("# BEGIN laralux-linux\n# END laralux-linux\n").unwrap();
+        f.write_etc_hosts("# BEGIN laralux\n# END laralux\n").unwrap();
         assert_eq!(log.lock().unwrap().len(), 1);
-        assert!(log.lock().unwrap()[0].contains("laralux-linux"));
+        assert!(log.lock().unwrap()[0].contains("laralux"));
     }
 }
 ```

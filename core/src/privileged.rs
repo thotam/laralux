@@ -282,9 +282,9 @@ mod tests {
     fn fake_records_hosts_write() {
         let f = FakePrivileged::new();
         let log = f.hosts_writes();
-        f.write_etc_hosts("# BEGIN laralux-linux\n# END laralux-linux\n").unwrap();
+        f.write_etc_hosts("# BEGIN laralux\n# END laralux\n").unwrap();
         assert_eq!(log.lock().unwrap().len(), 1);
-        assert!(log.lock().unwrap()[0].contains("laralux-linux"));
+        assert!(log.lock().unwrap()[0].contains("laralux"));
     }
 
     #[test]

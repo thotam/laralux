@@ -1,4 +1,4 @@
-# Laralux Linux — Event-Driven Realtime UI Design
+# Laralux — Event-Driven Realtime UI Design
 
 **Date:** 2026-06-26
 **Status:** Design (goal-directed); proceeding to plan + implementation.

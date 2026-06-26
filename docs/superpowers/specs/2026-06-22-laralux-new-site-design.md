@@ -1,4 +1,4 @@
-# Laralux Linux — New Site / Quick App Creation (Phase 2, Slice 1) Design Spec
+# Laralux — New Site / Quick App Creation (Phase 2, Slice 1) Design Spec
 
 **Date:** 2026-06-22
 **Status:** Design approved, pending spec review
@@ -72,7 +72,7 @@ Laravel requires composer. Add **`Composer`** to `core::setup::Component` (apt p
 ## 4. Blank `index.php` content (welcome page)
 
 `blank_index(site_name)` returns a self-contained HTML+PHP page (no external assets, inline CSS) that:
-- Shows "🚀 `<site_name>` — powered by Laralux Linux" and the current host.
+- Shows "🚀 `<site_name>` — powered by Laralux" and the current host.
 - Shows basic PHP info via PHP: `phpversion()`, `PHP_SAPI`, `$_SERVER['SERVER_SOFTWARE']`, `$_SERVER['DOCUMENT_ROOT']`, HTTPS on/off.
 - Lists a quick extension check using `extension_loaded()` for: `pdo_mysql`, `redis`, `curl`, `mbstring`, `gd` — each rendered ✓/✗ (icon + text, not color-only).
 - Links to Mailpit (`http://localhost:8025`).

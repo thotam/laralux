@@ -1,4 +1,4 @@
-# Laralux Linux — certutil bundle for browser (NSS) trust, no-apt
+# Laralux — certutil bundle for browser (NSS) trust, no-apt
 
 **Date:** 2026-06-26
 **Status:** Design (goal-directed); end-to-end verified before implementation.
