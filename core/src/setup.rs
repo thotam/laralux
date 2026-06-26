@@ -498,20 +498,7 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    #[test]
-    fn run_setup_adds_no_ppa() {
-        let root = std::env::temp_dir().join(format!("lara-runsetup-{}", std::process::id()));
-        std::fs::create_dir_all(root.join("bin")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
-        let priv_ = FakePrivileged::new();
-        let add_repos = priv_.add_repos();
-        let dl = FakeDownloader::new();
-        let runner = crate::scaffold::FakeCommandRunner::new();
-        let _ = run_setup(&paths, &priv_, &dl, &runner, &crate::progress::NullProgress);
-        // Hermetic: regardless of what's installed, we never add a PPA.
-        assert!(add_repos.lock().unwrap().is_empty());
-        std::fs::remove_dir_all(&root).ok();
-    }
+
 
     #[test]
     fn composer_is_a_component_with_no_apt_package() {

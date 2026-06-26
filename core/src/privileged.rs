@@ -14,10 +14,7 @@ pub trait Privileged: Send + Sync {
     fn write_etc_hosts(&self, new_content: &str) -> Result<(), PrivError>;
     fn install_mkcert_ca(&self, mkcert_bin: &Path) -> Result<(), PrivError>;
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError>;
-    fn apt_install(&self, packages: &[String]) -> Result<(), PrivError>;
-    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError>;
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError>;
-    fn allow_mariadb_apparmor(&self) -> Result<(), PrivError>;
     fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError>;
     fn remove_resolved_dropin(&self) -> Result<(), PrivError>;
 }
@@ -36,23 +33,10 @@ fn setcap_argv(bin: &Path) -> Vec<String> {
     ]
 }
 
-fn add_repo_argv(repo: &str) -> Vec<String> {
-    vec!["add-apt-repository".to_string(), "-y".to_string(), repo.to_string()]
-}
-
 fn systemctl_disable_argv(units: &[String]) -> Vec<String> {
     let mut argv = vec!["systemctl".to_string(), "disable".to_string(), "--now".to_string()];
     argv.extend(units.iter().cloned());
     argv
-}
-
-const MARIADB_APPARMOR_SCRIPT: &str = "\
-[ -f /etc/apparmor.d/mariadbd ] || exit 0\n\
-grep -q laragon /etc/apparmor.d/local/mariadbd 2>/dev/null || echo 'owner /home/*/laragon/** rwk,' >> /etc/apparmor.d/local/mariadbd\n\
-apparmor_parser -r /etc/apparmor.d/mariadbd\n";
-
-fn mariadb_apparmor_argv() -> Vec<String> {
-    vec!["sh".to_string(), "-c".to_string(), MARIADB_APPARMOR_SCRIPT.to_string()]
 }
 
 const RESOLVED_DROPIN: &str = "/etc/systemd/resolved.conf.d/laragon.conf";
@@ -72,14 +56,6 @@ fn remove_resolved_argv() -> Vec<String> {
         "sh".to_string(),
         "-c".to_string(),
         format!("rm -f {RESOLVED_DROPIN}; systemctl reload systemd-resolved || systemctl restart systemd-resolved || true"),
-    ]
-}
-
-fn apt_argv(packages: &[String]) -> Vec<String> {
-    vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        format!("apt-get update || true; apt-get install -y {}", packages.join(" ")),
     ]
 }
 
@@ -120,17 +96,8 @@ impl Privileged for SudoPrivileged {
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError> {
         run_escalated("sudo", &setcap_argv(nginx_bin))
     }
-    fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
-        run_escalated("sudo", &apt_argv(packages))
-    }
-    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
-        run_escalated("sudo", &add_repo_argv(repo))
-    }
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {
         run_escalated("sudo", &systemctl_disable_argv(units))
-    }
-    fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
-        run_escalated("sudo", &mariadb_apparmor_argv())
     }
     fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError> {
         run_escalated("sudo", &write_resolved_argv(contents))
@@ -157,17 +124,8 @@ impl Privileged for PkexecPrivileged {
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError> {
         run_escalated("pkexec", &setcap_argv(nginx_bin))
     }
-    fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
-        run_escalated("pkexec", &apt_argv(packages))
-    }
-    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
-        run_escalated("pkexec", &add_repo_argv(repo))
-    }
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {
         run_escalated("pkexec", &systemctl_disable_argv(units))
-    }
-    fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
-        run_escalated("pkexec", &mariadb_apparmor_argv())
     }
     fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError> {
         run_escalated("pkexec", &write_resolved_argv(contents))
@@ -184,10 +142,7 @@ pub struct FakePrivileged {
     hosts_writes: Arc<Mutex<Vec<String>>>,
     mkcert_ca_path: Arc<Mutex<Option<PathBuf>>>,
     setcap_done: Arc<Mutex<bool>>,
-    apt_installs: Arc<Mutex<Vec<Vec<String>>>>,
-    add_repos: Arc<Mutex<Vec<String>>>,
     disabled_services: Arc<Mutex<Vec<Vec<String>>>>,
-    apparmor_configured: Arc<Mutex<bool>>,
     resolved_dropins: Arc<Mutex<Vec<String>>>,
     resolved_removed: Arc<Mutex<bool>>,
 }
@@ -207,17 +162,8 @@ impl FakePrivileged {
     pub fn mkcert_ca_path(&self) -> Option<PathBuf> {
         self.mkcert_ca_path.lock().unwrap().clone()
     }
-    pub fn apt_installs(&self) -> Arc<Mutex<Vec<Vec<String>>>> {
-        self.apt_installs.clone()
-    }
-    pub fn add_repos(&self) -> Arc<Mutex<Vec<String>>> {
-        self.add_repos.clone()
-    }
     pub fn disabled_services(&self) -> Arc<Mutex<Vec<Vec<String>>>> {
         self.disabled_services.clone()
-    }
-    pub fn mariadb_apparmor_configured(&self) -> bool {
-        *self.apparmor_configured.lock().unwrap()
     }
     pub fn resolved_dropins(&self) -> Arc<Mutex<Vec<String>>> {
         self.resolved_dropins.clone()
@@ -240,20 +186,8 @@ impl Privileged for FakePrivileged {
         *self.setcap_done.lock().unwrap() = true;
         Ok(())
     }
-    fn apt_install(&self, packages: &[String]) -> Result<(), PrivError> {
-        self.apt_installs.lock().unwrap().push(packages.to_vec());
-        Ok(())
-    }
-    fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError> {
-        self.add_repos.lock().unwrap().push(repo.to_string());
-        Ok(())
-    }
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError> {
         self.disabled_services.lock().unwrap().push(units.to_vec());
-        Ok(())
-    }
-    fn allow_mariadb_apparmor(&self) -> Result<(), PrivError> {
-        *self.apparmor_configured.lock().unwrap() = true;
         Ok(())
     }
     fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError> {
@@ -299,43 +233,11 @@ mod tests {
     }
 
     #[test]
-    fn apt_argv_builds_update_then_install() {
-        let argv = apt_argv(&["nginx".to_string(), "redis-server".to_string()]);
-        assert_eq!(argv[0], "sh");
-        assert_eq!(argv[1], "-c");
-        assert!(argv[2].contains("apt-get update || true"));
-        assert!(argv[2].contains("apt-get install -y nginx redis-server"));
-    }
-
-    #[test]
     fn pkexec_uses_pkexec_program() {
         // The pkexec impl escalates with `pkexec`; verify via the shared builder usage.
         // hosts_cp_command on Sudo still uses sudo (unchanged Plan-2 contract).
         let (prog, _args) = SudoPrivileged::hosts_cp_command(std::path::Path::new("/tmp/h"));
         assert_eq!(prog, "sudo");
-    }
-
-    #[test]
-    fn fake_records_apt_installs() {
-        let f = FakePrivileged::new();
-        let log = f.apt_installs();
-        f.apt_install(&["nginx".to_string()]).unwrap();
-        assert_eq!(log.lock().unwrap().len(), 1);
-        assert_eq!(log.lock().unwrap()[0], vec!["nginx".to_string()]);
-    }
-
-    #[test]
-    fn add_repo_argv_builds_add_apt_repository() {
-        let argv = add_repo_argv("ppa:ondrej/php");
-        assert_eq!(argv, vec!["add-apt-repository".to_string(), "-y".to_string(), "ppa:ondrej/php".to_string()]);
-    }
-
-    #[test]
-    fn fake_records_add_repos() {
-        let f = FakePrivileged::new();
-        let log = f.add_repos();
-        f.add_apt_repository("ppa:ondrej/php").unwrap();
-        assert_eq!(log.lock().unwrap().as_slice(), &["ppa:ondrej/php".to_string()]);
     }
 
     #[test]
@@ -360,24 +262,6 @@ mod tests {
         f.disable_system_services(&["nginx".to_string()]).unwrap();
         assert_eq!(log.lock().unwrap().len(), 1);
         assert_eq!(log.lock().unwrap()[0], vec!["nginx".to_string()]);
-    }
-
-    #[test]
-    fn mariadb_apparmor_argv_runs_parser_with_laragon_rule() {
-        let argv = mariadb_apparmor_argv();
-        assert_eq!(argv[0], "sh");
-        assert_eq!(argv[1], "-c");
-        assert!(argv[2].contains("laragon"));
-        assert!(argv[2].contains("/etc/apparmor.d/local/mariadbd"));
-        assert!(argv[2].contains("apparmor_parser -r /etc/apparmor.d/mariadbd"));
-    }
-
-    #[test]
-    fn fake_records_apparmor_configured() {
-        let f = FakePrivileged::new();
-        assert!(!f.mariadb_apparmor_configured());
-        f.allow_mariadb_apparmor().unwrap();
-        assert!(f.mariadb_apparmor_configured());
     }
 
     #[test]
