@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
@@ -39,6 +39,8 @@ pub struct Config {
     pub shell_integration: bool,
     #[serde(default)]
     pub versions: BTreeMap<String, String>,
+    #[serde(default)]
+    pub symlinks: BTreeSet<String>,
 }
 
 fn default_tld() -> String {
@@ -50,7 +52,7 @@ fn default_php() -> String {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), shell_integration: false, versions: BTreeMap::new() }
+        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), shell_integration: false, versions: BTreeMap::new(), symlinks: BTreeSet::new() }
     }
 }
 
@@ -152,5 +154,23 @@ mod tests {
         let c = Config::load(&tmp).unwrap();
         assert_eq!(c.tool_version("php"), Some("8.3"));
         std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn symlinks_field_defaults_empty_and_roundtrips() {
+        let mut c = Config::default();
+        assert!(c.symlinks.is_empty());
+        c.symlinks.insert("php".to_string());
+        let toml = toml::to_string(&c).unwrap();
+        let back: Config = toml::from_str(&toml).unwrap();
+        assert!(back.symlinks.contains("php"));
+    }
+
+    #[test]
+    fn old_config_without_symlinks_or_with_stale_keys_loads() {
+        // Stale `shell_integration` key (removed in a later task) must not break loading;
+        // missing `symlinks` defaults to empty.
+        let c: Config = toml::from_str("tld = \"dev\"\nphp_version = \"8.4\"\nshell_integration = true\n").unwrap();
+        assert!(c.symlinks.is_empty());
     }
 }
