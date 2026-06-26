@@ -79,7 +79,7 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
     match component {
         Component::Nginx => Vec::new(),
         Component::Php => Vec::new(),
-        Component::Mariadb => vec!["mariadb-server".to_string()],
+        Component::Mariadb => Vec::new(),
         Component::Redis => Vec::new(),
         Component::Mkcert => Vec::new(),
         Component::Mailpit => Vec::new(),
@@ -217,6 +217,7 @@ pub struct SetupReport {
     pub mkcert_fetched: bool,
     pub mkcert_ca: bool,
     pub nginx_setcap: bool,
+    pub mariadb_fetched: bool,
     pub php_version: Option<String>,
     pub errors: Vec<String>,
 }
@@ -252,6 +253,7 @@ pub fn run_setup(
         mkcert_fetched: false,
         mkcert_ca: false,
         nginx_setcap: false,
+        mariadb_fetched: false,
         php_version: None,
         errors: Vec::new(),
     };
@@ -263,15 +265,8 @@ pub fn run_setup(
     let total = missing.len();
     let mut done = 0usize;
 
-    // 1. Install missing apt components (core stack only; PHP is static, below).
-    let apt_packages: Vec<String> =
-        missing.iter().flat_map(|&c| apt_packages_for(c)).collect();
-    report.apt_packages = apt_packages.clone();
-    if !apt_packages.is_empty() {
-        if let Err(e) = privileged.apt_install(&apt_packages) {
-            report.errors.push(format!("apt_install: {e}"));
-        }
-    }
+    // All stack components are downloaded now — nothing is installed via apt.
+    report.apt_packages = Vec::new();
 
     // 1b. Install PHP from a static build (no apt/distro PHP) when missing.
     if missing.contains(&Component::Php) {
@@ -329,6 +324,16 @@ pub fn run_setup(
         match crate::redis_static::install_redis(paths, downloader, runner, sink) {
             Ok(ver) => { report.redis_fetched = true; record_version(paths, "redis", &ver); }
             Err(e) => report.errors.push(format!("install redis: {e}")),
+        }
+        done += 1;
+    }
+
+    // 1g. Install MariaDB from a static tarball (no apt) when missing.
+    if missing.contains(&Component::Mariadb) {
+        sink.emit(ProgressEvent::Step { done, total, label: Component::Mariadb.label().to_string() });
+        match crate::mariadb_static::install_mariadb(paths, downloader, runner, sink) {
+            Ok(ver) => { report.mariadb_fetched = true; record_version(paths, "mariadb", &ver); }
+            Err(e) => report.errors.push(format!("install mariadb: {e}")),
         }
         done += 1;
     }
@@ -404,12 +409,6 @@ pub fn run_setup(
         }
     }
 
-    // Ubuntu's mariadb AppArmor profile confines mariadbd to standard paths;
-    // allow it into ~/laragon so the app-managed datadir works.
-    if let Err(e) = privileged.allow_mariadb_apparmor() {
-        report.errors.push(format!("mariadb apparmor: {e}"));
-    }
-
     // Reconcile all `current` symlinks from the freshly-written config.
     let cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
     for w in crate::layout::apply_versions(paths, &cfg) {
@@ -466,9 +465,8 @@ mod tests {
     }
 
     #[test]
-    fn mariadb_has_apt_package() {
-        let pkgs = apt_packages_for(Component::Mariadb);
-        assert!(pkgs.contains(&"mariadb-server".to_string()));
+    fn mariadb_has_no_apt_package() {
+        assert!(apt_packages_for(Component::Mariadb).is_empty());
     }
 
     #[test]
@@ -512,19 +510,6 @@ mod tests {
         let _ = run_setup(&paths, &priv_, &dl, &runner, &crate::progress::NullProgress);
         // Hermetic: regardless of what's installed, we never add a PPA.
         assert!(add_repos.lock().unwrap().is_empty());
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn run_setup_configures_mariadb_apparmor() {
-        let root = std::env::temp_dir().join(format!("lara-aa-{}", std::process::id()));
-        std::fs::create_dir_all(root.join("bin")).unwrap();
-        let paths = LaragonPaths::new(root.clone());
-        let priv_ = FakePrivileged::new();
-        let dl = FakeDownloader::new();
-        let runner = crate::scaffold::FakeCommandRunner::new();
-        let _ = run_setup(&paths, &priv_, &dl, &runner, &crate::progress::NullProgress);
-        assert!(priv_.mariadb_apparmor_configured());
         std::fs::remove_dir_all(&root).ok();
     }
 
