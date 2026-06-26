@@ -3,14 +3,10 @@ use laragon_core::{
     ensure_nginx_bind_cap, list_all_sites, resolved_dropin, run_setup, sync_sites, Config,
     CreateReport, LaragonPaths, MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged,
     ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site,
-    SiteRegistry, SiteTemplate, ensure_active_php_cli,
+    SiteRegistry, SiteTemplate,
 };
 use laragon_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laragon_core::service::php_fpm::PhpFpmService;
-use laragon_core::{
-    install_php_static, php_versions as core_php_versions,
-    PhpVersionInfo,
-};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
@@ -401,67 +397,6 @@ pub async fn update_proxy(
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub fn php_versions(state: tauri::State<AppState>) -> Result<Vec<PhpVersionInfo>, String> {
-    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
-    Ok(core_php_versions(&state.paths, &config.php_version))
-}
-
-#[tauri::command]
-pub async fn install_php_version(
-    app: tauri::AppHandle,
-    version: String,
-) -> Result<Vec<PhpVersionInfo>, String> {
-    let app_for_progress = app.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PhpVersionInfo>, String> {
-        let state = app.state::<AppState>();
-        let progress = TauriProgress(app_for_progress);
-        let _full = install_php_static(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress)
-            .map_err(|e| e.to_string())?;
-        // install_php_static repoints bin/php/current to the just-installed version;
-        // restore the configured active version so a non-active install never
-        // hijacks the live pointer (config is the source of truth).
-        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let _ = laragon_core::apply_versions(&state.paths, &config);
-        Ok(core_php_versions(&state.paths, &config.php_version))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn set_php_version(
-    app: tauri::AppHandle,
-    version: String,
-) -> Result<Vec<ServiceStatus>, String> {
-    let app_for_progress = app.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
-        let state = app.state::<AppState>();
-        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
-        let installed = laragon_core::php_versions(&state.paths, &config.php_version);
-        if !installed.iter().any(|p| p.version == version && p.installed) {
-            return Err(format!("PHP {version} is not installed"));
-        }
-        let full = laragon_core::resolve_installed_version(&state.paths, "php", &version).unwrap_or_else(|| version.clone());
-        config.versions.insert("php".to_string(), full.clone());
-        config.php_version = full;
-        config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
-
-        let mut orch = state.orch.lock().map_err(lock_err)?;
-        orch.replace_php_version(&version).map_err(|e| e.to_string())?;
-        let snapshot = orch.snapshot();
-        drop(orch);
-
-        // Point the CLI `php` (and composer) at the new active version; download
-        // the cli binary if a pre-static-cli version only had php-fpm.
-        let progress = TauriProgress(app_for_progress);
-        let _ = ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress);
-
-        Ok(snapshot)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
 
 #[tauri::command]
 pub fn tool_versions(
