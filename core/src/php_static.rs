@@ -113,7 +113,12 @@ pub fn install_php_static(
     // Build the cli URL for the identical patch — no second index lookup that could drift.
     let url_cli = format!("{STATIC_PHP_BASE}/php-{full}-cli-linux-{arch}.tar.gz");
     let dir = paths.version_dir("php", &full);
+    // Two files (fpm, cli) — report them as 2 steps so the UI shows a single
+    // overall fill (0→100%) across both, instead of two 0→100% per-file resets.
+    let label = format!("PHP {full}");
+    sink.emit(crate::progress::ProgressEvent::Step { done: 0, total: 2, label: label.clone() });
     download_static_php(paths, &full, "fpm", "php-fpm", &dir, "php-fpm", &url_fpm, downloader, runner, sink)?;
+    sink.emit(crate::progress::ProgressEvent::Step { done: 1, total: 2, label });
     download_static_php(paths, &full, "cli", "php", &dir, "php", &url_cli, downloader, runner, sink)?;
     crate::layout::set_current(paths, "php", &full)?;
     Ok(full)
