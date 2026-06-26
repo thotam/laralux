@@ -25,6 +25,7 @@ pub mod nginx_static;
 pub mod redis_static;
 pub mod mariadb_static;
 pub mod layout;
+pub mod orphans;
 pub mod progress;
 
 pub use bin::ensure_nginx_bind_cap;
@@ -55,3 +56,4 @@ pub use mkcert_static::{install_mkcert, MkcertError};
 pub use nginx_static::{install_nginx, NginxError};
 pub use redis_static::{install_redis, RedisError};
 pub use mariadb_static::{install_mariadb, MariadbError};
+pub use orphans::reap as reap_orphans;

@@ -111,6 +111,10 @@ impl Orchestrator {
         if was_running {
             let _ = self.stop(ServiceKind::PhpFpm);
         }
+        // Reap any orphan php-fpm (master + workers) under bin/php and ensure the
+        // just-stopped master is fully dead before the new version binds the
+        // socket. Other tools live outside bin/php, so they are never touched.
+        let _ = crate::orphans::reap(&self.paths.bin().join("php"), &self.tracked_pids());
         let full = crate::layout::resolve_installed_version(&self.paths, "php", version)
             .unwrap_or_else(|| version.to_string());
         crate::layout::set_current(&self.paths, "php", &full)
@@ -182,7 +186,24 @@ impl Orchestrator {
         ordered
     }
 
+    /// Tracked PIDs of every live handle — the set a reap must NOT kill.
+    fn tracked_pids(&self) -> Vec<u32> {
+        self.handles.values().map(|h| h.pid()).collect()
+    }
+
+    /// Kill any *managed* process (executable under `bin/`) that this
+    /// orchestrator does not track — an orphan left running by a prior session
+    /// that would otherwise hold a port/socket/datadir lock and crash the fresh
+    /// service. Live (tracked) services are kept. Best-effort; returns reaped PIDs.
+    pub fn reap_orphans(&mut self) -> Vec<u32> {
+        let keep = self.tracked_pids();
+        crate::orphans::reap(&self.paths.bin(), &keep)
+    }
+
     pub fn start_all(&mut self) -> Result<(), ServiceError> {
+        // Clear orphans from a prior session before spawning, so the fresh
+        // stack does not collide with leftovers on ports/sockets/locks.
+        let _ = self.reap_orphans();
         for kind in self.start_order() {
             self.start(kind)?;
         }
