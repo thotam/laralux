@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
@@ -12,7 +12,7 @@ pub enum PrivError {
 /// Operations that require elevated privileges or external trust stores.
 pub trait Privileged: Send + Sync {
     fn write_etc_hosts(&self, new_content: &str) -> Result<(), PrivError>;
-    fn install_mkcert_ca(&self) -> Result<(), PrivError>;
+    fn install_mkcert_ca(&self, mkcert_bin: &Path) -> Result<(), PrivError>;
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError>;
     fn apt_install(&self, packages: &[String]) -> Result<(), PrivError>;
     fn add_apt_repository(&self, repo: &str) -> Result<(), PrivError>;
@@ -114,8 +114,8 @@ impl Privileged for SudoPrivileged {
         std::fs::write(&tmp, new_content)?;
         run_escalated("sudo", &cp_argv(&tmp))
     }
-    fn install_mkcert_ca(&self) -> Result<(), PrivError> {
-        run_escalated("mkcert", &["-install".to_string()])
+    fn install_mkcert_ca(&self, mkcert_bin: &Path) -> Result<(), PrivError> {
+        run_escalated(&mkcert_bin.display().to_string(), &["-install".to_string()])
     }
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError> {
         run_escalated("sudo", &setcap_argv(nginx_bin))
@@ -151,8 +151,8 @@ impl Privileged for PkexecPrivileged {
         std::fs::write(&tmp, new_content)?;
         run_escalated("pkexec", &cp_argv(&tmp))
     }
-    fn install_mkcert_ca(&self) -> Result<(), PrivError> {
-        run_escalated("mkcert", &["-install".to_string()])
+    fn install_mkcert_ca(&self, mkcert_bin: &Path) -> Result<(), PrivError> {
+        run_escalated(&mkcert_bin.display().to_string(), &["-install".to_string()])
     }
     fn setcap_nginx(&self, nginx_bin: &Path) -> Result<(), PrivError> {
         run_escalated("pkexec", &setcap_argv(nginx_bin))
@@ -182,7 +182,7 @@ impl Privileged for PkexecPrivileged {
 #[derive(Clone, Default)]
 pub struct FakePrivileged {
     hosts_writes: Arc<Mutex<Vec<String>>>,
-    installed_ca: Arc<Mutex<bool>>,
+    mkcert_ca_path: Arc<Mutex<Option<PathBuf>>>,
     setcap_done: Arc<Mutex<bool>>,
     apt_installs: Arc<Mutex<Vec<Vec<String>>>>,
     add_repos: Arc<Mutex<Vec<String>>>,
@@ -199,8 +199,13 @@ impl FakePrivileged {
     pub fn hosts_writes(&self) -> Arc<Mutex<Vec<String>>> {
         self.hosts_writes.clone()
     }
+    /// Returns true if `install_mkcert_ca` was called at least once.
     pub fn installed_ca(&self) -> bool {
-        *self.installed_ca.lock().unwrap()
+        self.mkcert_ca_path.lock().unwrap().is_some()
+    }
+    /// Returns the path that was passed to `install_mkcert_ca`, if called.
+    pub fn mkcert_ca_path(&self) -> Option<PathBuf> {
+        self.mkcert_ca_path.lock().unwrap().clone()
     }
     pub fn apt_installs(&self) -> Arc<Mutex<Vec<Vec<String>>>> {
         self.apt_installs.clone()
@@ -227,8 +232,8 @@ impl Privileged for FakePrivileged {
         self.hosts_writes.lock().unwrap().push(new_content.to_string());
         Ok(())
     }
-    fn install_mkcert_ca(&self) -> Result<(), PrivError> {
-        *self.installed_ca.lock().unwrap() = true;
+    fn install_mkcert_ca(&self, mkcert_bin: &Path) -> Result<(), PrivError> {
+        *self.mkcert_ca_path.lock().unwrap() = Some(mkcert_bin.to_path_buf());
         Ok(())
     }
     fn setcap_nginx(&self, _nginx_bin: &Path) -> Result<(), PrivError> {

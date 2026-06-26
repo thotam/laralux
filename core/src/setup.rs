@@ -66,7 +66,7 @@ pub fn detect(paths: &LaragonPaths) -> Vec<ComponentStatus> {
                 Component::Composer => crate::bin::resolve_bin("composer", &crate::layout::managed_bin_dirs(paths)).is_some(),
                 other => {
                     let name = detect_binary(other);
-                    resolve_bin(&name, &[paths.bin()]).is_some()
+                    resolve_bin(&name, &crate::layout::managed_bin_dirs(paths)).is_some()
                 }
             };
             ComponentStatus { component, present }
@@ -77,11 +77,11 @@ pub fn detect(paths: &LaragonPaths) -> Vec<ComponentStatus> {
 /// The apt packages that install a component (empty for mailpit, which is downloaded).
 pub fn apt_packages_for(component: Component) -> Vec<String> {
     match component {
-        Component::Nginx => vec!["nginx".to_string()],
+        Component::Nginx => Vec::new(),
         Component::Php => Vec::new(),
         Component::Mariadb => vec!["mariadb-server".to_string()],
-        Component::Redis => vec!["redis-server".to_string()],
-        Component::Mkcert => vec!["mkcert".to_string(), "libnss3-tools".to_string()],
+        Component::Redis => Vec::new(),
+        Component::Mkcert => Vec::new(),
         Component::Mailpit => Vec::new(),
         Component::Composer => Vec::new(),
     }
@@ -212,6 +212,9 @@ pub struct SetupReport {
     pub apt_packages: Vec<String>,
     pub mailpit_fetched: bool,
     pub composer_fetched: bool,
+    pub nginx_fetched: bool,
+    pub redis_fetched: bool,
+    pub mkcert_fetched: bool,
     pub mkcert_ca: bool,
     pub nginx_setcap: bool,
     pub php_version: Option<String>,
@@ -221,6 +224,13 @@ pub struct SetupReport {
 /// Distro systemd stack units to disable: nginx, mariadb, redis-server.
 fn stack_units_to_disable() -> Vec<String> {
     vec!["nginx".to_string(), "mariadb".to_string(), "redis-server".to_string()]
+}
+
+/// Persist a tool version into config.versions (used by apply_versions for `current` symlinks).
+fn record_version(paths: &LaragonPaths, tool: &str, version: &str) {
+    let mut cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+    cfg.versions.insert(tool.to_string(), version.to_string());
+    let _ = cfg.save(&paths.config_file());
 }
 
 /// Install missing components, fetch mailpit, install the mkcert CA, and setcap nginx.
@@ -237,6 +247,9 @@ pub fn run_setup(
         apt_packages: Vec::new(),
         mailpit_fetched: false,
         composer_fetched: false,
+        nginx_fetched: false,
+        redis_fetched: false,
+        mkcert_fetched: false,
         mkcert_ca: false,
         nginx_setcap: false,
         php_version: None,
@@ -286,6 +299,36 @@ pub fn run_setup(
             report.errors.push(format!("install composer: {e}"));
         } else {
             report.composer_fetched = true;
+        }
+        done += 1;
+    }
+
+    // 1d. Install mkcert from a static build (no apt) when missing.
+    if missing.contains(&Component::Mkcert) {
+        sink.emit(ProgressEvent::Step { done, total, label: Component::Mkcert.label().to_string() });
+        match crate::mkcert_static::install_mkcert(paths, downloader, sink) {
+            Ok(ver) => { report.mkcert_fetched = true; record_version(paths, "mkcert", &ver); }
+            Err(e) => report.errors.push(format!("install mkcert: {e}")),
+        }
+        done += 1;
+    }
+
+    // 1e. Install nginx from a static build (no apt) when missing.
+    if missing.contains(&Component::Nginx) {
+        sink.emit(ProgressEvent::Step { done, total, label: Component::Nginx.label().to_string() });
+        match crate::nginx_static::install_nginx(paths, downloader, sink) {
+            Ok(ver) => { report.nginx_fetched = true; record_version(paths, "nginx", &ver); }
+            Err(e) => report.errors.push(format!("install nginx: {e}")),
+        }
+        done += 1;
+    }
+
+    // 1f. Install redis (Valkey) from a static build (no apt) when missing.
+    if missing.contains(&Component::Redis) {
+        sink.emit(ProgressEvent::Step { done, total, label: Component::Redis.label().to_string() });
+        match crate::redis_static::install_redis(paths, downloader, runner, sink) {
+            Ok(ver) => { report.redis_fetched = true; record_version(paths, "redis", &ver); }
+            Err(e) => report.errors.push(format!("install redis: {e}")),
         }
         done += 1;
     }
@@ -345,9 +388,12 @@ pub fn run_setup(
     }
 
     // 3. Install the mkcert local CA (idempotent).
-    match privileged.install_mkcert_ca() {
-        Ok(()) => report.mkcert_ca = true,
-        Err(e) => report.errors.push(format!("mkcert -install: {e}")),
+    match crate::bin::resolve_bin("mkcert", &crate::layout::managed_bin_dirs(paths)) {
+        Some(mk) => match privileged.install_mkcert_ca(&mk) {
+            Ok(()) => report.mkcert_ca = true,
+            Err(e) => report.errors.push(format!("mkcert -install: {e}")),
+        },
+        None => report.errors.push("mkcert -install: mkcert not found".to_string()),
     }
 
     // 4. setcap the resolved nginx binary (same path the orchestrator spawns).
@@ -405,10 +451,24 @@ mod tests {
     }
 
     #[test]
-    fn mkcert_includes_nss_tools() {
-        let pkgs = apt_packages_for(Component::Mkcert);
-        assert!(pkgs.contains(&"mkcert".to_string()));
-        assert!(pkgs.contains(&"libnss3-tools".to_string()));
+    fn mkcert_has_no_apt_package() {
+        assert!(apt_packages_for(Component::Mkcert).is_empty());
+    }
+
+    #[test]
+    fn nginx_has_no_apt_package() {
+        assert!(apt_packages_for(Component::Nginx).is_empty());
+    }
+
+    #[test]
+    fn redis_has_no_apt_package() {
+        assert!(apt_packages_for(Component::Redis).is_empty());
+    }
+
+    #[test]
+    fn mariadb_has_apt_package() {
+        let pkgs = apt_packages_for(Component::Mariadb);
+        assert!(pkgs.contains(&"mariadb-server".to_string()));
     }
 
     #[test]
