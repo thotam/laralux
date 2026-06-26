@@ -536,6 +536,36 @@ pub async fn set_tool_version(
 }
 
 #[tauri::command]
+pub fn tool_symlinks(state: tauri::State<AppState>) -> Result<Vec<String>, String> {
+    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    Ok(config.symlinks.into_iter().collect())
+}
+
+#[tauri::command]
+pub async fn set_tool_symlink(
+    app: tauri::AppHandle,
+    tool: String,
+    enabled: bool,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>, String> {
+        let state = app.state::<AppState>();
+        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+        if enabled {
+            laragon_core::link_tool(&state.paths, t, &PkexecPrivileged).map_err(|e| e.to_string())?;
+        } else {
+            laragon_core::unlink_tool(t, &PkexecPrivileged).map_err(|e| e.to_string())?;
+        }
+        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let k = laragon_core::tools::key(t).to_string();
+        if enabled { config.symlinks.insert(k); } else { config.symlinks.remove(&k); }
+        config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
+        Ok(config.symlinks.into_iter().collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn terminal_integration_status(state: tauri::State<AppState>) -> Result<bool, String> {
     let config = Config::load(&state.paths.config_file()).unwrap_or_default();
     Ok(config.shell_integration)
