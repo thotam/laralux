@@ -105,9 +105,10 @@ button:disabled { cursor:not-allowed; }
 .spinner.primary-lg { width:18px; height:18px; border:2.5px solid var(--border); border-top-color:var(--primary); }
 
 /* ---- pkexec banner ---- */
-/* Live sudo/pkexec prompt — same rounded-card treatment as Setup's .auth-note. */
+/* Live sudo/pkexec prompt — rendered inside .main (content area, like Setup's
+   .auth-note), so .main's padding + flex gap handle placement (no own margin). */
 .pkexec {
-  display:flex; align-items:center; gap:9px; flex:none; margin:12px 16px 0; padding:10px 12px;
+  display:flex; align-items:center; gap:9px; flex:none; padding:10px 12px;
   background:var(--warning-weak); border:1px solid var(--border); border-radius:9px; color:var(--warning);
 }
 .pkexec .msg { font-size:12.5px; font-weight:500; color:var(--text); }

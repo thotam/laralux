@@ -1121,8 +1121,7 @@
     const html =
       '<div class="root" data-compact="' + state.compact + '">' +
       header() +
-      pkexecBanner() +
-      '<div class="body">' + sidebar() + '<main class="main">' + main + "</main></div>" +
+      '<div class="body">' + sidebar() + '<main class="main">' + pkexecBanner() + main + "</main></div>" +
       toasts() +
       modalHtml +
       toolModal() +
