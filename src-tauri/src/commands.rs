@@ -450,7 +450,24 @@ pub async fn set_tool_version(
         }
         config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
 
-        let snapshot = {
+        let snapshot = if t == laragon_core::tools::ManagedTool::Nginx {
+            // nginx can't use the generic replace_version: the new binary file needs
+            // cap_net_bind_service re-applied (setcap) AFTER `current` is repointed and
+            // BEFORE start, or it can't bind :80/:443. So: stop -> set_current -> setcap -> start.
+            let was_running = {
+                let mut orch = state.orch.lock().map_err(lock_err)?;
+                let running = orch.state(ServiceKind::Nginx) == ServiceState::Running;
+                if running { let _ = orch.stop(ServiceKind::Nginx); }
+                running
+            };
+            laragon_core::set_current(&state.paths, "nginx", &full).map_err(|e| e.to_string())?;
+            ensure_nginx_bind_cap(&state.paths, &PkexecPrivileged);
+            let mut orch = state.orch.lock().map_err(lock_err)?;
+            if was_running {
+                orch.start(ServiceKind::Nginx).map_err(|e| e.to_string())?;
+            }
+            orch.snapshot()
+        } else {
             let mut orch = state.orch.lock().map_err(lock_err)?;
             match info.service_kind {
                 Some(kind) => { orch.replace_version(kind, info.key, &version).map_err(|e| e.to_string())?; }
