@@ -101,6 +101,11 @@ pub fn available_versions(tool: ManagedTool, paths: &LaragonPaths) -> Vec<ToolVe
             crate::layout::installed_versions(paths, "mariadb"),
             &cfg.versions.get("mariadb").cloned().unwrap_or_default(),
         ),
+        ManagedTool::Redis => known_catalog(
+            &crate::redis_static::KNOWN_REDIS_VERSIONS,
+            crate::layout::installed_versions(paths, "redis"),
+            &cfg.versions.get("redis").cloned().unwrap_or_default(),
+        ),
         other => {
             let k = key(other);
             let active = cfg.versions.get(k).cloned().unwrap_or_default();
@@ -128,6 +133,8 @@ pub fn install_version(
         ManagedTool::Nginx => crate::nginx_static::install_nginx_version(paths, version, downloader, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Mariadb => crate::mariadb_static::install_mariadb_version(paths, version, downloader, runner, sink)
+            .map_err(|e| ToolError::Install(e.to_string())),
+        ManagedTool::Redis => crate::redis_static::install_redis_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         _ => Err(ToolError::Unsupported),
     }
@@ -178,13 +185,13 @@ mod tests {
 
     #[test]
     fn single_version_tool_lists_installed_only() {
-        let root = std::env::temp_dir().join(format!("lara-tools-rd-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("lara-tools-mp-{}", std::process::id()));
         let paths = LaragonPaths::new(root.clone());
-        // Redis is still single-version: only the installed version is listed.
-        std::fs::create_dir_all(paths.version_dir("redis", "9.1.0")).unwrap();
-        let vs = available_versions(ManagedTool::Redis, &paths);
+        // Mailpit is still single-version: only the installed version is listed.
+        std::fs::create_dir_all(paths.version_dir("mailpit", "1.20.0")).unwrap();
+        let vs = available_versions(ManagedTool::Mailpit, &paths);
         assert_eq!(vs.len(), 1);
-        assert_eq!(vs[0].version, "9.1.0");
+        assert_eq!(vs[0].version, "1.20.0");
         assert!(vs[0].installed);
         std::fs::remove_dir_all(&root).ok();
     }
@@ -217,10 +224,22 @@ mod tests {
     }
 
     #[test]
+    fn redis_available_versions_includes_known_set_newest_first() {
+        let root = std::env::temp_dir().join(format!("lara-tools-rds-{}", std::process::id()));
+        let paths = LaragonPaths::new(root.clone());
+        std::fs::create_dir_all(paths.version_dir("redis", "8.0.4")).unwrap();
+        let vs = available_versions(ManagedTool::Redis, &paths);
+        assert_eq!(vs.len(), crate::redis_static::KNOWN_REDIS_VERSIONS.len());
+        assert!(vs.iter().find(|v| v.version == "8.0.4").unwrap().installed);
+        assert_eq!(vs[0].version, "9.1.0"); // newest first
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn install_version_unsupported_for_truly_single_version_tool() {
         let paths = LaragonPaths::new("/tmp/lara".into());
         let err = install_version(
-            ManagedTool::Redis, &paths, "9.1.0",
+            ManagedTool::Mailpit, &paths, "1.20.0",
             &crate::setup::FakeDownloader::new(), &crate::scaffold::FakeCommandRunner::new(),
             &crate::progress::NullProgress,
         );
