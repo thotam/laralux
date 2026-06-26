@@ -89,9 +89,10 @@
     siteDomains: { name: "", domains: [""], busy: false, error: "" },
     phpVersions: [],
     phpBusy: false,
+    phpBusyVersion: null,
     terminalIntegration: false,
     termBusy: false,
-    download: { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 } },
+    download: { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 },
   };
 
   // ---- helpers ----
@@ -115,7 +116,16 @@
 
   // ---- download progress helpers ----
   function resetDownload() {
-    state.download = { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 } };
+    state.download = { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 };
+  }
+  // Combine step (files done / total) + the current file's byte fraction into a
+  // single OVERALL fraction (0..1) for the whole operation, clamped monotonic so
+  // it only ever fills forward — never resets per file (which would mislead).
+  function computeOverall() {
+    const d = state.download;
+    const byteFrac = d.bytes.total > 0 ? Math.min(1, d.bytes.current / d.bytes.total) : 0;
+    const raw = d.step.total > 0 ? (d.step.done + byteFrac) / d.step.total : byteFrac;
+    d.overall = Math.max(d.overall, Math.min(1, raw));
   }
   function applyProgress(p) {
     if (!p || !p.kind) return;
@@ -123,6 +133,7 @@
     if (p.kind === "phase") state.download.label = String(p.label || "");
     else if (p.kind === "step") { state.download.step = { done: p.done | 0, total: p.total | 0 }; if (p.label) state.download.label = String(p.label); }
     else if (p.kind === "bytes") state.download.bytes = { current: Number(p.current) || 0, total: Number(p.total) || 0 };
+    computeOverall();
   }
 
   // ---- toasts ----
@@ -175,7 +186,7 @@
 
   async function usePhp(version) {
     if (state.phpBusy) return;
-    state.phpBusy = true; render();
+    state.phpBusy = true; state.phpBusyVersion = version; render();
     try {
       const arr = await invoke("set_php_version", { version });
       applyServices(arr);
@@ -184,14 +195,14 @@
     } catch (e) {
       toast({ type: "error", title: "Switch failed", msg: String(e) });
     } finally {
-      state.phpBusy = false; render();
+      state.phpBusy = false; state.phpBusyVersion = null; resetDownload(); render();
     }
   }
 
   async function installPhp(version) {
     if (state.phpBusy) return;
-    state.phpBusy = true; render();
-    state.download.active = true; state.download.label = "Downloading PHP " + version + "…"; render();
+    state.phpBusy = true; state.phpBusyVersion = version; render();
+    state.download.active = true; render();
     try {
       const v = await invoke("install_php_version", { version });
       state.phpVersions = Array.isArray(v) ? v : [];
@@ -200,6 +211,7 @@
       toast({ type: "error", title: "Install failed", msg: String(e) });
     } finally {
       state.phpBusy = false;
+      state.phpBusyVersion = null;
       resetDownload();
       render();
     }
@@ -285,9 +297,9 @@
     if (state.busy || state.setup.phase === "installing") return;
     state.busy = true;
     state.setup.phase = "installing";
-    state.pkexecMsg = "Authorize package installation (apt) — enter your password in the system prompt.";
-    render();
-    state.download.active = true; state.download.label = "Installing components…"; render();
+    // The auth prompt is shown inline in the install card (.auth-note), not the
+    // global top banner — avoids the duplicate, prettier on the Setup tab.
+    state.download.active = true; render();
     try {
       const report = await invoke("run_setup_cmd");
       state.setup.report = report;
@@ -586,55 +598,38 @@
     return '<span class="spin spinner ' + klass + '"></span>';
   }
 
+  // Small inline ring that fills to the OVERALL fraction (no % number). Stable
+  // DOM (determinate + spin circle both present, toggled via `.ring-hide`) so
+  // updateRing() can mutate it in place without a full re-render. Spins
+  // indeterminately until the first progress (overall === 0), then fills.
   function progressRing() {
     const d = state.download;
-    const R1 = 26, R2 = 18, C1 = 2 * Math.PI * R1, C2 = 2 * Math.PI * R2;
-    const stepFrac = d.step.total > 0 ? d.step.done / d.step.total : 0;
-    const byteKnown = d.bytes.total > 0;
-    const byteFrac = byteKnown ? Math.min(1, d.bytes.current / d.bytes.total) : 0;
-    const pct = byteKnown ? Math.round(byteFrac * 100) + "%"
-      : (d.step.total > 0 ? d.step.done + "/" + d.step.total : "");
-    const off = (frac, C) => C * (1 - frac);
-    // Stable DOM structure: BOTH inner circles are always present and toggled via
-    // `.ring-hide`, so progress ticks can update the ring in place (see updateRing)
-    // without a full re-render that would reset the user's scroll position.
+    const R = 9, C = 2 * Math.PI * R;
+    const has = d.overall > 0;
+    const off = C * (1 - Math.min(1, d.overall));
     return (
-      '<div class="ring" role="status" aria-label="Downloading">' +
-      '<svg width="64" height="64" viewBox="0 0 64 64">' +
-      '<circle class="ring-bg" cx="32" cy="32" r="' + R1 + '"/>' +
-      '<circle class="ring-fg outer" cx="32" cy="32" r="' + R1 + '" stroke-dasharray="' + C1 + '" stroke-dashoffset="' + off(stepFrac, C1) + '"/>' +
-      '<circle class="ring-bg" cx="32" cy="32" r="' + R2 + '"/>' +
-      '<circle class="ring-fg inner' + (byteKnown ? '' : ' ring-hide') + '" cx="32" cy="32" r="' + R2 + '" stroke-dasharray="' + C2 + '" stroke-dashoffset="' + off(byteFrac, C2) + '"/>' +
-      '<circle class="ring-spin spin' + (byteKnown ? ' ring-hide' : '') + '" cx="32" cy="32" r="' + R2 + '" stroke-dasharray="' + (C2 * 0.25) + ' ' + C2 + '"/>' +
-      '<text class="ring-pct" x="32" y="36" text-anchor="middle">' + esc(pct) + '</text>' +
-      '</svg>' +
-      '<span class="ring-label">' + esc(d.label || "") + '</span>' +
-      '</div>'
+      '<span class="ring-sm" role="status" aria-label="Downloading">' +
+      '<svg width="22" height="22" viewBox="0 0 22 22">' +
+      '<circle class="ring-bg" cx="11" cy="11" r="' + R + '"/>' +
+      '<circle class="ring-fg' + (has ? '' : ' ring-hide') + '" cx="11" cy="11" r="' + R + '" stroke-dasharray="' + C + '" stroke-dashoffset="' + off + '"/>' +
+      '<circle class="ring-spin spin' + (has ? ' ring-hide' : '') + '" cx="11" cy="11" r="' + R + '" stroke-dasharray="' + (C * 0.25) + ' ' + C + '"/>' +
+      '</svg></span>'
     );
   }
 
-  // Update the on-screen ring in place from state.download — no innerHTML churn,
-  // so the page scroll/focus is preserved during rapid byte-progress ticks. Falls
-  // back to a full render() only when the ring isn't mounted yet.
+  // Update the on-screen ring in place from state.download.overall — no innerHTML
+  // churn, so scroll/focus are preserved during rapid progress ticks. Falls back
+  // to a full render() only when the ring isn't mounted yet.
   function updateRing() {
-    const ring = document.querySelector(".ring");
-    if (!ring) { render(); return; }
+    const ring = document.querySelector(".ring-sm");
+    if (!ring) return; // ring is mounted by the handler before the op starts; nothing to update otherwise
     const d = state.download;
-    const R1 = 26, R2 = 18, C1 = 2 * Math.PI * R1, C2 = 2 * Math.PI * R2;
-    const stepFrac = d.step.total > 0 ? d.step.done / d.step.total : 0;
-    const byteKnown = d.bytes.total > 0;
-    const byteFrac = byteKnown ? Math.min(1, d.bytes.current / d.bytes.total) : 0;
-    const off = (frac, C) => C * (1 - frac);
-    const outer = ring.querySelector(".ring-fg.outer");
-    if (outer) outer.setAttribute("stroke-dashoffset", off(stepFrac, C1));
-    const inner = ring.querySelector(".ring-fg.inner");
-    if (inner) { inner.setAttribute("stroke-dashoffset", off(byteFrac, C2)); inner.classList.toggle("ring-hide", !byteKnown); }
+    const R = 9, C = 2 * Math.PI * R;
+    const has = d.overall > 0;
+    const fg = ring.querySelector(".ring-fg");
+    if (fg) { fg.setAttribute("stroke-dashoffset", C * (1 - Math.min(1, d.overall))); fg.classList.toggle("ring-hide", !has); }
     const spin = ring.querySelector(".ring-spin");
-    if (spin) spin.classList.toggle("ring-hide", byteKnown);
-    const pct = ring.querySelector(".ring-pct");
-    if (pct) pct.textContent = byteKnown ? Math.round(byteFrac * 100) + "%" : (d.step.total > 0 ? d.step.done + "/" + d.step.total : "");
-    const label = ring.querySelector(".ring-label");
-    if (label) label.textContent = d.label || "";
+    if (spin) spin.classList.toggle("ring-hide", has);
   }
 
   function header() {
@@ -860,11 +855,12 @@
         '<div class="h">Installs via <code>apt</code> — asks for your password and can take a few minutes.</div></div>' +
         '<button class="btn h36 btn-primary" data-action="run-setup" style="flex:none">' + I.download + "Install missing</button></div>";
     } else if (state.setup.phase === "installing") {
-      const installSpinner = state.download.active ? progressRing() : spinner("primary-lg");
       action =
-        '<div class="setup-installing">' + installSpinner +
-        '<div class="info"><div class="t">Installing… authorize when prompted</div>' +
-        '<div class="h">Fetching packages — this can take a few minutes. Don\'t close the window.</div></div></div>' +
+        '<div class="setup-installing">' + progressRing() +
+        '<div class="info"><div class="t">Installing components…</div>' +
+        '<div class="h">Downloading static binaries — this can take a minute. Don\'t close the window.</div></div></div>' +
+        '<div class="auth-note">' + I.lock +
+        '<span class="auth-tx">If a system password prompt appears, authorize it to finish setup (hosts, certificates &amp; bind permissions).</span></div>' +
         '<div class="progress"><div class="shim bar"></div></div>';
     } else {
       const rep = state.setup.report || {};
@@ -899,19 +895,16 @@
   function settingsView() {
     const phpRows = state.phpVersions.map((p) => {
       let right;
-      if (p.active) right = '<span class="tag ok">Active</span>';
+      if (state.phpBusyVersion === p.version) right = progressRing(); // small inline ring on the row being acted on
+      else if (p.active) right = '<span class="tag ok">Active</span>';
       else if (p.installed) right = '<button class="btn-sm" data-action="use-php" data-version="' + esc(p.version) + '"' + (state.phpBusy ? " disabled" : "") + ">Use</button>";
       else right = '<button class="btn-sm" data-action="install-php" data-version="' + esc(p.version) + '"' + (state.phpBusy ? " disabled" : "") + ">Install</button>";
       return '<div class="set-row"><div class="grow"><div class="t">PHP ' + esc(p.version) + '</div><div class="h">' + (p.installed ? "Installed" : "Not installed") + "</div></div>" + right + "</div>";
     }).join("");
-    const phpBusyIndicator = (state.phpBusy && state.download.active)
-      ? '<div class="set-row" style="justify-content:center;padding:12px 0">' + progressRing() + '</div>'
-      : (state.phpBusy ? '<div class="set-row"><div class="h">' + spinner("muted") + " Installing…</div></div>" : "");
     const phpCard =
       '<div class="card settings-card">' +
       '<div class="set-row"><div class="grow"><div class="t">PHP version</div>' +
       '<div class="h">Active version for the stack · downloaded static build (no root)</div></div></div>' +
-      phpBusyIndicator +
       (phpRows || '<div class="set-row"><div class="h">Loading…</div></div>') +
       "</div>";
     return (
