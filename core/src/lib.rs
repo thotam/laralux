@@ -29,6 +29,7 @@ pub mod layout;
 pub mod orphans;
 pub mod tools;
 pub mod progress;
+pub mod symlinks;
 
 pub use bin::ensure_nginx_bind_cap;
 pub use progress::{ProgressEvent, ProgressSink, NullProgress};
@@ -61,3 +62,4 @@ pub use redis_static::{install_redis, RedisError};
 pub use mariadb_static::{install_mariadb, MariadbError};
 pub use certutil_static::{install_certutil, mkcert_install_nss, CertutilError};
 pub use orphans::reap as reap_orphans;
+pub use symlinks::{link_tool, system_link_path, unlink_tool, SymlinkError};
