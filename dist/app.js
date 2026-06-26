@@ -168,7 +168,7 @@
     render();
   }
 
-  function closeTool() { state.modal = null; render(); }
+  function closeTool() { if (state.modal && state.modal.busy) return; state.modal = null; render(); }
 
   async function useToolVersion(version) {
     const tk = state.modal.toolKey;
@@ -180,7 +180,7 @@
     } catch (e) {
       toast({ type: "error", title: "Switch failed", msg: String(e) });
     } finally {
-      state.modal.busy = false; state.modal.busyVersion = null; resetDownload(); render();
+      if (state.modal) { state.modal.busy = false; state.modal.busyVersion = null; } resetDownload(); render();
     }
   }
 
@@ -193,7 +193,7 @@
     } catch (e) {
       toast({ type: "error", title: "Install failed", msg: String(e) });
     } finally {
-      state.modal.busy = false; state.modal.busyVersion = null; resetDownload(); render();
+      if (state.modal) { state.modal.busy = false; state.modal.busyVersion = null; } resetDownload(); render();
     }
   }
 
@@ -208,7 +208,7 @@
     } catch (e) {
       toast({ type: "error", title: "Symlink failed", msg: String(e) });
     } finally {
-      state.modal.busy = false; render();
+      if (state.modal) { state.modal.busy = false; } render();
     }
   }
 
@@ -834,7 +834,7 @@
       .map((c) => {
         const tag = c.present
           ? '<span class="tag ok">Installed</span>'
-          : '<span class="tag warn">Missing</span>';
+          : '<span class="tag miss">Missing</span>';
         const tk = TOOL_KEY[c.component] || "";
         return (
           '<button class="setup-item setup-item-btn" data-action="open-tool" data-tool="' + esc(tk) + '">' +
