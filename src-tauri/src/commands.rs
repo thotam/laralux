@@ -465,6 +465,77 @@ pub async fn set_php_version(
 }
 
 #[tauri::command]
+pub fn tool_versions(
+    state: tauri::State<AppState>,
+    tool: String,
+) -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
+    let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+    Ok(laragon_core::tools::available_versions(t, &state.paths))
+}
+
+#[tauri::command]
+pub async fn install_tool_version(
+    app: tauri::AppHandle,
+    tool: String,
+    version: String,
+) -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
+    let app_for_progress = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<laragon_core::tools::ToolVersion>, String> {
+        let state = app.state::<AppState>();
+        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+        let progress = TauriProgress(app_for_progress);
+        laragon_core::tools::install_version(t, &state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress)
+            .map_err(|e| e.to_string())?;
+        // Keep `current` symlinks reconciled to config after an install.
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let _ = laragon_core::apply_versions(&state.paths, &config);
+        Ok(laragon_core::tools::available_versions(t, &state.paths))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_tool_version(
+    app: tauri::AppHandle,
+    tool: String,
+    version: String,
+) -> Result<Vec<ServiceStatus>, String> {
+    let app_for_progress = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<ServiceStatus>, String> {
+        let state = app.state::<AppState>();
+        let t = laragon_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+        let info = laragon_core::tools::info(t);
+
+        let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        let full = laragon_core::resolve_installed_version(&state.paths, info.key, &version)
+            .unwrap_or_else(|| version.clone());
+        config.versions.insert(info.key.to_string(), full.clone());
+        if t == laragon_core::tools::ManagedTool::Php {
+            config.php_version = full.clone();
+        }
+        config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
+
+        let snapshot = {
+            let mut orch = state.orch.lock().map_err(lock_err)?;
+            match info.service_kind {
+                Some(kind) => { orch.replace_version(kind, info.key, &version).map_err(|e| e.to_string())?; }
+                None => { laragon_core::set_current(&state.paths, info.key, &full).map_err(|e| e.to_string())?; }
+            }
+            orch.snapshot()
+        };
+
+        if t == laragon_core::tools::ManagedTool::Php {
+            let progress = TauriProgress(app_for_progress);
+            let _ = laragon_core::ensure_active_php_cli(&state.paths, &version, &CurlDownloader, &RealCommandRunner, &progress);
+        }
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn terminal_integration_status(state: tauri::State<AppState>) -> Result<bool, String> {
     let config = Config::load(&state.paths.config_file()).unwrap_or_default();
     Ok(config.shell_integration)
