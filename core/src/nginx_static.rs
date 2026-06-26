@@ -51,6 +51,38 @@ fn installed(dest: &std::path::Path) -> bool {
     std::fs::metadata(dest).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
 }
 
+/// Curated nginx versions offered in the Setup modal (latest patch of recent
+/// minor lines). All verified present in the live `jirutka/nginx-binaries`
+/// x86_64/linux index; install builds the filename `nginx-<ver>-<arch>-linux`.
+pub const KNOWN_NGINX_VERSIONS: [&str; 6] = ["1.31.2", "1.30.3", "1.29.8", "1.28.3", "1.27.5", "1.26.3"];
+
+/// The binary filename for a given version/arch in the nginx-binaries repo.
+pub fn nginx_filename(version: &str, arch: &str) -> String {
+    format!("nginx-{version}-{arch}-linux")
+}
+
+/// Shared: download `url` into bin/nginx/<ver>/nginx (chmod 0755, atomic rename),
+/// point `current` at it, and return the version. Idempotent for the caller —
+/// callers check `installed` before deciding to skip.
+fn place_nginx(
+    paths: &LaragonPaths, ver: &str, url: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
+) -> Result<String, NginxError> {
+    let dir = paths.version_dir("nginx", ver);
+    let dest = dir.join("nginx");
+    std::fs::create_dir_all(&dir)?;
+    let tmp = paths.tmp().join("nginx.download");
+    let _ = std::fs::remove_file(&tmp);
+    downloader.fetch_with_progress(url, &tmp, sink)
+        .map_err(|e| NginxError::Download(e.to_string()))?;
+    #[cfg(unix)]
+    { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?; }
+    std::fs::rename(&tmp, &dest).or_else(|_| {
+        std::fs::copy(&tmp, &dest).map(|_| ()).and_then(|_| std::fs::remove_file(&tmp))
+    })?;
+    crate::layout::set_current(paths, "nginx", ver)?;
+    Ok(ver.to_string())
+}
+
 /// Download the static nginx binary (latest from the index) into bin/nginx/<ver>/nginx.
 pub fn install_nginx(
     paths: &LaragonPaths, downloader: &dyn Downloader, sink: &dyn ProgressSink,
@@ -61,24 +93,29 @@ pub fn install_nginx(
     downloader.fetch(NGINX_INDEX_URL, &idx).map_err(|e| NginxError::Download(e.to_string()))?;
     let json = std::fs::read_to_string(&idx)?;
     let (ver, filename) = latest_nginx(arch, &json).ok_or(NginxError::NoBuild)?;
-    let dir = paths.version_dir("nginx", &ver);
-    let dest = dir.join("nginx");
+    let dest = paths.version_dir("nginx", &ver).join("nginx");
     if installed(&dest) {
         let _ = crate::layout::set_current(paths, "nginx", &ver);
         return Ok(ver);
     }
-    std::fs::create_dir_all(&dir)?;
-    let tmp = paths.tmp().join("nginx.download");
-    let _ = std::fs::remove_file(&tmp);
-    downloader.fetch_with_progress(&format!("{NGINX_BASE_URL}/{filename}"), &tmp, sink)
-        .map_err(|e| NginxError::Download(e.to_string()))?;
-    #[cfg(unix)]
-    { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?; }
-    std::fs::rename(&tmp, &dest).or_else(|_| {
-        std::fs::copy(&tmp, &dest).map(|_| ()).and_then(|_| std::fs::remove_file(&tmp))
-    })?;
-    crate::layout::set_current(paths, "nginx", &ver)?;
-    Ok(ver)
+    place_nginx(paths, &ver, &format!("{NGINX_BASE_URL}/{filename}"), downloader, sink)
+}
+
+/// Download a SPECIFIC nginx version into bin/nginx/<version>/nginx (builds the
+/// filename directly — no index fetch). Idempotent. An unknown version surfaces
+/// as `NginxError::Download` (the URL 404s).
+pub fn install_nginx_version(
+    paths: &LaragonPaths, version: &str, downloader: &dyn Downloader, sink: &dyn ProgressSink,
+) -> Result<String, NginxError> {
+    let arch = nginx_arch().ok_or_else(|| NginxError::Arch(std::env::consts::ARCH.to_string()))?;
+    let dest = paths.version_dir("nginx", version).join("nginx");
+    if installed(&dest) {
+        let _ = crate::layout::set_current(paths, "nginx", version);
+        return Ok(version.to_string());
+    }
+    std::fs::create_dir_all(paths.tmp())?;
+    let url = format!("{NGINX_BASE_URL}/{}", nginx_filename(version, arch));
+    place_nginx(paths, version, &url, downloader, sink)
 }
 
 #[cfg(test)]
@@ -181,6 +218,26 @@ mod tests {
         // Only the index should have been fetched, not the binary
         let reqs = fetched.lock().unwrap();
         assert!(reqs.iter().all(|u| u.contains("index.json")), "should not re-download binary if already installed");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn nginx_filename_pattern() {
+        assert_eq!(nginx_filename("1.30.3", "x86_64"), "nginx-1.30.3-x86_64-linux");
+        assert_eq!(nginx_filename("1.26.3", "aarch64"), "nginx-1.26.3-aarch64-linux");
+    }
+
+    #[test]
+    fn install_nginx_version_places_specific_version_and_sets_current() {
+        let root = std::env::temp_dir().join(format!("lara-nginx-ver-{}", std::process::id()));
+        let paths = LaragonPaths::new(root.clone());
+        let dl = StubNginxDownloader { index_json: String::new(), fetched: Arc::new(Mutex::new(Vec::new())) };
+        let ver = install_nginx_version(&paths, "1.30.3", &dl, &crate::progress::NullProgress).unwrap();
+        assert_eq!(ver, "1.30.3");
+        assert!(paths.version_dir("nginx", "1.30.3").join("nginx").exists(), "binary placed in versioned dir");
+        assert!(paths.current_link("nginx").exists(), "current symlink set");
+        // No index.json fetch for a version-targeted install (filename is built directly).
+        assert!(dl.fetched.lock().unwrap().iter().all(|u| !u.contains("index.json")));
         std::fs::remove_dir_all(&root).ok();
     }
 }
