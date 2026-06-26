@@ -27,6 +27,7 @@ pub mod mariadb_static;
 pub mod certutil_static;
 pub mod layout;
 pub mod orphans;
+pub mod tools;
 pub mod progress;
 
 pub use bin::ensure_nginx_bind_cap;
