@@ -54,6 +54,8 @@
   const COMP_ORDER = ["Nginx", "Php", "Mariadb", "Redis", "Mkcert", "Mailpit", "Composer"];
   const DISP = { Nginx: "Nginx", PhpFpm: "PHP-FPM", Mariadb: "MariaDB", Redis: "Redis", Mailpit: "Mailpit" };
   const DISP_COMP = { Nginx: "Nginx", Php: "PHP", Mariadb: "MariaDB", Redis: "Redis", Mkcert: "mkcert", Mailpit: "Mailpit", Composer: "Composer" };
+  const TOOL_KEY = { Nginx: "nginx", Php: "php", Mariadb: "mariadb", Redis: "redis", Mkcert: "mkcert", Mailpit: "mailpit", Composer: "composer" };
+  const TOOL_CLI = { nginx: "nginx", php: "php", mariadb: "mariadb", redis: "redis-cli", mkcert: "mkcert", mailpit: null, composer: "composer" };
   const SVC_ICON = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
   const PORTS = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
   const LOG_FILE = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Redis: "redis.log", Mailpit: "mailpit.log" };
@@ -82,16 +84,12 @@
     toasts: [],
     tId: 1,
     modal: null,
+    toolSymlinks: [],
     newSite: { name: "", template: "Blank", busy: false, error: "" },
     linkSite: { root: "", name: "", busy: false, error: "" },
     confirmRemove: null,
     proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
     siteDomains: { name: "", domains: [""], busy: false, error: "" },
-    phpVersions: [],
-    phpBusy: false,
-    phpBusyVersion: null,
-    terminalIntegration: false,
-    termBusy: false,
     download: { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 },
   };
 
@@ -149,71 +147,68 @@
   }
 
   // ---- actions ----
-  async function loadPhpVersions() {
+  async function openTool(toolKey) {
+    const comp = Object.keys(TOOL_KEY).find((k) => TOOL_KEY[k] === toolKey);
+    state.modal = {
+      open: true, toolKey, display: DISP_COMP[comp] || toolKey, cliBinary: TOOL_CLI[toolKey],
+      versions: [], linked: false, busy: false, busyVersion: null,
+    };
+    render();
     try {
-      const v = await invoke("php_versions");
-      state.phpVersions = Array.isArray(v) ? v : [];
-      render();
-    } catch (_) { /* settings-only; stay quiet */ }
-  }
-
-  async function loadTerminalIntegration() {
-    try {
-      const on = await invoke("terminal_integration_status");
-      state.terminalIntegration = !!on;
-      render();
-    } catch (_) { /* settings-only; stay quiet */ }
-  }
-
-  async function toggleTerminalIntegration() {
-    if (state.termBusy) return;
-    const next = !state.terminalIntegration;
-    state.termBusy = true; render();
-    try {
-      const on = await invoke("set_terminal_integration", { enabled: next });
-      state.terminalIntegration = !!on;
-      toast({
-        type: "success",
-        title: on ? "Terminal integration on" : "Terminal integration off",
-        msg: on ? "Open a new terminal — php & composer now use Laragon's active version" : "Removed ~/laragon/bin from your shell PATH",
-      });
+      const [versions, linked] = await Promise.all([
+        invoke("tool_versions", { tool: toolKey }),
+        invoke("tool_symlinks"),
+      ]);
+      state.modal.versions = versions;
+      state.toolSymlinks = linked;
+      state.modal.linked = linked.includes(toolKey);
     } catch (e) {
-      toast({ type: "error", title: "Couldn't change terminal integration", msg: String(e) });
-    } finally {
-      state.termBusy = false; render();
+      toast({ type: "error", title: "Load failed", msg: String(e) });
     }
+    render();
   }
 
-  async function usePhp(version) {
-    if (state.phpBusy) return;
-    state.phpBusy = true; state.phpBusyVersion = version; render();
+  function closeTool() { state.modal = null; render(); }
+
+  async function useToolVersion(version) {
+    const tk = state.modal.toolKey;
+    state.modal.busy = true; state.modal.busyVersion = version; render();
     try {
-      const arr = await invoke("set_php_version", { version });
-      applyServices(arr);
-      toast({ type: "success", title: "PHP " + version + " is now active" });
-      await loadPhpVersions();
+      await invoke("set_tool_version", { tool: tk, version });
+      state.modal.versions = await invoke("tool_versions", { tool: tk });
+      toast({ type: "success", title: "Version switched", msg: state.modal.display + " " + version });
     } catch (e) {
       toast({ type: "error", title: "Switch failed", msg: String(e) });
     } finally {
-      state.phpBusy = false; state.phpBusyVersion = null; resetDownload(); render();
+      state.modal.busy = false; state.modal.busyVersion = null; resetDownload(); render();
     }
   }
 
-  async function installPhp(version) {
-    if (state.phpBusy) return;
-    state.phpBusy = true; state.phpBusyVersion = version; render();
-    state.download.active = true; render();
+  async function installToolVersion(version) {
+    const tk = state.modal.toolKey;
+    state.modal.busy = true; state.modal.busyVersion = version; render();
     try {
-      const v = await invoke("install_php_version", { version });
-      state.phpVersions = Array.isArray(v) ? v : [];
-      toast({ type: "success", title: "PHP " + version + " installed", msg: "Downloaded · click Use to activate" });
+      state.modal.versions = await invoke("install_tool_version", { tool: tk, version });
+      toast({ type: "success", title: "Installed", msg: state.modal.display + " " + version });
     } catch (e) {
       toast({ type: "error", title: "Install failed", msg: String(e) });
     } finally {
-      state.phpBusy = false;
-      state.phpBusyVersion = null;
-      resetDownload();
-      render();
+      state.modal.busy = false; state.modal.busyVersion = null; resetDownload(); render();
+    }
+  }
+
+  async function toggleToolSymlink() {
+    const tk = state.modal.toolKey;
+    const next = !state.modal.linked;
+    state.modal.busy = true; render();
+    try {
+      state.toolSymlinks = await invoke("set_tool_symlink", { tool: tk, enabled: next });
+      state.modal.linked = state.toolSymlinks.includes(tk);
+      toast({ type: "success", title: next ? "Linked" : "Unlinked", msg: "/usr/local/bin/" + state.modal.cliBinary });
+    } catch (e) {
+      toast({ type: "error", title: "Symlink failed", msg: String(e) });
+    } finally {
+      state.modal.busy = false; render();
     }
   }
 
@@ -585,7 +580,6 @@
     state.view = v;
     state.confirmRemove = null;
     render();
-    if (v === "settings") { loadPhpVersions(); loadTerminalIntegration(); }
   }
   function toggleDark() {
     state.dark = !state.dark;
@@ -839,11 +833,14 @@
     const items = state.setup.components
       .map((c) => {
         const tag = c.present
-          ? '<span class="tag ok">' + I.checkTag + "Installed</span>"
-          : '<span class="tag miss">' + I.warn + "Missing</span>";
+          ? '<span class="tag ok">Installed</span>'
+          : '<span class="tag warn">Missing</span>';
+        const tk = TOOL_KEY[c.component] || "";
         return (
-          '<div class="setup-item"><div class="setup-tile">' + I.setupItem + "</div>" +
-          '<span class="nm">' + esc(DISP_COMP[c.component] || c.component) + "</span>" + tag + "</div>"
+          '<button class="setup-item setup-item-btn" data-action="open-tool" data-tool="' + esc(tk) + '">' +
+          '<div class="setup-tile">' + I.setupItem + "</div>" +
+          '<span class="nm">' + esc(DISP_COMP[c.component] || c.component) + "</span>" + tag +
+          '<span class="chev">' + (I.chevron || "›") + "</span></button>"
         );
       })
       .join("");
@@ -892,21 +889,40 @@
     );
   }
 
+  function toolModal() {
+    const m = state.modal;
+    if (!m || !m.open) return "";
+    const verRows = (m.versions || [])
+      .map((v) => {
+        let right;
+        if (m.busy && m.busyVersion === v.version) right = progressRing();
+        else if (v.active) right = '<span class="tag ok">Active</span>';
+        else if (v.installed) right = '<button class="btn-sm" data-action="use-tool-version" data-version="' + esc(v.version) + '"' + (m.busy ? " disabled" : "") + ">Use</button>";
+        else right = '<button class="btn-sm" data-action="install-tool-version" data-version="' + esc(v.version) + '"' + (m.busy ? " disabled" : "") + ">Install</button>";
+        return '<div class="set-row"><div class="grow"><div class="t">' + esc(m.display) + " " + esc(v.version) + '</div><div class="h">' + (v.installed ? "Installed" : "Not installed") + "</div></div>" + right + "</div>";
+      })
+      .join("") || '<div class="set-row"><div class="h">No versions — run "Install missing" first.</div></div>';
+
+    const anyInstalled = (m.versions || []).some((v) => v.installed);
+    const symlinkRow = m.cliBinary
+      ? '<div class="modal-divider"></div>' +
+        '<div class="set-row"><div class="grow"><div class="t">In terminal (/usr/local/bin)</div>' +
+        '<div class="h"><code>' + esc(m.cliBinary) + "</code> available system-wide</div></div>" +
+        '<button class="btn-sm" data-action="toggle-tool-symlink"' + (m.busy || !anyInstalled ? " disabled" : "") + ">" +
+        (m.linked ? "On" : "Off") + "</button></div>"
+      : "";
+
+    return (
+      '<div class="modal-backdrop" data-action="close-tool"></div>' +
+      '<div class="modal" role="dialog" aria-modal="true">' +
+      '<div class="modal-head"><span class="modal-title">' + esc(m.display) + "</span>" +
+      '<button class="modal-close" data-action="close-tool" aria-label="Close">' + I.close + "</button></div>" +
+      '<div class="modal-body"><div class="modal-sec-label">Versions</div>' + verRows + symlinkRow + "</div>" +
+      "</div>"
+    );
+  }
+
   function settingsView() {
-    const phpRows = state.phpVersions.map((p) => {
-      let right;
-      if (state.phpBusyVersion === p.version) right = progressRing(); // small inline ring on the row being acted on
-      else if (p.active) right = '<span class="tag ok">Active</span>';
-      else if (p.installed) right = '<button class="btn-sm" data-action="use-php" data-version="' + esc(p.version) + '"' + (state.phpBusy ? " disabled" : "") + ">Use</button>";
-      else right = '<button class="btn-sm" data-action="install-php" data-version="' + esc(p.version) + '"' + (state.phpBusy ? " disabled" : "") + ">Install</button>";
-      return '<div class="set-row"><div class="grow"><div class="t">PHP ' + esc(p.version) + '</div><div class="h">' + (p.installed ? "Installed" : "Not installed") + "</div></div>" + right + "</div>";
-    }).join("");
-    const phpCard =
-      '<div class="card settings-card">' +
-      '<div class="set-row"><div class="grow"><div class="t">PHP version</div>' +
-      '<div class="h">Active version for the stack · downloaded static build (no root)</div></div></div>' +
-      (phpRows || '<div class="set-row"><div class="h">Loading…</div></div>') +
-      "</div>";
     return (
       '<div class="view narrow-620">' +
       '<div><h1 class="h1">Settings</h1><p class="subtitle">Appearance and environment defaults.</p></div>' +
@@ -917,14 +933,9 @@
       '<code class="code-chip">.dev</code></div>' +
       '<div class="set-row"><div class="grow"><div class="t">Sites directory</div><div class="h">Where projects are scanned</div></div>' +
       '<code class="code-chip">~/laragon/www</code></div>' +
-      '<div class="set-row"><div class="grow"><div class="t">Terminal integration</div>' +
-      '<div class="h">Use Laragon\'s active PHP + composer in your shell (php, composer)</div></div>' +
-      '<button class="btn-sm" data-action="toggle-terminal"' + (state.termBusy ? " disabled" : "") + '>' +
-      (state.terminalIntegration ? "On" : "Off") + "</button></div>" +
       '<div class="set-row"><div class="grow"><div class="t">Start on login</div><div class="h">Autostart in system tray — coming soon</div></div>' +
       '<span class="toggle-off"><span class="knob"></span></span></div>' +
       "</div>" +
-      phpCard +
       '<div class="settings-foot">Laragon Linux · window 900×600 · min 720×480 · tray: Start All · Stop All · Dashboard · Quit</div>' +
       "</div>"
     );
@@ -1114,6 +1125,7 @@
       '<div class="body">' + sidebar() + '<main class="main">' + main + "</main></div>" +
       toasts() +
       modalHtml +
+      toolModal() +
       "</div>";
 
     // Avoid needless DOM churn (preserves scroll/focus) when nothing changed.
@@ -1176,9 +1188,11 @@
     else if (a === "copy-site") copySite(el.getAttribute("data-name"));
     else if (a === "open-terminal") openTerminal(el.getAttribute("data-path"));
     else if (a === "open-url") { e.preventDefault(); openExternal(el.getAttribute("data-url")); }
-    else if (a === "use-php") usePhp(el.getAttribute("data-version"));
-    else if (a === "install-php") installPhp(el.getAttribute("data-version"));
-    else if (a === "toggle-terminal") toggleTerminalIntegration();
+    else if (a === "open-tool") openTool(el.dataset.tool);
+    else if (a === "close-tool") closeTool();
+    else if (a === "use-tool-version") useToolVersion(el.dataset.version);
+    else if (a === "install-tool-version") installToolVersion(el.dataset.version);
+    else if (a === "toggle-tool-symlink") toggleToolSymlink();
     else if (a === "toast-dismiss") dismiss(parseInt(el.getAttribute("data-id"), 10));
     else if (a === "new-site") openNewSite();
     else if (a === "ns-close") closeNewSite();
@@ -1281,6 +1295,7 @@
     else if (e.key === "Escape" && state.modal === "linksite") closeLinkSite();
     else if (e.key === "Escape" && state.modal === "proxy") closeProxy();
     else if (e.key === "Escape" && state.modal === "domains") closeDomains();
+    else if (e.key === "Escape" && state.modal && state.modal.open) closeTool();
   });
 
   // ---- focus-trap inside modal ----
