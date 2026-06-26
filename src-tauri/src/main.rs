@@ -117,6 +117,32 @@ fn main() {
                 });
             }
 
+            // Realtime site list: watch ~/laragon/www (non-recursive: immediate
+            // subdirs are sites) and sites.toml; push `sites-changed` (debounced)
+            // so external folder/registry edits appear without polling.
+            {
+                let handle = app.handle().clone();
+                let paths = handle.state::<AppState>().paths.clone();
+                let www = paths.www();
+                let _ = std::fs::create_dir_all(&www);
+                let last = std::sync::Mutex::new(std::time::Instant::now() - std::time::Duration::from_secs(1));
+                if let Ok(mut watcher) = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+                    if res.is_ok() {
+                        let mut l = last.lock().unwrap();
+                        if l.elapsed() >= std::time::Duration::from_millis(300) {
+                            *l = std::time::Instant::now();
+                            let _ = handle.emit("sites-changed", ());
+                        }
+                    }
+                }) {
+                    use notify::Watcher;
+                    let _ = watcher.watch(&www, notify::RecursiveMode::NonRecursive);
+                    let _ = watcher.watch(&paths.sites_file(), notify::RecursiveMode::NonRecursive);
+                    // Keep the watcher alive for the app lifetime (Send, not Sync).
+                    std::thread::spawn(move || { let _keep = watcher; loop { std::thread::sleep(std::time::Duration::from_secs(3600)); } });
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
