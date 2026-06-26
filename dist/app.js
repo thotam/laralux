@@ -1322,8 +1322,17 @@
   // ---- boot ----
   if (TAURI && TAURI.event && TAURI.event.listen) {
     TAURI.event.listen("download-progress", (e) => { applyProgress(e.payload); updateRing(); });
+    TAURI.event.listen("services-changed", (e) => {
+      applyServices(e.payload);
+      if (!state.modal) render();
+    });
+    TAURI.event.listen("sites-changed", () => {
+      invoke("list_sites").then((s) => {
+        state.sites = Array.isArray(s) ? s : [];
+        if (!state.modal) render();
+      }).catch(() => {});
+    });
   }
   render();
   refresh();
-  setInterval(refresh, 2000);
 })();
