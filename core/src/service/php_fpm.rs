@@ -47,11 +47,15 @@ impl Service for PhpFpmService {
             sock = self.socket_path(paths).display(),
         );
         std::fs::write(self.conf_path(paths), conf)?;
+        let cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();
+        crate::php_ini::write_php_ini(paths, &cfg.php_ini)?;
         Ok(())
     }
     fn command(&self, paths: &LaraluxPaths) -> SpawnSpec {
         SpawnSpec::new("php-fpm")
             .arg("-F") // foreground, so the orchestrator owns the process
+            .arg("-c")
+            .arg(crate::php_ini::php_ini_path(paths).display().to_string())
             .arg("-y")
             .arg(self.conf_path(paths).display().to_string())
     }
@@ -138,6 +142,27 @@ mod tests {
         let svc = PhpFpmService::new("8.4");
         svc.pre_start(&p).unwrap(); // no pid file present -> just unlinks the socket
         assert!(!sock.exists(), "stale socket should be removed before start");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn command_includes_c_flag_pointing_at_php_ini() {
+        let p = LaraluxPaths::new("/tmp/lara".into());
+        let svc = PhpFpmService::new("8.4");
+        let spec = svc.command(&p);
+        let joined = spec.args.join(" ");
+        assert!(joined.contains("-c"));
+        assert!(spec.args.iter().any(|a| a.ends_with("etc/php/php.ini")));
+    }
+
+    #[test]
+    fn write_config_also_writes_php_ini() {
+        let tmp = std::env::temp_dir().join(format!("lara-php-ini-cfg-{}", std::process::id()));
+        let p = LaraluxPaths::new(tmp.clone());
+        let svc = PhpFpmService::new("8.4");
+        svc.write_config(&p).unwrap();
+        let ini = std::fs::read_to_string(crate::php_ini::php_ini_path(&p)).unwrap();
+        assert!(ini.contains("memory_limit = 256M"));
         std::fs::remove_dir_all(&tmp).ok();
     }
 }
