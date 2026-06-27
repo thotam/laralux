@@ -1,3 +1,5 @@
+// @ts-nocheck  -- temporary: the monolith is typed module-by-module in later tasks; removed in the final task.
+import "./styles.css";
 /* Laralux — control-center frontend (vanilla, wired to Tauri IPC).
    Ported from the Claude Design handoff. No framework / build step. */
 
