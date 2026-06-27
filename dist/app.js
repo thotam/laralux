@@ -1200,9 +1200,16 @@
     const sameView = state.view === lastView;
     lastView = state.view;
 
+    // The tool modal (.modal) is its own scroll area (overflow:auto, max-height:82vh);
+    // an in-modal re-render (version use/install, symlink or settings toggle, Apply)
+    // otherwise yanks it back to the top. Restore it whenever the modal stays open.
+    const modalEl = app.querySelector(".modal");
+    const prevModalScroll = modalEl ? modalEl.scrollTop : 0;
+
     app.innerHTML = html;
 
     if (sameView) { const ns = app.querySelector(".main"); if (ns) ns.scrollTop = prevScroll; }
+    { const nm = app.querySelector(".modal"); if (nm) nm.scrollTop = prevModalScroll; }
 
     if (fId || fAction) {
       let el = fId ? document.getElementById(fId) : null;
