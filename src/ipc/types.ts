@@ -144,11 +144,12 @@ export interface SiteDomains {
 /**
  * CreateReport — mirrors core/src/scaffold.rs `CreateReport`.
  * Returned by create_site command.
- * UI reads: rep.database_created, rep.warnings, rep.site_name, rep.hostname.
+ * UI reads: rep.database_created, rep.warnings, rep.site_name, rep.hostname, rep.template.
  */
 export interface CreateReport {
   site_name: string;
   hostname: string;
+  template: "Blank" | "Laravel" | "Wordpress";
   database_created: boolean;
   warnings: string[];
 }
