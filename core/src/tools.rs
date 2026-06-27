@@ -37,7 +37,7 @@ pub fn info(tool: ManagedTool) -> ToolInfo {
     match tool {
         Php => ToolInfo { key: "php", display: "PHP", cli_binaries: &["php"], service_kind: Some(ServiceKind::PhpFpm) },
         Nginx => ToolInfo { key: "nginx", display: "Nginx", cli_binaries: &["nginx"], service_kind: Some(ServiceKind::Nginx) },
-        Mariadb => ToolInfo { key: "mariadb", display: "MariaDB", cli_binaries: &["mariadb"], service_kind: Some(ServiceKind::Mariadb) },
+        Mariadb => ToolInfo { key: "mariadb", display: "MariaDB", cli_binaries: &["mariadb", "mysql"], service_kind: Some(ServiceKind::Mariadb) },
         Redis => ToolInfo { key: "redis", display: "Redis", cli_binaries: &["redis-cli"], service_kind: Some(ServiceKind::Redis) },
         Mailpit => ToolInfo { key: "mailpit", display: "Mailpit", cli_binaries: &[], service_kind: Some(ServiceKind::Mailpit) },
         Mkcert => ToolInfo { key: "mkcert", display: "mkcert", cli_binaries: &["mkcert"], service_kind: None },

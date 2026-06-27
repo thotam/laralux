@@ -116,6 +116,14 @@ pub fn install_mariadb_version(
             let _ = rel_symlink(&basedir, "mariadb", &rel);
         }
     }
+    // `mysql` is MariaDB's compat alias for the client; expose it top-level too so
+    // it can be symlinked into /usr/local/bin alongside `mariadb`.
+    if let Some(cli) = find_under(&basedir, "mysql") {
+        if cli != basedir.join("mysql") {
+            let rel = cli.strip_prefix(&basedir).map(|p| p.display().to_string()).unwrap_or_else(|_| "bin/mysql".into());
+            let _ = rel_symlink(&basedir, "mysql", &rel);
+        }
+    }
     crate::layout::set_current(paths, "mariadb", version)?;
     Ok(version.to_string())
 }
