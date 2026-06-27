@@ -165,6 +165,10 @@
     } catch (e) {
       toast({ type: "error", title: "Load failed", msg: String(e) });
     }
+    if (toolKey === "php") {
+      try { state.modal.phpIni = await invoke("php_ini_settings"); }
+      catch (e) { state.modal.phpIni = null; }
+    }
     render();
   }
 
@@ -210,6 +214,21 @@
       toast({ type: "error", title: "Symlink failed", msg: String(e) });
     } finally {
       if (state.modal) { state.modal.busy = false; } render();
+    }
+  }
+
+  async function applyPhpIni() {
+    if (!state.modal || !state.modal.phpIni) return;
+    const payload = { ...state.modal.phpIni };
+    payload.max_execution_time = parseInt(payload.max_execution_time, 10) || 0;
+    state.modal.busy = true; render();
+    try {
+      state.modal.phpIni = await invoke("set_php_ini_settings", { settings: payload });
+      toast({ type: "success", title: "PHP settings applied", msg: "Restarted php-fpm; CLI uses them too." });
+    } catch (e) {
+      toast({ type: "error", title: "Couldn't apply PHP settings", msg: String(e) });
+    } finally {
+      if (state.modal) state.modal.busy = false; render();
     }
   }
 
@@ -890,6 +909,15 @@
     );
   }
 
+  function phpIniField(label, key, val) {
+    return '<div class="set-row"><div class="grow"><div class="t">' + esc(label) + "</div></div>" +
+      '<input class="ns-input" data-action="php-ini-input" data-key="' + key + '" value="' + esc(String(val)) + '" /></div>';
+  }
+  function phpIniToggle(label, key, on) {
+    return '<div class="set-row"><div class="grow"><div class="t">' + esc(label) + "</div></div>" +
+      '<button class="btn-sm" data-action="php-ini-toggle" data-key="' + key + '">' + (on ? "On" : "Off") + "</button></div>";
+  }
+
   function toolModal() {
     const m = state.modal;
     if (!m || !m.open) return "";
@@ -913,12 +941,29 @@
         (m.linked ? "On" : "Off") + "</button></div>"
       : "";
 
+    const pi = m.phpIni;
+    const phpSettings = (m.toolKey === "php" && pi)
+      ? '<div class="modal-divider"></div>' +
+        '<div class="modal-sec-label">Settings</div>' +
+        phpIniField("memory_limit", "memory_limit", pi.memory_limit) +
+        phpIniField("upload_max_filesize", "upload_max_filesize", pi.upload_max_filesize) +
+        phpIniField("post_max_size", "post_max_size", pi.post_max_size) +
+        phpIniField("max_execution_time", "max_execution_time", pi.max_execution_time) +
+        phpIniField("date.timezone", "timezone", pi.timezone) +
+        phpIniToggle("display_errors", "display_errors", pi.display_errors) +
+        phpIniToggle("opcache.enable", "opcache_enable", pi.opcache_enable) +
+        '<div class="auth-note">' + (I.lock || "") +
+        '<span class="auth-tx">First Apply asks for your password once to enable the CLI (php) — the web stack applies immediately.</span></div>' +
+        '<div class="set-row"><div class="grow"></div>' +
+        '<button class="btn-sm" data-action="apply-php-ini"' + (m.busy ? " disabled" : "") + ">Apply</button></div>"
+      : "";
+
     return (
       '<div class="modal-backdrop" data-action="close-tool"></div>' +
       '<div class="modal" role="dialog" aria-modal="true">' +
       '<div class="modal-head"><span class="modal-title">' + esc(m.display) + "</span>" +
       '<button class="modal-close" data-action="close-tool" aria-label="Close">' + I.close + "</button></div>" +
-      '<div class="modal-body"><div class="modal-sec-label">Versions</div>' + verRows + symlinkRow + "</div>" +
+      '<div class="modal-body"><div class="modal-sec-label">Versions</div>' + verRows + symlinkRow + phpSettings + "</div>" +
       "</div>"
     );
   }
@@ -1193,6 +1238,13 @@
     else if (a === "use-tool-version") useToolVersion(el.dataset.version);
     else if (a === "install-tool-version") installToolVersion(el.dataset.version);
     else if (a === "toggle-tool-symlink") toggleToolSymlink();
+    else if (a === "php-ini-toggle") {
+      if (state.modal && state.modal.phpIni) {
+        state.modal.phpIni[el.dataset.key] = !state.modal.phpIni[el.dataset.key];
+        render();
+      }
+    }
+    else if (a === "apply-php-ini") applyPhpIni();
     else if (a === "toast-dismiss") dismiss(parseInt(el.getAttribute("data-id"), 10));
     else if (a === "new-site") openNewSite();
     else if (a === "ns-close") closeNewSite();
@@ -1279,6 +1331,7 @@
     if (el.dataset.action === "pr-path") { state.proxy.routes[parseInt(el.dataset.idx, 10)].path = el.value; }
     if (el.dataset.action === "pr-upstream") { state.proxy.routes[parseInt(el.dataset.idx, 10)].upstream = el.value; }
     if (el.dataset.action === "dm-input") { state.siteDomains.domains[parseInt(el.dataset.idx, 10)] = el.value; }
+    if (el.dataset.action === "php-ini-input") { if (state.modal && state.modal.phpIni) state.modal.phpIni[el.dataset.key] = el.value; }
   });
 
   app.addEventListener("change", (e) => {
