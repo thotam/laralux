@@ -517,6 +517,42 @@ pub async fn set_tool_symlink(
 }
 
 #[tauri::command]
+pub fn php_ini_settings(
+    state: tauri::State<AppState>,
+) -> Result<laralux_core::php_ini::PhpIniSettings, String> {
+    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    Ok(config.php_ini)
+}
+
+#[tauri::command]
+pub async fn set_php_ini_settings(
+    app: tauri::AppHandle,
+    settings: laralux_core::php_ini::PhpIniSettings,
+) -> Result<laralux_core::php_ini::PhpIniSettings, String> {
+    tauri::async_runtime::spawn_blocking(
+        move || -> Result<laralux_core::php_ini::PhpIniSettings, String> {
+            let state = app.state::<AppState>();
+            laralux_core::php_ini::validate(&settings).map_err(|e| e.to_string())?;
+            let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+            config.php_ini = settings.clone();
+            config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
+            {
+                let mut orch = state.orch.lock().map_err(lock_err)?;
+                orch.apply_php_ini(&settings).map_err(|e| e.to_string())?;
+            }
+            // Extend coverage to the CLI: link the ini at the build's compiled-in
+            // path. Best-effort — web already applies via php-fpm's -c, so a
+            // cancelled pkexec must not fail the whole call.
+            let _ = laralux_core::privileged::PkexecPrivileged
+                .ensure_php_ini_link(&laralux_core::php_ini::php_ini_path(&state.paths));
+            Ok(settings)
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn open_terminal(path: String) -> Result<(), String> {
     let dir = std::path::PathBuf::from(&path);
     if !dir.is_dir() {

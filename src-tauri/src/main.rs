@@ -64,6 +64,8 @@ fn main() {
             commands::set_tool_version,
             commands::tool_symlinks,
             commands::set_tool_symlink,
+            commands::php_ini_settings,
+            commands::set_php_ini_settings,
             commands::open_terminal,
             commands::set_site_domains,
         ])
