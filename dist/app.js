@@ -55,7 +55,7 @@
   const DISP = { Nginx: "Nginx", PhpFpm: "PHP-FPM", Mariadb: "MariaDB", Redis: "Redis", Mailpit: "Mailpit" };
   const DISP_COMP = { Nginx: "Nginx", Php: "PHP", Mariadb: "MariaDB", Redis: "Redis", Mkcert: "mkcert", Mailpit: "Mailpit", Composer: "Composer", Node: "Node.js" };
   const TOOL_KEY = { Nginx: "nginx", Php: "php", Mariadb: "mariadb", Redis: "redis", Mkcert: "mkcert", Mailpit: "mailpit", Composer: "composer", Node: "node" };
-  const TOOL_CLI = { nginx: "nginx", php: "php", mariadb: "mariadb", redis: "redis-cli", mkcert: "mkcert", mailpit: null, composer: "composer", node: "node" };
+  const TOOL_CLI = { nginx: "nginx", php: "php", mariadb: "mariadb", redis: "redis-cli", mkcert: "mkcert", mailpit: null, composer: "composer", node: "node, npm, npx" };
   const SVC_ICON = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
   const PORTS = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
   const LOG_FILE = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Redis: "redis.log", Mailpit: "mailpit.log" };
@@ -204,7 +204,8 @@
     try {
       state.toolSymlinks = await invoke("set_tool_symlink", { tool: tk, enabled: next });
       state.modal.linked = state.toolSymlinks.includes(tk);
-      toast({ type: "success", title: next ? "Linked" : "Unlinked", msg: "/usr/local/bin/" + state.modal.cliBinary });
+      toast({ type: "success", title: next ? "Linked" : "Unlinked",
+              msg: String(state.modal.cliBinary).split(", ").map((b) => "/usr/local/bin/" + b).join(", ") });
     } catch (e) {
       toast({ type: "error", title: "Symlink failed", msg: String(e) });
     } finally {

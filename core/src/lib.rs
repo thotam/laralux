@@ -63,4 +63,4 @@ pub use mariadb_static::{install_mariadb, MariadbError};
 pub use node_static::{install_node, NodeError};
 pub use certutil_static::{install_certutil, mkcert_install_nss, CertutilError};
 pub use orphans::reap as reap_orphans;
-pub use symlinks::{link_tool, system_link_path, unlink_tool, SymlinkError};
+pub use symlinks::{link_tool, system_link_path, system_link_paths, unlink_tool, SymlinkError};

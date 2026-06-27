@@ -18,21 +18,31 @@ impl ManagedTool {
 pub struct ToolInfo {
     pub key: &'static str,
     pub display: &'static str,
-    pub cli_binary: Option<&'static str>,
+    /// Terminal CLIs this tool ships, all exposed via `/usr/local/bin` when the
+    /// tool is symlinked. The first entry is the primary CLI (drives `cli_path`
+    /// and the "installed" gate). Empty = the tool has no terminal CLI.
+    pub cli_binaries: &'static [&'static str],
     pub service_kind: Option<ServiceKind>,
+}
+
+impl ToolInfo {
+    /// The primary CLI binary name, if any.
+    pub fn cli_binary(&self) -> Option<&'static str> {
+        self.cli_binaries.first().copied()
+    }
 }
 
 pub fn info(tool: ManagedTool) -> ToolInfo {
     use ManagedTool::*;
     match tool {
-        Php => ToolInfo { key: "php", display: "PHP", cli_binary: Some("php"), service_kind: Some(ServiceKind::PhpFpm) },
-        Nginx => ToolInfo { key: "nginx", display: "Nginx", cli_binary: Some("nginx"), service_kind: Some(ServiceKind::Nginx) },
-        Mariadb => ToolInfo { key: "mariadb", display: "MariaDB", cli_binary: Some("mariadb"), service_kind: Some(ServiceKind::Mariadb) },
-        Redis => ToolInfo { key: "redis", display: "Redis", cli_binary: Some("redis-cli"), service_kind: Some(ServiceKind::Redis) },
-        Mailpit => ToolInfo { key: "mailpit", display: "Mailpit", cli_binary: None, service_kind: Some(ServiceKind::Mailpit) },
-        Mkcert => ToolInfo { key: "mkcert", display: "mkcert", cli_binary: Some("mkcert"), service_kind: None },
-        Composer => ToolInfo { key: "composer", display: "Composer", cli_binary: Some("composer"), service_kind: None },
-        Node => ToolInfo { key: "node", display: "Node.js", cli_binary: Some("node"), service_kind: None },
+        Php => ToolInfo { key: "php", display: "PHP", cli_binaries: &["php"], service_kind: Some(ServiceKind::PhpFpm) },
+        Nginx => ToolInfo { key: "nginx", display: "Nginx", cli_binaries: &["nginx"], service_kind: Some(ServiceKind::Nginx) },
+        Mariadb => ToolInfo { key: "mariadb", display: "MariaDB", cli_binaries: &["mariadb"], service_kind: Some(ServiceKind::Mariadb) },
+        Redis => ToolInfo { key: "redis", display: "Redis", cli_binaries: &["redis-cli"], service_kind: Some(ServiceKind::Redis) },
+        Mailpit => ToolInfo { key: "mailpit", display: "Mailpit", cli_binaries: &[], service_kind: Some(ServiceKind::Mailpit) },
+        Mkcert => ToolInfo { key: "mkcert", display: "mkcert", cli_binaries: &["mkcert"], service_kind: None },
+        Composer => ToolInfo { key: "composer", display: "Composer", cli_binaries: &["composer"], service_kind: None },
+        Node => ToolInfo { key: "node", display: "Node.js", cli_binaries: &["node", "npm", "npx"], service_kind: None },
     }
 }
 
@@ -44,11 +54,22 @@ pub fn from_key(k: &str) -> Option<ManagedTool> {
     ManagedTool::ALL.into_iter().find(|t| key(*t) == k)
 }
 
-/// Absolute path to the tool's terminal CLI under `bin/<key>/current/<cli>`, if it has one.
+/// Absolute path to the tool's PRIMARY terminal CLI under `bin/<key>/current/<cli>`, if any.
 pub fn cli_path(tool: ManagedTool, paths: &LaraluxPaths) -> Option<PathBuf> {
     info(tool)
-        .cli_binary
+        .cli_binary()
         .map(|b| paths.bin().join(key(tool)).join("current").join(b))
+}
+
+/// Absolute paths to EVERY terminal CLI the tool ships, under `bin/<key>/current/<cli>`
+/// (paired with the binary name). Empty for tools with no CLI.
+pub fn cli_paths(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<(&'static str, PathBuf)> {
+    let base = paths.bin().join(key(tool)).join("current");
+    info(tool)
+        .cli_binaries
+        .iter()
+        .map(|b| (*b, base.join(b)))
+        .collect()
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -161,14 +182,17 @@ mod tests {
 
     #[test]
     fn cli_binary_mapping_and_mailpit_has_none() {
-        assert_eq!(info(ManagedTool::Php).cli_binary, Some("php"));
-        assert_eq!(info(ManagedTool::Composer).cli_binary, Some("composer"));
-        assert_eq!(info(ManagedTool::Mariadb).cli_binary, Some("mariadb"));
-        assert_eq!(info(ManagedTool::Mkcert).cli_binary, Some("mkcert"));
-        assert_eq!(info(ManagedTool::Redis).cli_binary, Some("redis-cli"));
-        assert_eq!(info(ManagedTool::Nginx).cli_binary, Some("nginx"));
-        assert_eq!(info(ManagedTool::Node).cli_binary, Some("node"));
-        assert_eq!(info(ManagedTool::Mailpit).cli_binary, None);
+        assert_eq!(info(ManagedTool::Php).cli_binary(), Some("php"));
+        assert_eq!(info(ManagedTool::Composer).cli_binary(), Some("composer"));
+        assert_eq!(info(ManagedTool::Mariadb).cli_binary(), Some("mariadb"));
+        assert_eq!(info(ManagedTool::Mkcert).cli_binary(), Some("mkcert"));
+        assert_eq!(info(ManagedTool::Redis).cli_binary(), Some("redis-cli"));
+        assert_eq!(info(ManagedTool::Nginx).cli_binary(), Some("nginx"));
+        assert_eq!(info(ManagedTool::Node).cli_binary(), Some("node"));
+        // Node ships three terminal CLIs — all are symlinked together.
+        assert_eq!(info(ManagedTool::Node).cli_binaries, &["node", "npm", "npx"]);
+        assert_eq!(info(ManagedTool::Mailpit).cli_binary(), None);
+        assert!(info(ManagedTool::Mailpit).cli_binaries.is_empty());
     }
 
     #[test]
