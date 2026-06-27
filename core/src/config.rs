@@ -27,7 +27,7 @@ impl Default for ServicesConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_tld")]
     pub tld: String,

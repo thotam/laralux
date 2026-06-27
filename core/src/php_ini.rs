@@ -5,7 +5,7 @@ use std::path::PathBuf;
 /// `Configuration File (php.ini) Path`. A symlink here points back into ~/laralux.
 pub const SYSTEM_PHP_INI: &str = "/usr/local/etc/php/php.ini";
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PhpIniSettings {
     pub memory_limit: String,
     pub upload_max_filesize: String,
