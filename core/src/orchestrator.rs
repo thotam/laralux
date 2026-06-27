@@ -147,6 +147,23 @@ impl Orchestrator {
         self.replace_version(ServiceKind::PhpFpm, "php", version)
     }
 
+    /// Persist PHP directives to the Laralux php.ini and restart php-fpm if it is
+    /// running so the new ini takes effect. Web picks it up via `-c`; the CLI link
+    /// is handled by the command layer (it owns the Privileged escalator).
+    pub fn apply_php_ini(
+        &mut self,
+        settings: &crate::php_ini::PhpIniSettings,
+    ) -> Result<(), ServiceError> {
+        crate::php_ini::validate(settings)
+            .map_err(|e| ServiceError::Config(e.to_string()))?;
+        crate::php_ini::write_php_ini(&self.paths, settings)?;
+        if self.state(ServiceKind::PhpFpm) == ServiceState::Running {
+            self.stop(ServiceKind::PhpFpm)?;
+            self.start(ServiceKind::PhpFpm)?;
+        }
+        Ok(())
+    }
+
     /// Swap the active CoreDNS bases. Stops and removes any existing CoreDNS service,
     /// then starts a new one with the given bases (port 5353). If bases is empty,
     /// stops and removes without restarting.
@@ -547,6 +564,40 @@ mod tests {
         let was = orch.replace_version(ServiceKind::Nginx, "nginx", "1.31.2").unwrap();
         assert!(was);
         assert_eq!(orch.state(ServiceKind::Nginx), ServiceState::Running);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn apply_php_ini_writes_file_and_is_noop_restart_when_stopped() {
+        let tmp = std::env::temp_dir().join(format!("lara-orch-phpini-{}", std::process::id()));
+        let paths = LaraluxPaths::new(tmp.clone());
+        let mut orch = Orchestrator::new(
+            paths,
+            vec![Box::new(crate::service::php_fpm::PhpFpmService::new("8.4"))],
+            Box::new(crate::process::FakeSpawner::new()),
+        );
+        let mut s = crate::php_ini::PhpIniSettings::default();
+        s.memory_limit = "512M".into();
+        orch.apply_php_ini(&s).unwrap();
+        assert_eq!(orch.state(ServiceKind::PhpFpm), ServiceState::Stopped); // no restart when stopped
+        let read_paths = LaraluxPaths::new(tmp.clone());
+        let ini = std::fs::read_to_string(crate::php_ini::php_ini_path(&read_paths)).unwrap();
+        assert!(ini.contains("memory_limit = 512M"));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn apply_php_ini_rejects_invalid() {
+        let tmp = std::env::temp_dir().join(format!("lara-orch-phpini-bad-{}", std::process::id()));
+        let paths = LaraluxPaths::new(tmp.clone());
+        let mut orch = Orchestrator::new(
+            paths,
+            vec![Box::new(crate::service::php_fpm::PhpFpmService::new("8.4"))],
+            Box::new(crate::process::FakeSpawner::new()),
+        );
+        let mut s = crate::php_ini::PhpIniSettings::default();
+        s.memory_limit = "".into();
+        assert!(orch.apply_php_ini(&s).is_err());
         std::fs::remove_dir_all(&tmp).ok();
     }
 }
