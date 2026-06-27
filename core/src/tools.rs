@@ -6,12 +6,12 @@ use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ManagedTool { Php, Nginx, Mariadb, Redis, Mailpit, Mkcert, Composer }
+pub enum ManagedTool { Php, Nginx, Mariadb, Redis, Mailpit, Mkcert, Composer, Node }
 
 impl ManagedTool {
-    pub const ALL: [ManagedTool; 7] = [
+    pub const ALL: [ManagedTool; 8] = [
         ManagedTool::Php, ManagedTool::Nginx, ManagedTool::Mariadb, ManagedTool::Redis,
-        ManagedTool::Mailpit, ManagedTool::Mkcert, ManagedTool::Composer,
+        ManagedTool::Mailpit, ManagedTool::Mkcert, ManagedTool::Composer, ManagedTool::Node,
     ];
 }
 
@@ -32,6 +32,7 @@ pub fn info(tool: ManagedTool) -> ToolInfo {
         Mailpit => ToolInfo { key: "mailpit", display: "Mailpit", cli_binary: None, service_kind: Some(ServiceKind::Mailpit) },
         Mkcert => ToolInfo { key: "mkcert", display: "mkcert", cli_binary: Some("mkcert"), service_kind: None },
         Composer => ToolInfo { key: "composer", display: "Composer", cli_binary: Some("composer"), service_kind: None },
+        Node => ToolInfo { key: "node", display: "Node.js", cli_binary: Some("node"), service_kind: None },
     }
 }
 
@@ -117,6 +118,11 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             crate::layout::installed_versions(paths, "composer"),
             &cfg.versions.get("composer").cloned().unwrap_or_default(),
         ),
+        ManagedTool::Node => known_catalog(
+            &crate::node_static::KNOWN_NODE_VERSIONS,
+            crate::layout::installed_versions(paths, "node"),
+            &cfg.versions.get("node").cloned().unwrap_or_default(),
+        ),
     }
 }
 
@@ -144,6 +150,8 @@ pub fn install_version(
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Composer => crate::php_cli::install_composer_version(paths, version, downloader, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
+        ManagedTool::Node => crate::node_static::install_node_version(paths, version, downloader, runner, sink)
+            .map_err(|e| ToolError::Install(e.to_string())),
     }
 }
 
@@ -159,6 +167,7 @@ mod tests {
         assert_eq!(info(ManagedTool::Mkcert).cli_binary, Some("mkcert"));
         assert_eq!(info(ManagedTool::Redis).cli_binary, Some("redis-cli"));
         assert_eq!(info(ManagedTool::Nginx).cli_binary, Some("nginx"));
+        assert_eq!(info(ManagedTool::Node).cli_binary, Some("node"));
         assert_eq!(info(ManagedTool::Mailpit).cli_binary, None);
     }
 
@@ -250,6 +259,19 @@ mod tests {
         assert_eq!(vs.len(), crate::mailpit_static::KNOWN_MAILPIT_VERSIONS.len());
         assert!(vs.iter().find(|v| v.version == "1.25.0").unwrap().installed);
         assert_eq!(vs[0].version, "1.30.2"); // newest first
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn node_available_versions_includes_known_set_newest_first() {
+        let root = std::env::temp_dir().join(format!("lara-tools-node-{}", std::process::id()));
+        let paths = LaraluxPaths::new(root.clone());
+        std::fs::create_dir_all(paths.version_dir("node", "22.23.1")).unwrap();
+        let vs = available_versions(ManagedTool::Node, &paths);
+        assert_eq!(vs.len(), crate::node_static::KNOWN_NODE_VERSIONS.len());
+        assert!(vs.iter().find(|v| v.version == "22.23.1").unwrap().installed);
+        assert!(!vs.iter().find(|v| v.version == "18.20.8").unwrap().installed);
+        assert_eq!(vs[0].version, "24.18.0"); // newest first
         std::fs::remove_dir_all(&root).ok();
     }
 }

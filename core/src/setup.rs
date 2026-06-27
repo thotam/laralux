@@ -11,10 +11,11 @@ pub enum Component {
     Mkcert,
     Mailpit,
     Composer,
+    Node,
 }
 
 impl Component {
-    pub const ALL: [Component; 7] = [
+    pub const ALL: [Component; 8] = [
         Component::Nginx,
         Component::Php,
         Component::Mariadb,
@@ -22,6 +23,7 @@ impl Component {
         Component::Mkcert,
         Component::Mailpit,
         Component::Composer,
+        Component::Node,
     ];
 
     pub fn label(&self) -> &'static str {
@@ -33,6 +35,7 @@ impl Component {
             Component::Mkcert => "mkcert",
             Component::Mailpit => "mailpit",
             Component::Composer => "composer",
+            Component::Node => "node",
         }
     }
 }
@@ -53,6 +56,7 @@ fn detect_binary(component: Component) -> String {
         Component::Mkcert => "mkcert".to_string(),
         Component::Mailpit => "mailpit".to_string(),
         Component::Composer => "composer".to_string(),
+        Component::Node => "node".to_string(),
     }
 }
 
@@ -84,6 +88,7 @@ pub fn apt_packages_for(component: Component) -> Vec<String> {
         Component::Mkcert => Vec::new(),
         Component::Mailpit => Vec::new(),
         Component::Composer => Vec::new(),
+        Component::Node => Vec::new(),
     }
 }
 
@@ -216,6 +221,7 @@ pub struct SetupReport {
     pub mkcert_nss: bool,
     pub nginx_setcap: bool,
     pub mariadb_fetched: bool,
+    pub node_fetched: bool,
     pub php_version: Option<String>,
     pub errors: Vec<String>,
 }
@@ -254,6 +260,7 @@ pub fn run_setup(
         mkcert_nss: false,
         nginx_setcap: false,
         mariadb_fetched: false,
+        node_fetched: false,
         php_version: None,
         errors: Vec::new(),
     };
@@ -334,6 +341,16 @@ pub fn run_setup(
         match crate::mariadb_static::install_mariadb(paths, downloader, runner, sink) {
             Ok(ver) => { report.mariadb_fetched = true; record_version(paths, "mariadb", &ver); }
             Err(e) => report.errors.push(format!("install mariadb: {e}")),
+        }
+        done += 1;
+    }
+
+    // 1h. Install Node.js from the official static tarball (no apt) when missing.
+    if missing.contains(&Component::Node) {
+        sink.emit(ProgressEvent::Step { done, total, label: Component::Node.label().to_string() });
+        match crate::node_static::install_node(paths, downloader, runner, sink) {
+            Ok(ver) => { report.node_fetched = true; record_version(paths, "node", &ver); }
+            Err(e) => report.errors.push(format!("install node: {e}")),
         }
         done += 1;
     }
@@ -454,7 +471,7 @@ mod tests {
     fn detect_reports_all_components() {
         let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-detect-{}", std::process::id())));
         let statuses = detect(&paths);
-        assert_eq!(statuses.len(), 7);
+        assert_eq!(statuses.len(), 8);
         assert!(!statuses.iter().find(|s| s.component == Component::Mailpit).unwrap().present);
     }
 
