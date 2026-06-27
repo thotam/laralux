@@ -13,6 +13,13 @@ impl MariadbService {
     fn cnf_path(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.etc_for("mariadb").join("my.cnf")
     }
+    /// Unix socket the server listens on. Kept at the client's compiled-in
+    /// default (`/tmp/mysql.sock` for the upstream MariaDB tarball) so the bare
+    /// `mariadb`/`mariadb-dump` CLIs connect from a terminal with no extra flags
+    /// (mirrors redis-cli, which just works on the default TCP port).
+    fn socket_path(&self) -> PathBuf {
+        PathBuf::from("/tmp/mysql.sock")
+    }
     fn datadir(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.data().join("mariadb")
     }
@@ -46,7 +53,10 @@ impl Service for MariadbService {
         std::fs::create_dir_all(paths.etc_for("mariadb"))?;
         std::fs::create_dir_all(self.datadir(paths))?;
         let conf = format!(
-            "[mysqld]\n\
+            "[client]\n\
+             socket={sock}\n\
+             port={port}\n\
+             [mysqld]\n\
              datadir={datadir}\n\
              socket={sock}\n\
              port={port}\n\
@@ -54,7 +64,7 @@ impl Service for MariadbService {
              pid-file={pid}\n\
              log-error={log}\n",
             datadir = self.datadir(paths).display(),
-            sock = paths.tmp().join("mysql.sock").display(),
+            sock = self.socket_path().display(),
             port = self.port,
             pid = paths.tmp().join("mariadb.pid").display(),
             log = paths.log().join("mariadb.log").display(),
@@ -90,7 +100,7 @@ impl Service for MariadbService {
         // Clear a stale unix socket / orphaned mariadbd from a previous run.
         crate::service::cleanup_stale_endpoint(
             Some(&paths.tmp().join("mariadb.pid")),
-            Some(&paths.tmp().join("mysql.sock")),
+            Some(&self.socket_path()),
         );
         Ok(())
     }
