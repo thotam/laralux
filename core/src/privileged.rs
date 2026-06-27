@@ -19,6 +19,7 @@ pub trait Privileged: Send + Sync {
     fn remove_resolved_dropin(&self) -> Result<(), PrivError>;
     fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError>;
     fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError>;
+    fn ensure_php_ini_link(&self, target: &Path) -> Result<(), PrivError>;
 }
 
 // ---------- Shared free helpers ----------
@@ -63,6 +64,17 @@ fn remove_resolved_argv() -> Vec<String> {
 
 fn ln_symlink_argv(src: &Path, dst: &Path) -> Vec<String> {
     vec!["ln".to_string(), "-sfn".to_string(), src.display().to_string(), dst.display().to_string()]
+}
+
+fn php_ini_link_argv(target: &Path) -> Vec<String> {
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "mkdir -p /usr/local/etc/php && ln -sfn {} /usr/local/etc/php/php.ini",
+            target.display()
+        ),
+    ]
 }
 
 fn rm_argv(dst: &Path) -> Vec<String> {
@@ -138,6 +150,9 @@ impl Privileged for SudoPrivileged {
     fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
         run_escalated("sudo", &rm_argv(dst))
     }
+    fn ensure_php_ini_link(&self, target: &Path) -> Result<(), PrivError> {
+        run_escalated("sudo", &php_ini_link_argv(target))
+    }
 }
 
 // ---------- Real: pkexec (graphical auth) ----------
@@ -172,6 +187,9 @@ impl Privileged for PkexecPrivileged {
     fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
         run_escalated("pkexec", &rm_argv(dst))
     }
+    fn ensure_php_ini_link(&self, target: &Path) -> Result<(), PrivError> {
+        run_escalated("pkexec", &php_ini_link_argv(target))
+    }
 }
 
 // ---------- Fake (used by sync tests) ----------
@@ -186,6 +204,7 @@ pub struct FakePrivileged {
     resolved_removed: Arc<Mutex<bool>>,
     symlinks_created: Arc<Mutex<Vec<(String, String)>>>,
     symlinks_removed: Arc<Mutex<Vec<String>>>,
+    php_ini_links: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakePrivileged {
@@ -217,6 +236,9 @@ impl FakePrivileged {
     }
     pub fn symlinks_removed(&self) -> Arc<Mutex<Vec<String>>> {
         self.symlinks_removed.clone()
+    }
+    pub fn php_ini_links(&self) -> Arc<Mutex<Vec<String>>> {
+        self.php_ini_links.clone()
     }
 }
 
@@ -251,6 +273,10 @@ impl Privileged for FakePrivileged {
     }
     fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
         self.symlinks_removed.lock().unwrap().push(dst.display().to_string());
+        Ok(())
+    }
+    fn ensure_php_ini_link(&self, target: &Path) -> Result<(), PrivError> {
+        self.php_ini_links.lock().unwrap().push(target.display().to_string());
         Ok(())
     }
 }
@@ -350,5 +376,21 @@ mod tests {
             &[("/src/php".to_string(), "/usr/local/bin/php".to_string())]);
         assert_eq!(p.symlinks_removed().lock().unwrap().as_slice(),
             &["/usr/local/bin/php".to_string()]);
+    }
+
+    #[test]
+    fn php_ini_link_argv_is_mkdir_then_ln() {
+        let argv = php_ini_link_argv(std::path::Path::new("/home/u/laralux/etc/php/php.ini"));
+        assert_eq!(argv[0], "sh");
+        assert_eq!(argv[1], "-c");
+        assert!(argv[2].contains("mkdir -p /usr/local/etc/php"));
+        assert!(argv[2].contains("ln -sfn /home/u/laralux/etc/php/php.ini /usr/local/etc/php/php.ini"));
+    }
+
+    #[test]
+    fn fake_records_php_ini_link() {
+        let p = FakePrivileged::new();
+        p.ensure_php_ini_link(std::path::Path::new("/x/php.ini")).unwrap();
+        assert_eq!(p.php_ini_links().lock().unwrap().as_slice(), &["/x/php.ini".to_string()]);
     }
 }
