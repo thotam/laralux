@@ -540,11 +540,15 @@ pub async fn set_php_ini_settings(
                 let mut orch = state.orch.lock().map_err(lock_err)?;
                 orch.apply_php_ini(&settings).map_err(|e| e.to_string())?;
             }
-            // Extend coverage to the CLI: link the ini at the build's compiled-in
-            // path. Best-effort — web already applies via php-fpm's -c, so a
-            // cancelled pkexec must not fail the whole call.
-            let _ = laralux_core::privileged::PkexecPrivileged
-                .ensure_php_ini_link(&laralux_core::php_ini::php_ini_path(&state.paths));
+            // Only escalate when the CLI symlink isn't already in place — keeps Apply
+            // sudo-free after the first time (web always applies via php-fpm's -c).
+            let target = laralux_core::php_ini::php_ini_path(&state.paths);
+            let already_linked = std::fs::read_link(laralux_core::php_ini::SYSTEM_PHP_INI)
+                .map(|p| p == target)
+                .unwrap_or(false);
+            if !already_linked {
+                let _ = laralux_core::privileged::PkexecPrivileged.ensure_php_ini_link(&target);
+            }
             Ok(settings)
         },
     )
