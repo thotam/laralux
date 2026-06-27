@@ -27,7 +27,7 @@ impl Default for ServicesConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_tld")]
     pub tld: String,
@@ -39,6 +39,8 @@ pub struct Config {
     pub versions: BTreeMap<String, String>,
     #[serde(default)]
     pub symlinks: BTreeSet<String>,
+    #[serde(default)]
+    pub php_ini: crate::php_ini::PhpIniSettings,
 }
 
 fn default_tld() -> String {
@@ -50,7 +52,7 @@ fn default_php() -> String {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), versions: BTreeMap::new(), symlinks: BTreeSet::new() }
+        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), versions: BTreeMap::new(), symlinks: BTreeSet::new(), php_ini: crate::php_ini::PhpIniSettings::default() }
     }
 }
 
@@ -159,5 +161,32 @@ mod tests {
         // missing `symlinks` defaults to empty.
         let c: Config = toml::from_str("tld = \"dev\"\nphp_version = \"8.4\"\nshell_integration = true\n").unwrap();
         assert!(c.symlinks.is_empty());
+    }
+
+    #[test]
+    fn php_ini_defaults_and_roundtrips() {
+        let mut c = Config::default();
+        assert_eq!(c.php_ini.memory_limit, "256M");
+        c.php_ini.memory_limit = "512M".into();
+        c.php_ini.opcache_enable = false;
+        let dir = std::env::temp_dir().join(format!("lara-cfg-phpini-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("laralux.toml");
+        c.save(&f).unwrap();
+        let loaded = Config::load(&f).unwrap();
+        assert_eq!(loaded.php_ini.memory_limit, "512M");
+        assert!(!loaded.php_ini.opcache_enable);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn old_config_without_php_ini_loads_defaults() {
+        let dir = std::env::temp_dir().join(format!("lara-cfg-oldphpini-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("laralux.toml");
+        std::fs::write(&f, "tld = \"dev\"\n").unwrap();
+        let loaded = Config::load(&f).unwrap();
+        assert_eq!(loaded.php_ini, crate::php_ini::PhpIniSettings::default());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
