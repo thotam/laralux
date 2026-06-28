@@ -104,6 +104,7 @@ export interface AppState {
   proxy: ProxyState;
   siteDomains: SiteDomainsState;
   download: DownloadState;
+  dbClientBusy: boolean;
 }
 
 // ---- initial state ----------------------------------------------------------
@@ -133,4 +134,5 @@ export const state: AppState = {
   proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
   siteDomains: { name: "", domains: [""], busy: false, error: "" },
   download: { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 },
+  dbClientBusy: false,
 };

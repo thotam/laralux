@@ -2,8 +2,8 @@ import { state } from "../../state";
 import { esc } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
-import { stackStartAll, stackStopAll, serviceStart, serviceStop } from "../../ipc/commands";
-import { render, applyServices } from "../render";
+import { stackStartAll, stackStopAll, serviceStart, serviceStop, openDbClient } from "../../ipc/commands";
+import { render, applyServices, progressRing, resetDownload } from "../render";
 import { SVC_KINDS, DISP, META } from "../constants";
 
 const SVC_ICON: Record<string, string> = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
@@ -52,6 +52,20 @@ function serviceCard(kind: string): string {
   );
 }
 
+export async function launchDbClient(): Promise<void> {
+  state.dbClientBusy = true;
+  render();
+  try {
+    await openDbClient();
+  } catch (e) {
+    toast({ type: "error", title: "Couldn't open DB client", msg: String(e) });
+  } finally {
+    state.dbClientBusy = false;
+    resetDownload();
+    render();
+  }
+}
+
 export function dashboard(): string {
   const run = runningCount();
   const allRunning = run === 5;
@@ -92,6 +106,13 @@ export function dashboard(): string {
     '<div class="row-between mt4"><h2 class="section-label">Sites</h2>' +
     '<button class="link-btn" data-action="nav" data-view="sites">View all →</button></div>' +
     '<div class="stack-col">' + preview + "</div>" +
+    '<div class="row-between mt4"><h2 class="section-label">Tools</h2></div>' +
+    '<div class="card"><div class="set-row"><div class="grow"><div class="t">DB client</div>' +
+    '<div class="h">Beekeeper — manage MariaDB &amp; Redis</div></div>' +
+    (state.dbClientBusy
+      ? progressRing()
+      : '<button class="btn-sm" data-action="open-db-client">' + I.external + "Open</button>") +
+    "</div></div>" +
     "</div>"
   );
 }

@@ -4,7 +4,7 @@ import { state } from "../state";
 import type { ToolModalState } from "../state";
 import { validName } from "./util";
 import { render } from "./render";
-import { startAll, stopAll, toggleService, viewLogs } from "./views/dashboard";
+import { startAll, stopAll, toggleService, viewLogs, launchDbClient } from "./views/dashboard";
 import {
   openNewSite, closeNewSite, submitNewSite,
   openLinkSite, closeLinkSite, browseFolder, submitLinkSite,
@@ -56,6 +56,7 @@ export function bindEvents(): void {
     else if (a === "run-setup") runSetup();
     else if (a === "svc-toggle") toggleService(el.getAttribute("data-kind")!);
     else if (a === "svc-logs") viewLogs(el.getAttribute("data-kind")!);
+    else if (a === "open-db-client") launchDbClient();
     else if (a === "copy-site") copySite(el.getAttribute("data-name")!);
     else if (a === "open-terminal") openTerminal(el.getAttribute("data-path")!);
     else if (a === "open-folder") openFolder(el.getAttribute("data-path")!);

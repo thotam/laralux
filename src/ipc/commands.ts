@@ -128,6 +128,9 @@ export const openTerminalAt = (path: string): Promise<void> =>
 export const openFolderAt = (path: string): Promise<void> =>
   invoke<void>("open_folder", { path });
 
+/** Launch the Beekeeper DB client (downloads AppImage on first run). */
+export const openDbClient = (): Promise<void> => invoke<void>("open_db_client");
+
 // ---- setup ------------------------------------------------------------------
 
 /** Detect which components are installed. */
