@@ -18,7 +18,7 @@ import { linkSiteModal } from "./modals/linksite";
 import { proxyModal } from "./modals/proxy";
 import { domainsModal } from "./modals/domains";
 import { deleteSiteModal } from "./modals/deletesite";
-import { stackStatus, listSites, setupStatus } from "../ipc/commands";
+import { stackStatus, listSites, setupStatus, serviceFlags } from "../ipc/commands";
 
 // ---- shared helpers (single copy) ----
 
@@ -232,5 +232,16 @@ export async function refresh(): Promise<void> {
     if (!state.modal) render();
   } catch (e) {
     /* polling: stay quiet */
+  }
+}
+
+export async function loadServiceFlags(): Promise<void> {
+  try {
+    const f = await serviceFlags();
+    if (f && typeof f === "object") {
+      state.serviceFlags = f as unknown as Record<string, boolean>;
+    }
+  } catch {
+    /* keep defaults */
   }
 }

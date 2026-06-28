@@ -16,6 +16,10 @@
  */
 export type ServiceState = "Stopped" | "Starting" | "Running" | "Stopping" | "Crashed";
 
+export interface ServicesFlags {
+  nginx: boolean; php: boolean; mariadb: boolean; redis: boolean; mailpit: boolean; postgres: boolean;
+}
+
 /**
  * ServiceStatus — mirrors core/src/orchestrator.rs `ServiceStatus` + ServiceKind.
  * Serializes as { kind: "Nginx" | "PhpFpm" | ..., state: ServiceState }.

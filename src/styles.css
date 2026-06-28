@@ -294,6 +294,10 @@ button:disabled { cursor:not-allowed; }
 .code-chip { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; background:var(--surface-2); padding:4px 9px; border-radius:6px; }
 .toggle-off { width:40px; height:23px; border-radius:99px; background:var(--surface-2); border:1px solid var(--border); position:relative; flex:none; }
 .toggle-off .knob { position:absolute; top:2px; left:2px; width:17px; height:17px; border-radius:50%; background:var(--text-muted); opacity:.5; }
+.set-row.sub { padding-left: 8px; }
+.toggle-on { width:40px; height:22px; border-radius:999px; border:none; position:relative; cursor:pointer; background:var(--accent, #16a34a); }
+.toggle-on .knob { position:absolute; top:2px; width:18px; height:18px; border-radius:50%; background:#fff; transition:left .12s; left:20px; }
+.toggle-off .knob { transition:left .12s; }
 .settings-foot { font-size:12px; color:var(--text-muted); }
 
 /* New-site CTA */

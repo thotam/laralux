@@ -1,6 +1,6 @@
 import "./styles.css";
 import { state } from "./state";
-import { render, refresh, applyServices, applyProgress, updateRing } from "./ui/render";
+import { render, refresh, applyServices, applyProgress, updateRing, loadServiceFlags } from "./ui/render";
 import { onServicesChanged, onSitesChanged, onDownloadProgress } from "./ipc/events";
 import { listSites } from "./ipc/commands";
 import { bindEvents } from "./ui/events";
@@ -20,7 +20,6 @@ if (window.ResizeObserver) {
 
 // ---- boot ----
 bindEvents();
-render();
 
 onDownloadProgress((payload) => { applyProgress(payload); updateRing(); });
 onServicesChanged((statuses) => {
@@ -40,4 +39,8 @@ onSitesChanged(() => {
   }).catch(() => {});
 });
 
-refresh();
+(async () => {
+  await loadServiceFlags();
+  render();
+  refresh();
+})();

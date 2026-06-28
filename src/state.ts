@@ -80,6 +80,7 @@ export interface AppState {
   compact: boolean;
   /** Keyed by ServiceKind string (e.g. "Nginx", "PhpFpm", …) */
   services: Record<string, ServiceState>;
+  serviceFlags: Record<string, boolean>;
   sites: Site[];
   setup: SetupState;
   pkexecMsg: string | null;
@@ -124,7 +125,8 @@ export const state: AppState = {
   view: "dashboard",
   dark: stored ? stored === "dark" : !!prefersDark,
   compact: false,
-  services: { Nginx: "Stopped", PhpFpm: "Stopped", Mariadb: "Stopped", Redis: "Stopped", Mailpit: "Stopped" },
+  services: { Nginx: "Stopped", PhpFpm: "Stopped", Mariadb: "Stopped", Postgres: "Stopped", Redis: "Stopped", Mailpit: "Stopped" },
+  serviceFlags: { nginx: true, php: true, mariadb: true, redis: true, mailpit: true, postgres: false },
   sites: [],
   setup: { phase: "idle", report: null, components: COMP_ORDER.map((c) => ({ component: c, present: false })) },
   pkexecMsg: null,

@@ -19,6 +19,7 @@ import type {
   ProxyRoute,
   CreateReport,
   SetDomainsResult,
+  ServicesFlags,
 } from "./types";
 
 // ---- stack / services -------------------------------------------------------
@@ -48,6 +49,13 @@ export const serviceStart = (kind: string): Promise<ServiceStatus[]> =>
  */
 export const serviceStop = (kind: string): Promise<ServiceStatus[]> =>
   invoke<ServiceStatus[]>("service_stop", { kind });
+
+/** Current per-service enable flags. */
+export const serviceFlags = (): Promise<ServicesFlags> => invoke<ServicesFlags>("service_flags");
+
+/** Enable/disable a service by ServiceKind ("Nginx" | "PhpFpm" | ... | "Postgres"). */
+export const setServiceEnabled = (kind: string, enabled: boolean): Promise<unknown> =>
+  invoke("set_service_enabled", { kind, enabled });
 
 // ---- sites ------------------------------------------------------------------
 
