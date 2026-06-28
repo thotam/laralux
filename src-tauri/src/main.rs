@@ -75,7 +75,7 @@ fn main() {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;
             let stop = MenuItemBuilder::with_id("stop_all", "Stop All").build(app)?;
             let dashboard = MenuItemBuilder::with_id("dashboard", "Dashboard").build(app)?;
-            let db_client = MenuItemBuilder::with_id("db_client", "DB client (Beekeeper)").build(app)?;
+            let db_client = MenuItemBuilder::with_id("db_client", "DB client (DbGate)").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let menu = MenuBuilder::new(app)
                 .items(&[&start, &stop, &dashboard, &db_client, &quit])
@@ -121,8 +121,8 @@ fn main() {
                     }
                     "db_client" => {
                         if let Some(state) = app.try_state::<AppState>() {
-                            if laralux_core::beekeeper::is_installed(&state.paths) {
-                                let _ = laralux_core::open_beekeeper(&state.paths);
+                            if laralux_core::dbgate::is_installed(&state.paths) {
+                                let _ = laralux_core::open_dbgate(&state.paths);
                             } else if let Some(win) = app.get_webview_window("main") {
                                 let _ = win.show();
                                 let _ = win.set_focus();

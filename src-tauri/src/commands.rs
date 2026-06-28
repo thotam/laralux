@@ -579,9 +579,9 @@ pub async fn open_db_client(app: tauri::AppHandle) -> Result<(), String> {
     let app_for_progress = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let state = app.state::<AppState>();
-        if !laralux_core::beekeeper::is_installed(&state.paths) {
+        if !laralux_core::dbgate::is_installed(&state.paths) {
             let progress = TauriProgress(app_for_progress);
-            laralux_core::beekeeper::ensure_beekeeper(
+            laralux_core::dbgate::ensure_dbgate(
                 &state.paths,
                 &CurlDownloader,
                 &RealCommandRunner,
@@ -589,7 +589,7 @@ pub async fn open_db_client(app: tauri::AppHandle) -> Result<(), String> {
             )
             .map_err(|e| e.to_string())?;
         }
-        laralux_core::open_beekeeper(&state.paths).map_err(|e| e.to_string())
+        laralux_core::open_dbgate(&state.paths).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
