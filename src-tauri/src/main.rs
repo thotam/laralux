@@ -190,15 +190,23 @@ fn main() {
                         let all_running = !snap.is_empty()
                             && snap.iter().all(|s| s.state == laralux_core::ServiceState::Running);
                         if last_all_running != Some(all_running) {
-                            // Position 0 is where Start/Stop sit in the original
+                            // The menu is a GTK object on Linux: mutating it from this
+                            // background thread corrupts it (the tray menu then renders
+                            // blank when next opened). Marshal the swap onto the main
+                            // thread. Position 0 is where Start/Stop sit in the original
                             // MenuBuilder order; keep this in sync if the menu is reordered.
-                            if all_running {
-                                let _ = menu_handle.remove(&start_item);
-                                let _ = menu_handle.insert(&stop_item, 0);
-                            } else {
-                                let _ = menu_handle.remove(&stop_item);
-                                let _ = menu_handle.insert(&start_item, 0);
-                            }
+                            let menu_m = menu_handle.clone();
+                            let start_m = start_item.clone();
+                            let stop_m = stop_item.clone();
+                            let _ = handle.run_on_main_thread(move || {
+                                if all_running {
+                                    let _ = menu_m.remove(&start_m);
+                                    let _ = menu_m.insert(&stop_m, 0);
+                                } else {
+                                    let _ = menu_m.remove(&stop_m);
+                                    let _ = menu_m.insert(&start_m, 0);
+                                }
+                            });
                             last_all_running = Some(all_running);
                         }
                     }
