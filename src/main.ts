@@ -3,7 +3,12 @@ import "./styles.css";
 import { state } from "./state";
 import { I } from "./ui/icons";
 import { esc, validName } from "./ui/util";
-import { toast, dismiss, toasts, setRenderFn } from "./ui/toast";
+import { toast, dismiss, toasts } from "./ui/toast";
+import { setLoop } from "./ui/loop";
+import { dashboard, startAll, stopAll, toggleService, viewLogs } from "./ui/views/dashboard";
+import { sitesView, openNewSite, closeNewSite, submitNewSite, openLinkSite, closeLinkSite, browseFolder, submitLinkSite, openProxy, closeProxy, addProxyRoute, delProxyRoute, submitProxy, openDomains, closeDomains, addDomainRow, delDomainRow, submitDomains, removeSite, copySite, openTerminal, openExternal } from "./ui/views/sites";
+import { setupView, runSetup } from "./ui/views/setup";
+import { settingsView, toggleDark } from "./ui/views/settings";
 /* Laralux — control-center frontend (vanilla, wired to Tauri IPC).
    Ported from the Claude Design handoff. No framework / build step. */
 
@@ -18,13 +23,9 @@ import { toast, dismiss, toasts, setRenderFn } from "./ui/toast";
 
   const SVC_KINDS = ["Nginx", "PhpFpm", "Mariadb", "Redis", "Mailpit"];
   const COMP_ORDER = ["Nginx", "Php", "Mariadb", "Redis", "Mkcert", "Mailpit", "Composer", "Node"];
-  const DISP = { Nginx: "Nginx", PhpFpm: "PHP-FPM", Mariadb: "MariaDB", Redis: "Redis", Mailpit: "Mailpit" };
   const DISP_COMP = { Nginx: "Nginx", Php: "PHP", Mariadb: "MariaDB", Redis: "Redis", Mkcert: "mkcert", Mailpit: "Mailpit", Composer: "Composer", Node: "Node.js" };
   const TOOL_KEY = { Nginx: "nginx", Php: "php", Mariadb: "mariadb", Redis: "redis", Mkcert: "mkcert", Mailpit: "mailpit", Composer: "composer", Node: "node" };
   const TOOL_CLI = { nginx: "nginx", php: "php", mariadb: "mariadb", redis: "redis-cli", mkcert: "mkcert", mailpit: null, composer: "composer", node: "node, npm, npx" };
-  const SVC_ICON = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
-  const PORTS = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
-  const LOG_FILE = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Redis: "redis.log", Mailpit: "mailpit.log" };
 
   const META = {
     Running: { label: "Running", cls: "running", busy: false, btn: "Stop", primary: false },
@@ -71,7 +72,7 @@ import { toast, dismiss, toasts, setRenderFn } from "./ui/toast";
     computeOverall();
   }
 
-  // ---- actions ----
+  // ---- actions (tool modal — shared, stays in main.ts until Task 6) ----
   async function openTool(toolKey) {
     const comp = Object.keys(TOOL_KEY).find((k) => TOOL_KEY[k] === toolKey);
     state.modal = {
@@ -177,355 +178,9 @@ import { toast, dismiss, toasts, setRenderFn } from "./ui/toast";
     }
   }
 
-  async function toggleService(kind) {
-    if (state.busy) return;
-    const running = state.services[kind] === "Running";
-    const cmd = running ? "service_stop" : "service_start";
-    state.busy = true;
-    state.services[kind] = running ? "Stopping" : "Starting";
-    render();
-    try {
-      const arr = await invoke(cmd, { kind });
-      applyServices(arr);
-      if (!running) toast({ type: "success", title: DISP[kind] + " started" });
-    } catch (e) {
-      toast({ type: "error", title: DISP[kind] + (running ? " stop failed" : " start failed"), msg: String(e) });
-    } finally {
-      state.busy = false;
-      render();
-    }
-  }
-
-  async function startAll() {
-    if (state.busy || runningCount() === 5) return;
-    state.busy = true;
-    state.startingAll = true;
-    state.pkexecMsg = "Authorize to update /etc/hosts — enter your password in the system prompt.";
-    render();
-    try {
-      const arr = await invoke("stack_start_all");
-      applyServices(arr);
-      toast({ type: "success", title: "All services running", msg: "Sites are reachable at https://*.dev" });
-    } catch (e) {
-      toast({ type: "error", title: "Start failed", msg: String(e) });
-    } finally {
-      state.busy = false;
-      state.startingAll = false;
-      state.pkexecMsg = null;
-      render();
-    }
-  }
-
-  async function stopAll() {
-    if (state.busy || runningCount() === 0) return;
-    state.busy = true;
-    for (const k of SVC_KINDS) if (state.services[k] === "Running") state.services[k] = "Stopping";
-    render();
-    try {
-      const arr = await invoke("stack_stop_all");
-      applyServices(arr);
-      toast({ type: "info", title: "All services stopped" });
-    } catch (e) {
-      toast({ type: "error", title: "Stop failed", msg: String(e) });
-    } finally {
-      state.busy = false;
-      render();
-    }
-  }
-
-  async function runSetup() {
-    if (state.busy || state.setup.phase === "installing") return;
-    state.busy = true;
-    state.setup.phase = "installing";
-    // The auth prompt is shown inline in the install card (.auth-note), not the
-    // global top banner — avoids the duplicate, prettier on the Setup tab.
-    state.download.active = true; render();
-    try {
-      const report = await invoke("run_setup_cmd");
-      state.setup.report = report;
-      state.setup.phase = "done";
-      if (report && report.errors && report.errors.length)
-        toast({ type: "error", sticky: true, title: "Setup finished with errors", details: report.errors });
-      else toast({ type: "success", title: "Environment ready", msg: "All components installed" });
-      try {
-        applyComponents(await invoke("setup_status"));
-      } catch (_) {}
-    } catch (e) {
-      state.setup.phase = "idle";
-      toast({ type: "error", title: "Setup failed", msg: String(e) });
-    } finally {
-      state.busy = false;
-      state.pkexecMsg = null;
-      resetDownload();
-      render();
-    }
-  }
-
-  function viewLogs(kind) {
-    const f = LOG_FILE[kind] || (kind.toLowerCase() + ".log");
-    toast({
-      type: "error",
-      sticky: true,
-      title: DISP[kind] + " crashed",
-      details: ["Check ~/laralux/log/" + f, "or: journalctl --user -n 50"],
-    });
-  }
-
-  // ---- new site ----
-  const DOMAIN_RE = /^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
-  function validDomain(d) {
-    if (!DOMAIN_RE.test(d)) return false;
-    return d.replace(/^\*\./, "").split(".").every((l) => l.length <= 63);
-  }
-
-  function deriveName(path) {
-    const base = (path || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
-    return base.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
-  }
-
-  function openNewSite() {
-    state.modal = "newsite";
-    state.newSite = { name: "", template: "Blank", busy: false, error: "" };
-    render();
-    // focus the name input after render
-    requestAnimationFrame(() => {
-      const inp = document.getElementById("ns-name");
-      if (inp) inp.focus();
-    });
-  }
-
-  function closeNewSite() {
-    if (state.newSite.busy) return;
-    state.modal = null;
-    render();
-  }
-
-  async function submitNewSite() {
-    const { name, template } = state.newSite;
-    if (!validName(name)) { state.newSite.error = "Use lowercase letters, digits, hyphens (e.g. my-app)"; render(); return; }
-    state.newSite.busy = true; state.newSite.error = ""; render();
-    state.download.active = true; state.download.label = "Creating site…"; render();
-    try {
-      const rep = await invoke("create_site", { name, template });
-      const extra = rep.database_created ? " · database created" : "";
-      const warn = rep.warnings && rep.warnings.length ? { details: rep.warnings } : {};
-      toast({ type: "success", title: "Created " + rep.site_name, msg: "https://" + rep.hostname + extra, ...warn });
-      state.modal = null;
-      state.newSite = { name: "", template: "Blank", busy: false, error: "" };
-      try {
-        const sites = await invoke("list_sites");
-        state.sites = Array.isArray(sites) ? sites : [];
-      } catch (_) {}
-      render();
-    } catch (e) {
-      state.newSite.error = String(e);
-      state.newSite.busy = false;
-      resetDownload();
-      toast({ type: "error", title: "Create failed", msg: String(e) });
-      render();
-    } finally {
-      if (state.newSite.busy) { state.newSite.busy = false; resetDownload(); render(); }
-    }
-  }
-
-  function openLinkSite() {
-    state.modal = "linksite";
-    state.linkSite = { root: "", name: "", busy: false, error: "" };
-    render();
-    requestAnimationFrame(() => {
-      const inp = document.getElementById("ls-name");
-      if (inp) inp.focus();
-    });
-  }
-
-  function closeLinkSite() {
-    if (state.linkSite.busy) return;
-    state.modal = null;
-    render();
-  }
-
-  async function browseFolder() {
-    try {
-      const dlg = window.__TAURI__ && window.__TAURI__.dialog;
-      if (!dlg) { toast({ type: "error", title: "Folder picker unavailable" }); return; }
-      const picked = await dlg.open({ directory: true, multiple: false, title: "Choose project folder" });
-      if (!picked) return; // cancelled
-      const path = Array.isArray(picked) ? picked[0] : picked;
-      state.linkSite.root = path;
-      if (!state.linkSite.name) state.linkSite.name = deriveName(path);
-      state.linkSite.error = "";
-      render();
-    } catch (e) {
-      toast({ type: "error", title: "Folder picker failed", msg: String(e) });
-    }
-  }
-
-  async function submitLinkSite() {
-    const { root, name } = state.linkSite;
-    if (!root) { state.linkSite.error = "Choose a folder first"; render(); return; }
-    if (!validName(name)) { state.linkSite.error = "Use lowercase letters, digits, hyphens (e.g. my-app)"; render(); return; }
-    state.linkSite.busy = true; state.linkSite.error = ""; render();
-    try {
-      const site = await invoke("link_site", { name, root });
-      toast({ type: "success", title: "Linked " + site.name, msg: "https://" + site.hostname });
-      state.modal = null;
-      state.linkSite = { root: "", name: "", busy: false, error: "" };
-      try {
-        const sites = await invoke("list_sites");
-        state.sites = Array.isArray(sites) ? sites : [];
-      } catch (_) {}
-      render();
-    } catch (e) {
-      state.linkSite.error = String(e);
-      state.linkSite.busy = false;
-      toast({ type: "error", title: "Link failed", msg: String(e) });
-      render();
-    } finally {
-      if (state.linkSite.busy) { state.linkSite.busy = false; render(); }
-    }
-  }
-
-  function openProxy(site) {
-    if (site && site.proxy) {
-      state.proxy = {
-        mode: "edit", name: site.name, websocket: !!site.proxy.websocket,
-        routes: (site.proxy.routes || []).map((r) => ({ path: r.path, upstream: r.upstream })),
-        busy: false, error: "",
-      };
-      if (!state.proxy.routes.length) state.proxy.routes = [{ path: "/", upstream: "" }];
-    } else {
-      state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" };
-    }
-    state.modal = "proxy";
-    render();
-    requestAnimationFrame(() => { const inp = document.getElementById("px-name"); if (inp && !inp.readOnly) inp.focus(); });
-  }
-
-  function closeProxy() {
-    if (state.proxy.busy) return;
-    state.modal = null;
-    render();
-  }
-
-  function addProxyRoute() { state.proxy.routes.push({ path: "", upstream: "" }); render(); }
-  function delProxyRoute(i) { state.proxy.routes.splice(i, 1); if (!state.proxy.routes.length) state.proxy.routes.push({ path: "/", upstream: "" }); render(); }
-
-  async function submitProxy() {
-    const p = state.proxy;
-    if (!validName(p.name)) { p.error = "Use lowercase letters, digits, hyphens (e.g. my-app)"; render(); return; }
-    if (!p.routes.length) { p.error = "Add at least one route"; render(); return; }
-    for (const r of p.routes) {
-      if (!r.path.startsWith("/")) { p.error = "Each path must start with /"; render(); return; }
-      if (!String(r.upstream).trim()) { p.error = "Each route needs a target (host:port)"; render(); return; }
-    }
-    p.busy = true; p.error = ""; render();
-    try {
-      const cmd = p.mode === "edit" ? "update_proxy" : "add_proxy";
-      const site = await invoke(cmd, {
-        name: p.name, websocket: p.websocket,
-        routes: p.routes.map((r) => ({ path: r.path, upstream: r.upstream })),
-      });
-      toast({ type: "success", title: (p.mode === "edit" ? "Updated " : "Proxy ") + site.name, msg: "https://" + site.hostname });
-      state.modal = null;
-      state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" };
-      try { const sites = await invoke("list_sites"); state.sites = Array.isArray(sites) ? sites : []; } catch (_) {}
-      render();
-    } catch (e) {
-      p.error = String(e); p.busy = false;
-      toast({ type: "error", title: "Proxy failed", msg: String(e) });
-      render();
-    } finally {
-      if (p.busy) { p.busy = false; render(); }
-    }
-  }
-
-  function openDomains(site) {
-    const ds = (site.domains && site.domains.length) ? site.domains.slice() : [site.hostname];
-    state.siteDomains = { name: site.name, domains: ds, busy: false, error: "" };
-    state.modal = "domains";
-    render();
-  }
-  function closeDomains() { if (state.siteDomains.busy) return; state.modal = null; render(); }
-  function addDomainRow() { state.siteDomains.domains.push(""); render(); }
-  function delDomainRow(i) { state.siteDomains.domains.splice(i, 1); if (!state.siteDomains.domains.length) state.siteDomains.domains.push(""); render(); }
-
-  async function submitDomains() {
-    const sd = state.siteDomains;
-    const domains = sd.domains.map((d) => d.trim()).filter((d) => d.length);
-    if (!domains.length) { sd.error = "Add at least one domain"; render(); return; }
-    for (const d of domains) { if (!validDomain(d)) { sd.error = "Invalid domain: " + d; render(); return; } }
-    sd.busy = true; sd.error = ""; render();
-    try {
-      const res = await invoke("set_site_domains", { name: sd.name, domains });
-      state.sites = Array.isArray(res && res.sites) ? res.sites : [];
-      toast({ type: "success", title: "Domains updated", msg: domains.join(", ") });
-      if (res && Array.isArray(res.warnings)) {
-        for (const w of res.warnings) toast({ type: "error", title: "Wildcard DNS", msg: String(w) });
-      }
-      state.modal = null; render();
-    } catch (e) {
-      sd.error = String(e); sd.busy = false;
-      toast({ type: "error", title: "Update failed", msg: String(e) });
-      render();
-    } finally {
-      if (sd.busy) { sd.busy = false; render(); }
-    }
-  }
-
-  async function removeSite(name) {
-    if (state.confirmRemove !== name) { state.confirmRemove = name; render(); return; }
-    state.confirmRemove = null;
-    try {
-      await invoke("unlink_site", { name });
-      toast({ type: "success", title: "Removed " + name });
-      const sites = await invoke("list_sites");
-      state.sites = Array.isArray(sites) ? sites : [];
-      render();
-    } catch (e) {
-      toast({ type: "error", title: "Remove failed", msg: String(e) });
-      render();
-    }
-  }
-
-  async function copySite(name) {
-    const url = "https://" + name + ".dev";
-    try {
-      await navigator.clipboard.writeText(url);
-      toast({ type: "success", title: "Copied " + url });
-    } catch (e) {
-      toast({ type: "error", title: "Copy failed", msg: url });
-    }
-  }
-
-  async function openTerminal(path) {
-    try {
-      await invoke("open_terminal", { path });
-    } catch (e) {
-      toast({ type: "error", title: "Couldn't open terminal", msg: String(e) });
-    }
-  }
-
-  // Open a URL in the system browser. In the Tauri webview, <a target="_blank">
-  // does nothing, so route through the opener plugin (fallback to window.open for dev).
-  async function openExternal(url) {
-    if (!url) return;
-    try {
-      const op = window.__TAURI__ && window.__TAURI__.opener;
-      if (op && op.openUrl) { await op.openUrl(url); return; }
-      window.open(url, "_blank");
-    } catch (e) {
-      toast({ type: "error", title: "Couldn't open", msg: String(e) });
-    }
-  }
-
   function setView(v) {
     state.view = v;
     state.confirmRemove = null;
-    render();
-  }
-  function toggleDark() {
-    state.dark = !state.dark;
-    localStorage.setItem("laralux-theme", state.dark ? "dark" : "light");
     render();
   }
 
@@ -631,206 +286,6 @@ import { toast, dismiss, toasts, setRenderFn } from "./ui/toast";
     );
   }
 
-  function svcButton(kind, m) {
-    if (m.busy)
-      return '<button class="btn-sm busy" disabled>' + spinner("muted") + esc(m.label) + "</button>";
-    return (
-      '<button class="btn-sm' + (m.primary ? " primary" : "") + '" data-action="svc-toggle" data-kind="' + kind + '">' +
-      esc(m.btn) + "</button>"
-    );
-  }
-
-  function serviceCard(kind) {
-    const st = state.services[kind] || "Stopped";
-    const m = META[st] || META.Stopped;
-    const dotPulse = m.busy ? " pulse" : "";
-    const ports = (PORTS[kind] || []).map((p) => '<span class="port-chip">' + esc(p) + "</span>").join("");
-    let footRight = "";
-    if (kind === "Mailpit" && st === "Running")
-      footRight =
-        '<a class="btn-xs" href="http://localhost:8025" data-action="open-url" data-url="http://localhost:8025" rel="noreferrer">' + I.externalSm + "Open</a>";
-    if (st === "Crashed")
-      footRight = '<button class="btn-xs danger" data-action="svc-logs" data-kind="' + kind + '">' + I.warnSm + "View logs</button>";
-    return (
-      '<div class="card svc-card">' +
-      '<div class="svc-top">' +
-      '<div class="svc-tile">' + (SVC_ICON[kind] || "") + "</div>" +
-      '<div class="svc-meta"><div class="svc-name">' + esc(DISP[kind]) + "</div>" +
-      '<div class="svc-status"><span class="dot bgc-' + m.cls + dotPulse + '"></span>' +
-      '<span class="txt s-' + m.cls + '">' + esc(m.label) + "</span></div></div>" +
-      svcButton(kind, m) +
-      "</div>" +
-      '<div class="svc-foot">' + ports + '<span class="spacer"></span>' + footRight + "</div>" +
-      "</div>"
-    );
-  }
-
-  function dashboard() {
-    const run = runningCount();
-    const allRunning = run === 5;
-    const noneRunning = run === 0;
-    const dots = SVC_KINDS.map((k) => {
-      const cls = (META[state.services[k]] || META.Stopped).cls;
-      return '<span class="bgc-' + cls + '" title="' + esc(DISP[k] + ": " + state.services[k]) + '"></span>';
-    }).join("");
-    const startBtn = state.startingAll
-      ? '<button class="btn h36 btn-primary btn-busy" disabled>' + spinner("on-primary") + "Starting…</button>"
-      : '<button class="btn h36 btn-primary' + (allRunning ? " btn-dim" : "") + '" data-action="start-all"' +
-        (allRunning ? " disabled" : "") + ">" + I.play + "Start All</button>";
-    const cards = SVC_KINDS.map(serviceCard).join("");
-    const preview = state.sites
-      .slice(0, 3)
-      .map((s) => {
-        const url = "https://" + s.hostname;
-        return (
-          '<div class="card site-row preview"><div class="site-tile">' + I.folder + "</div>" +
-          '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
-          '<a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a></div>" +
-          '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">Open</a></div>'
-        );
-      })
-      .join("");
-    return (
-      '<div class="view">' +
-      "<div><h1 class=\"h1\">Dashboard</h1>" +
-      '<p class="subtitle">Local stack · pretty HTTPS at <code class="chip-code">*.dev</code></p></div>' +
-      '<div class="card summary">' +
-      '<div class="big"><span class="num">' + run + '</span><span class="den">/ 5</span></div>' +
-      '<div style="min-width:0"><div class="lbl">services running</div><div class="dots">' + dots + "</div></div>" +
-      '<span class="spacer"></span><div class="actions">' + startBtn +
-      '<button class="btn h36 btn-outline' + (noneRunning ? " btn-dim" : "") + '" data-action="stop-all"' +
-      (noneRunning ? " disabled" : "") + ">" + I.stop + "Stop All</button></div></div>" +
-      '<div class="row-between"><h2 class="section-label">Services</h2></div>' +
-      '<div class="svc-grid">' + cards + "</div>" +
-      '<div class="row-between mt4"><h2 class="section-label">Sites</h2>' +
-      '<button class="link-btn" data-action="nav" data-view="sites">View all →</button></div>' +
-      '<div class="stack-col">' + preview + "</div>" +
-      "</div>"
-    );
-  }
-
-  function sitesView() {
-    const empty = state.sites.length === 0;
-    const head =
-      '<div class="sites-head"><div><h1 class="h1">Sites</h1>' +
-      '<p class="subtitle">Projects under <code class="chip-code">~/laralux/www</code></p></div>' +
-      '<div class="sites-actions">' +
-      '<button class="btn-newsite ghost" data-action="proxy-site">' + I.navSites + "Reverse proxy</button>" +
-      '<button class="btn-newsite ghost" data-action="link-site">' + I.folder18 + "Add existing folder</button>" +
-      '<button class="btn-newsite" data-action="new-site">' + I.plus + "New site</button></div></div>";
-    let bodyHtml;
-    if (empty) {
-      bodyHtml =
-        '<div class="sites-empty"><div class="glyph">' + I.folderBig + "</div>" +
-        '<div class="t">No sites yet</div>' +
-        '<div class="h">Drop a project folder into <code class="chip-code">~/laralux/www</code> and it gets a pretty <code class="chip-code">https://&lt;name&gt;.dev</code> URL automatically.</div>' +
-        '<button class="btn-newsite" data-action="new-site" style="margin-top:4px">' + I.plus + "New site</button></div>";
-    } else {
-      bodyHtml =
-        '<div class="stack-col g9">' +
-        state.sites
-          .map((s) => {
-            const url = "https://" + s.hostname;
-            const isProxy = s.source === "Proxy";
-            const isLinked = s.source === "Linked";
-            const target = isProxy && s.proxy && s.proxy.routes && s.proxy.routes.length
-              ? s.proxy.routes[0].upstream + (s.proxy.routes.length > 1 ? " +" + (s.proxy.routes.length - 1) : "")
-              : "";
-            const badge = isProxy
-              ? '<span class="site-badge">proxy → ' + esc(target) + "</span>"
-              : (isLinked ? '<span class="site-badge">linked</span>' : "");
-            const subRight = isProxy ? "" : '<span class="site-root" title="' + esc(s.root) + '">' + esc(s.root) + "</span>";
-            const editBtn = isProxy
-              ? '<button class="btn-sm" data-action="edit-proxy" data-name="' + esc(s.name) + '">Edit</button>'
-              : "";
-            const domBtn = '<button class="btn-sm" data-action="edit-domains" data-name="' + esc(s.name) + '">Domains</button>';
-            const removeBtn = (isProxy || isLinked)
-              ? '<button class="btn-sm danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
-                (state.confirmRemove === s.name ? "Confirm?" : "Remove") + "</button>"
-              : "";
-            const termBtn = isProxy
-              ? ""
-              : '<button class="icon-btn sq32" data-action="open-terminal" data-path="' + esc(s.root) + '" aria-label="Open terminal" title="Open terminal here">' + I.terminal + "</button>";
-            return (
-              '<div class="card site-row"><div class="site-tile">' + I.folder18 + "</div>" +
-              '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
-              '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a>" +
-              subRight + "</div></div>" +
-              badge +
-              termBtn +
-              '<button class="icon-btn sq32" data-action="copy-site" data-name="' + esc(s.name) + '" aria-label="Copy URL">' + I.copy + "</button>" +
-              editBtn + domBtn + removeBtn +
-              '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + I.external + "Open</a></div>"
-            );
-          })
-          .join("") +
-        "</div>";
-    }
-    return '<div class="view">' + head + bodyHtml + "</div>";
-  }
-
-  function setupView() {
-    const miss = missingCount();
-    const subtitle = state.setup.phase === "done" ? "All components installed." : miss + " of " + state.setup.components.length + " components missing.";
-    const items = state.setup.components
-      .map((c) => {
-        const tag = c.present
-          ? '<span class="tag ok">Installed</span>'
-          : '<span class="tag miss">Missing</span>';
-        const tk = TOOL_KEY[c.component] || "";
-        return (
-          '<button class="setup-item setup-item-btn" data-action="open-tool" data-tool="' + esc(tk) + '">' +
-          '<div class="setup-tile">' + I.setupItem + "</div>" +
-          '<span class="nm">' + esc(DISP_COMP[c.component] || c.component) + "</span>" + tag +
-          '<span class="chev">' + (I.chevron || "›") + "</span></button>"
-        );
-      })
-      .join("");
-
-    let action = "";
-    if (state.setup.phase === "idle") {
-      action =
-        '<div class="setup-idle"><div class="info"><div class="t">' + miss + " component(s) missing</div>" +
-        '<div class="h">Downloads static binaries — may ask for your password for certificates &amp; bind permissions, and can take a few minutes.</div></div>' +
-        '<button class="btn h36 btn-primary" data-action="run-setup" style="flex:none">' + I.download + "Install missing</button></div>";
-    } else if (state.setup.phase === "installing") {
-      action =
-        '<div class="setup-installing">' + progressRing() +
-        '<div class="info"><div class="t">Installing components…</div>' +
-        '<div class="h">Downloading static binaries — this can take a minute. Don\'t close the window.</div></div></div>' +
-        '<div class="auth-note">' + I.lock +
-        '<span class="auth-tx">If a system password prompt appears, authorize it to finish setup (hosts, certificates &amp; bind permissions).</span></div>' +
-        '<div class="progress"><div class="shim bar"></div></div>';
-    } else {
-      const rep = state.setup.report || {};
-      const rows = [
-        ["Mailpit binary", rep.mailpit_fetched ? "fetched" : "skipped"],
-        ["mkcert local CA", rep.mkcert_ca ? "trusted" : "skipped"],
-        ["Browser trust (NSS)", rep.mkcert_nss ? "trusted" : "skipped"],
-        ["Nginx bind 80/443", rep.nginx_setcap ? "setcap ok" : "skipped"],
-      ]
-        .map(
-          ([l, v]) =>
-            '<div class="report-row">' + I.checkReport + '<span class="lbl">' + esc(l) + "</span>" +
-            '<span class="spacer"></span><span class="val">' + esc(v) + "</span></div>"
-        )
-        .join("");
-      const phpNotice = rep.php_version
-        ? '<div class="notice-warn">' + I.clock + '<span class="t">PHP ' + esc(rep.php_version) + " installed — restart the app to apply.</span></div>"
-        : "";
-      action =
-        '<div class="setup-done-head">' + I.checkDone + '<span class="t">Environment ready</span></div>' +
-        '<div class="report-box">' + rows + "</div>" + phpNotice;
-    }
-
-    return (
-      '<div class="view narrow">' +
-      '<div><h1 class="h1">Setup</h1><p class="subtitle">' + esc(subtitle) + "</p></div>" +
-      '<div class="card setup-card"><div class="setup-list">' + items + "</div>" +
-      '<div class="setup-action">' + action + "</div></div></div>"
-    );
-  }
-
   function phpIniField(label, key, val) {
     return '<div class="set-row"><div class="grow"><div class="t">' + esc(label) + "</div></div>" +
       '<input class="ns-input" data-action="php-ini-input" data-key="' + key + '" value="' + esc(String(val)) + '" /></div>';
@@ -886,25 +341,6 @@ import { toast, dismiss, toasts, setRenderFn } from "./ui/toast";
       '<div class="modal-head"><span class="modal-title">' + esc(m.display) + "</span>" +
       '<button class="modal-close" data-action="close-tool" aria-label="Close">' + I.close + "</button></div>" +
       '<div class="modal-body"><div class="modal-sec-label">Versions</div>' + verRows + symlinkRow + phpSettings + "</div>" +
-      "</div>"
-    );
-  }
-
-  function settingsView() {
-    return (
-      '<div class="view narrow-620">' +
-      '<div><h1 class="h1">Settings</h1><p class="subtitle">Appearance and environment defaults.</p></div>' +
-      '<div class="card settings-card">' +
-      '<div class="set-row"><div class="grow"><div class="t">Appearance</div><div class="h">Light / dark theme</div></div>' +
-      '<button class="btn-sm" data-action="toggle-dark">' + (state.dark ? "Dark" : "Light") + "</button></div>" +
-      '<div class="set-row"><div class="grow"><div class="t">Local TLD</div><div class="h">Pretty-URL domain suffix</div></div>' +
-      '<code class="code-chip">.dev</code></div>' +
-      '<div class="set-row"><div class="grow"><div class="t">Sites directory</div><div class="h">Where projects are scanned</div></div>' +
-      '<code class="code-chip">~/laralux/www</code></div>' +
-      '<div class="set-row"><div class="grow"><div class="t">Start on login</div><div class="h">Autostart in system tray — coming soon</div></div>' +
-      '<span class="toggle-off"><span class="knob"></span></span></div>' +
-      "</div>" +
-      '<div class="settings-foot">Laralux · window 900×600 · min 720×480 · tray: Start All · Stop All · Dashboard · Quit</div>' +
       "</div>"
     );
   }
@@ -1127,8 +563,8 @@ import { toast, dismiss, toasts, setRenderFn } from "./ui/toast";
     }
   }
 
-  // Wire render into the toast module so toast()/dismiss() can trigger re-renders.
-  setRenderFn(render);
+  // Register render + refresh into the loop bridge so extracted view modules can call them.
+  setLoop(render, refresh);
 
   // ---- events (delegated; bound once) ----
   app.addEventListener("click", (e) => {

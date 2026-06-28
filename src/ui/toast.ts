@@ -1,13 +1,7 @@
 import { state } from "../state";
 import { I } from "./icons";
 import { esc } from "./util";
-
-// render is injected by main.ts after boot so toast/dismiss can trigger re-renders
-// without creating a circular import.
-let _render: (() => void) | null = null;
-export function setRenderFn(fn: () => void): void {
-  _render = fn;
-}
+import { render } from "./loop";
 
 export function toast(t: {
   type: "success" | "error" | "info";
@@ -18,13 +12,13 @@ export function toast(t: {
 }): void {
   const id = state.tId++;
   state.toasts.push({ id, ...t });
-  if (_render) _render();
+  render();
   if (!t.sticky) setTimeout(() => dismiss(id), 4200);
 }
 
 export function dismiss(id: number): void {
   state.toasts = state.toasts.filter((x: any) => x.id !== id);
-  if (_render) _render();
+  render();
 }
 
 export function toasts(): string {
