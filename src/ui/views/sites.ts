@@ -3,7 +3,7 @@ import { esc, validName } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
 import { invoke } from "../legacy-invoke";
-import { render } from "../loop";
+import { render, resetDownload } from "../render";
 
 const DOMAIN_RE = /^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 function validDomain(d: string): boolean {
@@ -310,7 +310,3 @@ export async function openExternal(url: string): Promise<void> {
   }
 }
 
-// Helper used by submitNewSite/submitLinkSite — mirrors the one in main.ts
-function resetDownload(): void {
-  state.download = { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 };
-}

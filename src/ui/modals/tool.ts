@@ -1,34 +1,10 @@
-// NOTE: DISP_COMP, TOOL_KEY, TOOL_CLI are local copies — Task 6 dedupes these
-// into a shared constants module (also duplicated in main.ts).
 import { state } from "../../state";
 import { esc } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
 import { invoke } from "../legacy-invoke";
-import { render } from "../loop";
-
-const DISP_COMP: Record<string, string> = { Nginx: "Nginx", Php: "PHP", Mariadb: "MariaDB", Redis: "Redis", Mkcert: "mkcert", Mailpit: "Mailpit", Composer: "Composer", Node: "Node.js" };
-const TOOL_KEY: Record<string, string> = { Nginx: "nginx", Php: "php", Mariadb: "mariadb", Redis: "redis", Mkcert: "mkcert", Mailpit: "mailpit", Composer: "composer", Node: "node" };
-const TOOL_CLI: Record<string, string | null> = { nginx: "nginx", php: "php", mariadb: "mariadb", redis: "redis-cli", mkcert: "mkcert", mailpit: null, composer: "composer", node: "node, npm, npx" };
-
-function resetDownload(): void {
-  state.download = { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 };
-}
-
-function progressRing(): string {
-  const d = state.download;
-  const R = 9, C = 2 * Math.PI * R;
-  const has = d.overall > 0;
-  const off = C * (1 - Math.min(1, d.overall));
-  return (
-    '<span class="ring-sm" role="status" aria-label="Downloading">' +
-    '<svg width="22" height="22" viewBox="0 0 22 22">' +
-    '<circle class="ring-bg" cx="11" cy="11" r="' + R + '"/>' +
-    '<circle class="ring-fg' + (has ? '' : ' ring-hide') + '" cx="11" cy="11" r="' + R + '" stroke-dasharray="' + C + '" stroke-dashoffset="' + off + '"/>' +
-    '<circle class="ring-spin spin' + (has ? ' ring-hide' : '') + '" cx="11" cy="11" r="' + R + '" stroke-dasharray="' + (C * 0.25) + ' ' + C + '"/>' +
-    '</svg></span>'
-  );
-}
+import { render, resetDownload, progressRing } from "../render";
+import { DISP_COMP, TOOL_KEY, TOOL_CLI } from "../constants";
 
 function phpIniField(label: string, key: string, val: any): string {
   return '<div class="set-row"><div class="grow"><div class="t">' + esc(label) + "</div></div>" +

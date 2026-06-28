@@ -3,26 +3,12 @@ import { esc } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
 import { invoke } from "../legacy-invoke";
-import { render } from "../loop";
+import { render, applyServices } from "../render";
+import { SVC_KINDS, DISP, META } from "../constants";
 
-const SVC_KINDS = ["Nginx", "PhpFpm", "Mariadb", "Redis", "Mailpit"];
-const DISP: Record<string, string> = { Nginx: "Nginx", PhpFpm: "PHP-FPM", Mariadb: "MariaDB", Redis: "Redis", Mailpit: "Mailpit" };
 const SVC_ICON: Record<string, string> = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
 const PORTS: Record<string, string[]> = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
 const LOG_FILE: Record<string, string> = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Redis: "redis.log", Mailpit: "mailpit.log" };
-
-const META: Record<string, { label: string; cls: string; busy: boolean; btn: string; primary: boolean }> = {
-  Running:  { label: "Running",    cls: "running",  busy: false, btn: "Stop",     primary: false },
-  Stopped:  { label: "Stopped",    cls: "stopped",  busy: false, btn: "Start",    primary: true  },
-  Starting: { label: "Starting…",  cls: "starting", busy: true,  btn: "Starting", primary: false },
-  Stopping: { label: "Stopping…",  cls: "starting", busy: true,  btn: "Stopping", primary: false },
-  Crashed:  { label: "Crashed",    cls: "crashed",  busy: false, btn: "Restart",  primary: true  },
-};
-
-function applyServices(arr: any[]): void {
-  if (!Array.isArray(arr)) return;
-  for (const s of arr) if (s && s.kind in state.services) state.services[s.kind] = s.state;
-}
 
 export function runningCount(): number {
   return SVC_KINDS.filter((k) => state.services[k] === "Running").length;

@@ -1,7 +1,7 @@
 import { state } from "../state";
 import { I } from "./icons";
 import { esc } from "./util";
-import { render } from "./loop";
+import { render } from "./render";
 
 export function toast(t: {
   type: "success" | "error" | "info";

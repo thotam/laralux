@@ -1,5 +1,5 @@
 import { state } from "../../state";
-import { render } from "../loop";
+import { render } from "../render";
 
 export function settingsView(): string {
   return (

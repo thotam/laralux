@@ -1,7 +1,4 @@
-// The component order is duplicated here (same value as COMP_ORDER in main.ts)
-// solely to seed the default state; main.ts owns the authoritative copy used
-// by applyComponents() and setupView().
-const _COMP_ORDER = ["Nginx", "Php", "Mariadb", "Redis", "Mkcert", "Mailpit", "Composer", "Node"];
+import { COMP_ORDER } from "./ui/constants";
 
 const stored = localStorage.getItem("laralux-theme");
 const prefersDark =
@@ -13,7 +10,7 @@ export const state: any = {
   compact: false,
   services: { Nginx: "Stopped", PhpFpm: "Stopped", Mariadb: "Stopped", Redis: "Stopped", Mailpit: "Stopped" },
   sites: [],
-  setup: { phase: "idle", report: null, components: _COMP_ORDER.map((c) => ({ component: c, present: false })) },
+  setup: { phase: "idle", report: null, components: COMP_ORDER.map((c) => ({ component: c, present: false })) },
   pkexecMsg: null,
   startingAll: false,
   busy: false,
