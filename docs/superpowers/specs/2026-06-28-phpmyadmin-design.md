@@ -1,7 +1,10 @@
 # Laralux — phpMyAdmin (global web DB admin)
 
 **Date:** 2026-06-28
-**Status:** Design (approved for spec).
+**Status:** DEFERRED — design approved, but implementation postponed until phpMyAdmin 6.0 ships
+(5.2.3 officially supports only PHP <8.4 while Laralux runs PHP 8.4; revisit when 6.0 — which targets
+modern PHP — is released as a downloadable build). Beekeeper Studio (native client) is being built
+first instead.
 **Goal:** Bundle phpMyAdmin as a **global** database-management app — served by the existing
 nginx + php-fpm stack on a dedicated localhost port, opened from the Dashboard and the tray. It is
 NOT a per-site action and does NOT appear in the Sites list.
