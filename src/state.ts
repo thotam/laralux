@@ -100,6 +100,7 @@ export interface AppState {
   newSite: NewSiteState;
   linkSite: LinkSiteState;
   confirmRemove: string | null;
+  rowMenu: string | null;
   proxy: ProxyState;
   siteDomains: SiteDomainsState;
   download: DownloadState;
@@ -128,6 +129,7 @@ export const state: AppState = {
   newSite: { name: "", template: "Blank", busy: false, error: "" },
   linkSite: { root: "", name: "", busy: false, error: "" },
   confirmRemove: null,
+  rowMenu: null,
   proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
   siteDomains: { name: "", domains: [""], busy: false, error: "" },
   download: { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 },

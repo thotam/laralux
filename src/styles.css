@@ -410,3 +410,22 @@ button:disabled { cursor:not-allowed; }
 .modal-body { padding:8px 16px 16px; }
 .modal-sec-label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; opacity:.55; margin:10px 0 4px; }
 .modal-divider { height:1px; background:var(--line,rgba(127,127,127,.18)); margin:12px 0 4px; }
+
+/* ---- Site row actions + kebab popover ---- */
+.row-actions { position: relative; display: flex; align-items: center; gap: 6px; }
+.row-menu {
+  position: absolute; top: 100%; right: 0; margin-top: 6px; z-index: 30;
+  min-width: 168px; padding: 4px;
+  background: var(--card, #fff); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 14px 36px rgba(0,0,0,.3);
+  display: flex; flex-direction: column;
+}
+.row-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: 0; border-radius: 7px;
+  background: transparent; color: inherit; font: inherit; font-size: 13px;
+  text-align: left; cursor: pointer;
+}
+.row-menu-item:hover { background: var(--surface-2, rgba(127,127,127,.12)); }
+.row-menu-item.danger { color: var(--danger, #dc2626); }
+.row-menu-item svg { width: 15px; height: 15px; flex: none; }

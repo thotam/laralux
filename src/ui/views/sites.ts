@@ -5,7 +5,7 @@ import { I } from "../icons";
 import { toast } from "../toast";
 import {
   createSite, listSites, linkSite, unlinkSite,
-  addProxy, updateProxy, setSiteDomains, openTerminalAt,
+  addProxy, updateProxy, setSiteDomains, openTerminalAt, openFolderAt,
 } from "../../ipc/commands";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -53,27 +53,39 @@ export function sitesView(): string {
             ? '<span class="site-badge">proxy → ' + esc(target) + "</span>"
             : (isLinked ? '<span class="site-badge">linked</span>' : "");
           const subRight = isProxy ? "" : '<span class="site-root" title="' + esc(s.root) + '">' + esc(s.root) + "</span>";
-          const editBtn = isProxy
-            ? '<button class="btn-sm" data-action="edit-proxy" data-name="' + esc(s.name) + '">Edit</button>'
-            : "";
-          const domBtn = '<button class="btn-sm" data-action="edit-domains" data-name="' + esc(s.name) + '">Domains</button>';
-          const removeBtn = (isProxy || isLinked)
-            ? '<button class="btn-sm danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
-              (state.confirmRemove === s.name ? "Confirm?" : "Remove") + "</button>"
-            : "";
+          const folderBtn = isProxy
+            ? ""
+            : '<button class="icon-btn sq32" data-action="open-folder" data-path="' + esc(s.root) + '" aria-label="Open folder" title="Open project folder">' + I.folder + "</button>";
           const termBtn = isProxy
             ? ""
             : '<button class="icon-btn sq32" data-action="open-terminal" data-path="' + esc(s.root) + '" aria-label="Open terminal" title="Open terminal here">' + I.terminal + "</button>";
+
+          const menuItems =
+            '<button class="row-menu-item" data-action="copy-site" data-name="' + esc(s.name) + '">' + I.copy + "Copy URL</button>" +
+            '<button class="row-menu-item" data-action="edit-domains" data-name="' + esc(s.name) + '">Domains</button>' +
+            (isProxy ? '<button class="row-menu-item" data-action="edit-proxy" data-name="' + esc(s.name) + '">Edit proxy</button>' : "") +
+            ((isProxy || isLinked)
+              ? '<button class="row-menu-item danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
+                (state.confirmRemove === s.name ? "Confirm remove?" : "Remove") + "</button>"
+              : "");
+          const menu = state.rowMenu === s.name ? '<div class="row-menu">' + menuItems + "</div>" : "";
+
+          const actions =
+            '<div class="row-actions">' +
+            termBtn + folderBtn +
+            '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + I.external + "Open</a>" +
+            '<button class="icon-btn sq32" data-action="row-menu" data-name="' + esc(s.name) + '" aria-label="More actions" title="More">' + I.kebab + "</button>" +
+            menu +
+            "</div>";
+
           return (
             '<div class="card site-row" data-key="site-' + esc(s.name) + '"><div class="site-tile">' + I.folder18 + "</div>" +
             '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
             '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a>" +
             subRight + "</div></div>" +
             badge +
-            termBtn +
-            '<button class="icon-btn sq32" data-action="copy-site" data-name="' + esc(s.name) + '" aria-label="Copy URL">' + I.copy + "</button>" +
-            editBtn + domBtn + removeBtn +
-            '<a class="btn-sm" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + I.external + "Open</a></div>"
+            actions +
+            "</div>"
           );
         })
         .join("") +
@@ -297,6 +309,14 @@ export async function openTerminal(path: string): Promise<void> {
     await openTerminalAt(path);
   } catch (e) {
     toast({ type: "error", title: "Couldn't open terminal", msg: String(e) });
+  }
+}
+
+export async function openFolder(path: string): Promise<void> {
+  try {
+    await openFolderAt(path);
+  } catch (e) {
+    toast({ type: "error", title: "Couldn't open folder", msg: String(e) });
   }
 }
 

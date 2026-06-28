@@ -10,7 +10,7 @@ import {
   openLinkSite, closeLinkSite, browseFolder, submitLinkSite,
   openProxy, closeProxy, addProxyRoute, delProxyRoute, submitProxy,
   openDomains, closeDomains, addDomainRow, delDomainRow, submitDomains,
-  removeSite, copySite, openTerminal, openExternal,
+  removeSite, copySite, openTerminal, openFolder, openExternal,
 } from "./views/sites";
 import { runSetup } from "./views/setup";
 import { toggleDark } from "./views/settings";
@@ -28,6 +28,7 @@ function isToolModal(m: typeof state.modal): m is ToolModalState {
 function setView(v: string): void {
   state.view = v;
   state.confirmRemove = null;
+  state.rowMenu = null;
   render();
 }
 
@@ -37,8 +38,17 @@ export function bindEvents(): void {
   // ---- click (main delegated dispatcher) ----
   app.addEventListener("click", (e: MouseEvent) => {
     const el = (e.target as Element).closest("[data-action]") as HTMLElement | null;
+    const a = el ? el.getAttribute("data-action") : null;
+
+    // Dismiss the row kebab menu on any click except its own toggle or the
+    // remove two-step. Covers outside clicks, quick buttons, and menu items.
+    if (state.rowMenu && a !== "row-menu" && a !== "remove-site") {
+      state.rowMenu = null;
+      render();
+      if (!el) return;
+    }
+
     if (!el) return;
-    const a = el.getAttribute("data-action");
     if (a === "nav") setView(el.getAttribute("data-view")!);
     else if (a === "toggle-dark") toggleDark();
     else if (a === "start-all") startAll();
@@ -48,6 +58,12 @@ export function bindEvents(): void {
     else if (a === "svc-logs") viewLogs(el.getAttribute("data-kind")!);
     else if (a === "copy-site") copySite(el.getAttribute("data-name")!);
     else if (a === "open-terminal") openTerminal(el.getAttribute("data-path")!);
+    else if (a === "open-folder") openFolder(el.getAttribute("data-path")!);
+    else if (a === "row-menu") {
+      const n = el.getAttribute("data-name")!;
+      state.rowMenu = state.rowMenu === n ? null : n;
+      render();
+    }
     else if (a === "open-url") { e.preventDefault(); openExternal(el.getAttribute("data-url")!); }
     else if (a === "open-tool") openTool((el as HTMLElement & { dataset: DOMStringMap }).dataset.tool!);
     else if (a === "close-tool") closeTool();
@@ -179,6 +195,7 @@ export function bindEvents(): void {
     else if (e.key === "Escape" && state.modal === "proxy") closeProxy();
     else if (e.key === "Escape" && state.modal === "domains") closeDomains();
     else if (e.key === "Escape" && isToolModal(state.modal)) closeTool();
+    else if (e.key === "Escape" && state.rowMenu) { state.rowMenu = null; render(); }
   });
 
   // ---- focus-trap inside modal ----
