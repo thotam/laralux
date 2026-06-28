@@ -1,6 +1,7 @@
-// render.ts — the SOLE #app.innerHTML site.
+// render.ts — the SOLE #app mount site.
 // Owns render(), refresh(), layout helpers, and the download/service/component helpers.
 // No other module may assign app.innerHTML.
+import morphdom from "morphdom";
 import { state } from "../state";
 import type { ServiceStatus, ComponentStatus, ProgressPayload } from "../ipc/types";
 import { esc } from "./util";
@@ -167,8 +168,6 @@ function sidebar(): string {
 }
 
 // ---- render ----
-let lastSig = "";
-let lastView: string | null = null;
 
 export function render(): void {
   const app = document.getElementById("app")!;
@@ -193,57 +192,25 @@ export function render(): void {
     toolModal() +
     "</div>";
 
-  // Avoid needless DOM churn (preserves scroll/focus) when nothing changed.
-  const sig = html;
-  if (sig === lastSig) return;
-  lastSig = sig;
-
-  // Preserve focus + caret across the full innerHTML replacement, so an
-  // event-driven background render can't kick the user out of an
-  // input they are typing into. Identify the focused field by id, or by
-  // data-action(+data-idx) for the modal route fields (which have no id).
-  const ae = document.activeElement;
-  let fId: string | null = null, fAction: string | null = null, fIdx: string | null = null;
-  let selS: number | null = null, selE: number | null = null;
-  if (ae && app.contains(ae) && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) {
-    fId = (ae as HTMLElement).id || null;
-    fAction = (ae as HTMLElement).getAttribute("data-action");
-    fIdx = (ae as HTMLElement).getAttribute("data-idx");
-    try { selS = (ae as HTMLInputElement).selectionStart; selE = (ae as HTMLInputElement).selectionEnd; } catch (_) {}
-  }
-
-  // Preserve the scroll position of the main content area across the full
-  // innerHTML replacement (a background services/sites event, or a
-  // download-progress tick, otherwise yanks the user back to the top). Only restore when the view is
-  // unchanged — a deliberate navigation should start at the top.
-  const scroller = app.querySelector(".main");
-  const prevScroll = scroller ? scroller.scrollTop : 0;
-  const sameView = state.view === lastView;
-  lastView = state.view;
-
-  // The tool modal (.modal) is its own scroll area (overflow:auto, max-height:82vh);
-  // an in-modal re-render (version use/install, symlink or settings toggle, Apply)
-  // otherwise yanks it back to the top. Restore it whenever the modal stays open.
-  const modalEl = app.querySelector(".modal");
-  const prevModalScroll = modalEl ? modalEl.scrollTop : 0;
-
-  app.innerHTML = html;
-
-  if (sameView) { const ns = app.querySelector(".main"); if (ns) ns.scrollTop = prevScroll; }
-  { const nm = app.querySelector(".modal"); if (nm) nm.scrollTop = prevModalScroll; }
-
-  if (fId || fAction) {
-    let el: HTMLElement | null = fId ? document.getElementById(fId) : null;
-    if (!el && fAction) {
-      let sel = '[data-action="' + fAction + '"]';
-      if (fIdx != null) sel += '[data-idx="' + fIdx + '"]';
-      el = app.querySelector(sel);
-    }
-    if (el) {
-      el.focus();
-      if (selS != null) { try { (el as HTMLInputElement).setSelectionRange(selS, selE as number); } catch (_) {} }
-    }
-  }
+  // Morph the live DOM to match `html` instead of replacing it: unchanged nodes
+  // survive, so scroll, focus, caret, input values, and CSS transitions are
+  // preserved natively (no manual save/restore needed). Items carrying a
+  // `data-key` are matched by identity so mid-list edits don't disturb siblings.
+  morphdom(app, '<div id="app">' + html + '</div>', {
+    childrenOnly: true,
+    getNodeKey: (n) =>
+      n.nodeType === 1 ? ((n as Element).getAttribute("data-key") || (n as Element).id) : "",
+    onBeforeElUpdated(from) {
+      // Never clobber the field the user is editing — keep its value + caret.
+      if (
+        from === document.activeElement &&
+        (from.tagName === "INPUT" || from.tagName === "TEXTAREA")
+      ) {
+        return false;
+      }
+      return true;
+    },
+  });
 }
 
 export async function refresh(): Promise<void> {
