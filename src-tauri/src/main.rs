@@ -160,7 +160,10 @@ fn main() {
                 std::thread::spawn(move || {
                     let mut last: Option<Vec<laralux_core::ServiceStatus>> = None;
                     let mut last_tray: Option<TrayState> = None;
-                    let mut last_all_running: Option<bool> = None;
+                    // Seed to the actual initial menu state: startup removed `stop`,
+                    // so the menu shows only Start All (= not-all-running). This makes
+                    // the first stopped-stack tick a no-op (no duplicate Start All).
+                    let mut last_all_running: Option<bool> = Some(false);
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         let Some(state) = handle.try_state::<AppState>() else { continue };
@@ -187,6 +190,8 @@ fn main() {
                         let all_running = !snap.is_empty()
                             && snap.iter().all(|s| s.state == laralux_core::ServiceState::Running);
                         if last_all_running != Some(all_running) {
+                            // Position 0 is where Start/Stop sit in the original
+                            // MenuBuilder order; keep this in sync if the menu is reordered.
                             if all_running {
                                 let _ = menu_handle.remove(&start_item);
                                 let _ = menu_handle.insert(&stop_item, 0);
