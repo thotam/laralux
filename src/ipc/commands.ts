@@ -121,6 +121,13 @@ export const setSiteDomains = (
 export const openTerminalAt = (path: string): Promise<void> =>
   invoke<void>("open_terminal", { path });
 
+/**
+ * Open the given directory path in the default file manager.
+ * Arg key: `path` — mirrors openTerminalAt.
+ */
+export const openFolderAt = (path: string): Promise<void> =>
+  invoke<void>("open_folder", { path });
+
 // ---- setup ------------------------------------------------------------------
 
 /** Detect which components are installed. */

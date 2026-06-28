@@ -67,6 +67,7 @@ fn main() {
             commands::php_ini_settings,
             commands::set_php_ini_settings,
             commands::open_terminal,
+            commands::open_folder,
             commands::set_site_domains,
         ])
         .setup(|app| {

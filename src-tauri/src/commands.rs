@@ -565,6 +565,15 @@ pub fn open_terminal(path: String) -> Result<(), String> {
     laralux_core::open_terminal(&dir).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn open_folder(path: String) -> Result<(), String> {
+    let dir = std::path::PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(format!("not a directory: {path}"));
+    }
+    laralux_core::open_folder(&dir).map_err(|e| e.to_string())
+}
+
 const RESOLVED_DROPIN_PATH: &str = "/etc/systemd/resolved.conf.d/laralux.conf";
 
 /// Best-effort: kill any CoreDNS spawned from our managed bin (e.g. an orphan
