@@ -166,11 +166,11 @@ function sidebar(): string {
 }
 
 // ---- render ----
-const app = document.getElementById("app")!;
 let lastSig = "";
 let lastView: string | null = null;
 
 export function render(): void {
+  const app = document.getElementById("app")!;
   document.documentElement.dataset.theme = state.dark ? "dark" : "light";
   let main: string;
   if (state.view === "dashboard") main = dashboard();
