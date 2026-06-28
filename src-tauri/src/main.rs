@@ -72,6 +72,8 @@ fn main() {
             commands::open_db_client,
             commands::hide_site,
             commands::delete_site_folder,
+            commands::service_flags,
+            commands::set_service_enabled,
         ])
         .setup(|app| {
             // One menu item whose LABEL toggles between Start All / Stop All so the

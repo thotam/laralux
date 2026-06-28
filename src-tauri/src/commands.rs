@@ -115,6 +115,39 @@ pub fn stack_stop_all(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus
     Ok(orch.snapshot())
 }
 
+/// Current per-service enable flags (drives the Settings "Services" toggles).
+#[tauri::command]
+pub fn service_flags(state: tauri::State<AppState>) -> Result<laralux_core::ServicesConfig, String> {
+    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    Ok(config.services)
+}
+
+/// Enable/disable a service: persist the flag, then reconcile the orchestrator so
+/// the change takes effect immediately (a disabled service is stopped).
+#[tauri::command]
+pub fn set_service_enabled(
+    state: tauri::State<AppState>,
+    kind: ServiceKind,
+    enabled: bool,
+) -> Result<Vec<ServiceStatus>, String> {
+    let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    match kind {
+        ServiceKind::Nginx => config.services.nginx = enabled,
+        ServiceKind::PhpFpm => config.services.php = enabled,
+        ServiceKind::Mariadb => config.services.mariadb = enabled,
+        ServiceKind::Postgres => config.services.postgres = enabled,
+        ServiceKind::Redis => config.services.redis = enabled,
+        ServiceKind::Mailpit => config.services.mailpit = enabled,
+        ServiceKind::Coredns => return Err("coredns is managed automatically".into()),
+    }
+    config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
+    let new_services = build_services(&config, &state.paths);
+    let mut orch = state.orch.lock().map_err(lock_err)?;
+    orch.reconcile(new_services);
+    orch.refresh();
+    Ok(orch.snapshot())
+}
+
 #[tauri::command]
 pub fn service_start(
     state: tauri::State<AppState>,
