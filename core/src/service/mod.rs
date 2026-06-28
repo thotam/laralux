@@ -7,6 +7,7 @@ pub enum ServiceKind {
     Nginx,
     PhpFpm,
     Mariadb,
+    Postgres,
     Redis,
     Mailpit,
     Coredns,
@@ -133,6 +134,7 @@ pub mod mailpit;
 pub mod mariadb;
 pub mod nginx;
 pub mod php_fpm;
+pub mod postgres;
 pub mod redis;
 pub mod registry;
 
