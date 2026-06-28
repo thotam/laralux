@@ -86,14 +86,19 @@ pub fn ensure_beekeeper(
     Ok(BEEKEEPER_VERSION.to_string())
 }
 
-/// Launch the extracted Beekeeper detached. `--no-sandbox` is required because the
-/// extracted Electron app has no SUID chrome-sandbox when run unprivileged from ~/laralux.
+/// Launch the extracted Beekeeper detached via its AppRun (with APPDIR set). The
+/// bundled wrapper adds `--no-sandbox` for the unprivileged Electron app itself.
 pub fn open_beekeeper(paths: &LaraluxPaths) -> Result<(), BeekeeperError> {
     if !is_installed(paths) {
         return Err(BeekeeperError::NotInstalled);
     }
+    // Run the extracted AppRun with APPDIR set. AppRun's own AppDir auto-detection
+    // uses $1 as a sentinel filename and breaks if we pass any flag (yielding an
+    // empty APPDIR → "/beekeeper-studio: No such file or directory"). Pass NO args:
+    // the bundled `beekeeper-studio` wrapper already adds `--no-sandbox` itself.
+    let appdir = install_dir(paths).join("squashfs-root");
     std::process::Command::new(apprun_path(paths))
-        .arg("--no-sandbox")
+        .env("APPDIR", &appdir)
         .spawn()
         .map_err(|e| BeekeeperError::Spawn(e.to_string()))?;
     Ok(())

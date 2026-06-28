@@ -107,12 +107,13 @@ export function dashboard(): string {
     '<button class="link-btn" data-action="nav" data-view="sites">View all →</button></div>' +
     '<div class="stack-col">' + preview + "</div>" +
     '<div class="row-between mt4"><h2 class="section-label">Tools</h2></div>' +
-    '<div class="card"><div class="set-row"><div class="grow"><div class="t">DB client</div>' +
-    '<div class="h">Beekeeper — manage MariaDB &amp; Redis</div></div>' +
+    '<div class="card site-row preview"><div class="site-tile">' + I.svcMaria + "</div>" +
+    '<div class="site-info"><div class="site-name">DB client</div>' +
+    '<div class="site-desc">Beekeeper — manage MariaDB &amp; Redis</div></div>' +
     (state.dbClientBusy
       ? progressRing()
       : '<button class="btn-sm" data-action="open-db-client">' + I.external + "Open</button>") +
-    "</div></div>" +
+    "</div>" +
     "</div>"
   );
 }

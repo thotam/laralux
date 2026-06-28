@@ -233,6 +233,7 @@ button:disabled { cursor:not-allowed; }
 .site-sub { display:flex; align-items:center; gap:8px; margin-top:2px; min-width:0; }
 .site-url { font-size:12.5px; color:var(--primary); text-decoration:none; font-family:ui-monospace,Menlo,monospace; white-space:nowrap; flex:none; }
 .site-row.preview .site-url { font-size:12px; }
+.site-desc { font-size:12px; color:var(--text-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .site-root { font-size:11.5px; color:var(--text-muted); font-family:ui-monospace,Menlo,monospace; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* keep trailing controls fixed so a long path can't push/overlap them */
 .site-row > .site-badge, .site-row > .icon-btn, .site-row > .btn-sm { flex:none; }
