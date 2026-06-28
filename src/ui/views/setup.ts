@@ -7,14 +7,14 @@ import { render, applyComponents, resetDownload, progressRing } from "../render"
 import { DISP_COMP, TOOL_KEY } from "../constants";
 
 export function missingCount(): number {
-  return state.setup.components.filter((c: any) => !c.present).length;
+  return state.setup.components.filter((c) => !c.present).length;
 }
 
 export function setupView(): string {
   const miss = missingCount();
   const subtitle = state.setup.phase === "done" ? "All components installed." : miss + " of " + state.setup.components.length + " components missing.";
   const items = state.setup.components
-    .map((c: any) => {
+    .map((c) => {
       const tag = c.present
         ? '<span class="tag ok">Installed</span>'
         : '<span class="tag miss">Missing</span>';
@@ -23,7 +23,7 @@ export function setupView(): string {
         '<button class="setup-item setup-item-btn" data-action="open-tool" data-tool="' + esc(tk) + '">' +
         '<div class="setup-tile">' + I.setupItem + "</div>" +
         '<span class="nm">' + esc(DISP_COMP[c.component] || c.component) + "</span>" + tag +
-        '<span class="chev">' + ((I as any).chevron || "›") + "</span></button>"
+        '<span class="chev">›</span></button>'
       );
     })
     .join("");
@@ -43,7 +43,7 @@ export function setupView(): string {
       '<span class="auth-tx">If a system password prompt appears, authorize it to finish setup (hosts, certificates &amp; bind permissions).</span></div>' +
       '<div class="progress"><div class="shim bar"></div></div>';
   } else {
-    const rep: any = state.setup.report || {};
+    const rep = state.setup.report ?? {} as Partial<import("../../ipc/types").SetupReport>;
     const rows = [
       ["Mailpit binary", rep.mailpit_fetched ? "fetched" : "skipped"],
       ["mkcert local CA", rep.mkcert_ca ? "trusted" : "skipped"],

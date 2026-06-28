@@ -2,6 +2,7 @@
 // Owns render(), refresh(), layout helpers, and the download/service/component helpers.
 // No other module may assign app.innerHTML.
 import { state } from "../state";
+import type { ServiceStatus, ComponentStatus, ProgressPayload } from "../ipc/types";
 import { esc } from "./util";
 import { I } from "./icons";
 import { toasts } from "./toast";
@@ -19,12 +20,12 @@ import { stackStatus, listSites, setupStatus } from "../ipc/commands";
 
 // ---- shared helpers (single copy) ----
 
-export function applyServices(arr: any[]): void {
+export function applyServices(arr: ServiceStatus[]): void {
   if (!Array.isArray(arr)) return;
   for (const s of arr) if (s && s.kind in state.services) state.services[s.kind] = s.state;
 }
 
-export function applyComponents(arr: any[]): void {
+export function applyComponents(arr: ComponentStatus[]): void {
   if (!Array.isArray(arr)) return;
   const byName: Record<string, boolean> = {};
   for (const c of arr) byName[c.component] = !!c.present;
@@ -45,12 +46,12 @@ function computeOverall(): void {
   d.overall = Math.max(d.overall, Math.min(1, raw));
 }
 
-export function applyProgress(p: any): void {
+export function applyProgress(p: ProgressPayload): void {
   if (!p || !p.kind) return;
   state.download.active = true;
   if (p.kind === "phase") state.download.label = String(p.label || "");
-  else if (p.kind === "step") { state.download.step = { done: p.done | 0, total: p.total | 0 }; if (p.label) state.download.label = String(p.label); }
-  else if (p.kind === "bytes") state.download.bytes = { current: Number(p.current) || 0, total: Number(p.total) || 0 };
+  else if (p.kind === "step") { state.download.step = { done: p.done ?? 0, total: p.total ?? 0 }; if (p.label) state.download.label = String(p.label); }
+  else if (p.kind === "bytes") state.download.bytes = { current: p.current ?? 0, total: p.total ?? 0 };
   computeOverall();
 }
 
@@ -95,7 +96,7 @@ function runningCount(): number {
 }
 
 function missingCount(): number {
-  return state.setup.components.filter((c: any) => !c.present).length;
+  return state.setup.components.filter((c) => !c.present).length;
 }
 
 function spinner(klass: string): string {

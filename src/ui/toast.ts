@@ -1,4 +1,5 @@
 import { state } from "../state";
+import type { Toast } from "../state";
 import { I } from "./icons";
 import { esc } from "./util";
 import { render } from "./render";
@@ -17,14 +18,14 @@ export function toast(t: {
 }
 
 export function dismiss(id: number): void {
-  state.toasts = state.toasts.filter((x: any) => x.id !== id);
+  state.toasts = state.toasts.filter((x: Toast) => x.id !== id);
   render();
 }
 
 export function toasts(): string {
   if (!state.toasts.length) return '<div class="toasts"></div>';
   const items = state.toasts
-    .map((t: any) => {
+    .map((t: Toast) => {
       const ico = t.type === "success" ? I.tSuccess : t.type === "error" ? I.tError : I.tInfo;
       const msg = t.msg ? '<div class="msg">' + esc(t.msg) + "</div>" : "";
       const details =

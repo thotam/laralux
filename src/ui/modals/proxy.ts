@@ -9,7 +9,7 @@ export function proxyModal(): string {
   const preview = p.name ? '<span class="ns-preview">→ https://' + esc(p.name) + '.dev</span>' : '<span class="ns-preview muted">→ https://&lt;name&gt;.dev</span>';
   const errorHtml = p.error ? '<div class="ns-error">' + esc(p.error) + '</div>' : '';
   const d = p.busy ? ' disabled' : '';
-  const rows = p.routes.map((r: any, i: number) =>
+  const rows = p.routes.map((r, i: number) =>
     '<div class="pr-row">' +
     '<input class="ns-input pr-path" type="text" placeholder="/" value="' + esc(r.path) + '" autocomplete="off" spellcheck="false" data-action="pr-path" data-idx="' + i + '"' + d + ' />' +
     '<input class="ns-input pr-up" type="text" placeholder="3000 or 127.0.0.1:5173" value="' + esc(r.upstream) + '" autocomplete="off" spellcheck="false" data-action="pr-upstream" data-idx="' + i + '"' + d + ' />' +

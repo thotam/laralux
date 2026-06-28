@@ -1,6 +1,7 @@
 // events.ts — delegated event listeners (bound once at boot via bindEvents()).
 // All data-action dispatch is here; no other module may add delegated listeners.
 import { state } from "../state";
+import type { ToolModalState } from "../state";
 import { validName } from "./util";
 import { render } from "./render";
 import { startAll, stopAll, toggleService, viewLogs } from "./views/dashboard";
@@ -18,6 +19,11 @@ import {
   toggleToolSymlink, applyPhpIni,
 } from "./modals/tool";
 import { dismiss } from "./toast";
+
+/** Narrow state.modal to ToolModalState (object with open: true). */
+function isToolModal(m: typeof state.modal): m is ToolModalState {
+  return typeof m === "object" && m !== null && (m as ToolModalState).open === true;
+}
 
 function setView(v: string): void {
   state.view = v;
@@ -43,14 +49,19 @@ export function bindEvents(): void {
     else if (a === "copy-site") copySite(el.getAttribute("data-name")!);
     else if (a === "open-terminal") openTerminal(el.getAttribute("data-path")!);
     else if (a === "open-url") { e.preventDefault(); openExternal(el.getAttribute("data-url")!); }
-    else if (a === "open-tool") openTool((el as any).dataset.tool);
+    else if (a === "open-tool") openTool((el as HTMLElement & { dataset: DOMStringMap }).dataset.tool!);
     else if (a === "close-tool") closeTool();
-    else if (a === "use-tool-version") useToolVersion((el as any).dataset.version);
-    else if (a === "install-tool-version") installToolVersion((el as any).dataset.version);
+    else if (a === "use-tool-version") useToolVersion((el as HTMLElement & { dataset: DOMStringMap }).dataset.version!);
+    else if (a === "install-tool-version") installToolVersion((el as HTMLElement & { dataset: DOMStringMap }).dataset.version!);
     else if (a === "toggle-tool-symlink") toggleToolSymlink();
     else if (a === "php-ini-toggle") {
-      if (state.modal && state.modal.phpIni) {
-        state.modal.phpIni[(el as any).dataset.key] = !state.modal.phpIni[(el as any).dataset.key];
+      const m = state.modal;
+      if (isToolModal(m) && m.phpIni) {
+        const key = (el as HTMLElement & { dataset: DOMStringMap }).dataset.key as keyof typeof m.phpIni;
+        // PhpIniSettings has no index signature; go through unknown to allow string-keyed write.
+        // The key comes from data-key on a button we render — limited to known PhpIniSettings keys.
+        (m.phpIni as unknown as Record<string, string | number | boolean>)[key] =
+          !m.phpIni[key];
         render();
       }
     }
@@ -70,13 +81,13 @@ export function bindEvents(): void {
     else if (a === "ls-browse") browseFolder();
     else if (a === "ls-overlay-click") { if (e.target === el) closeLinkSite(); }
     else if (a === "proxy-site") openProxy();
-    else if (a === "edit-proxy") openProxy(state.sites.find((s: any) => s.name === el.getAttribute("data-name")));
+    else if (a === "edit-proxy") { const s = state.sites.find((s) => s.name === el.getAttribute("data-name")); openProxy(s); }
     else if (a === "px-close") closeProxy();
     else if (a === "px-submit") submitProxy();
     else if (a === "pr-add") addProxyRoute();
     else if (a === "pr-del") delProxyRoute(parseInt(el.getAttribute("data-idx")!, 10));
     else if (a === "px-overlay-click") { if (e.target === el) closeProxy(); }
-    else if (a === "edit-domains") openDomains(state.sites.find((s: any) => s.name === el.getAttribute("data-name")));
+    else if (a === "edit-domains") { const s = state.sites.find((s) => s.name === el.getAttribute("data-name")); if (s) openDomains(s); }
     else if (a === "dm-close") closeDomains();
     else if (a === "dm-submit") submitDomains();
     else if (a === "dm-add") addDomainRow();
@@ -141,13 +152,22 @@ export function bindEvents(): void {
     if (el.dataset.action === "pr-path") { state.proxy.routes[parseInt(el.dataset.idx!, 10)].path = el.value; }
     if (el.dataset.action === "pr-upstream") { state.proxy.routes[parseInt(el.dataset.idx!, 10)].upstream = el.value; }
     if (el.dataset.action === "dm-input") { state.siteDomains.domains[parseInt(el.dataset.idx!, 10)] = el.value; }
-    if (el.dataset.action === "php-ini-input") { if (state.modal && state.modal.phpIni) state.modal.phpIni[el.dataset.key!] = el.value; }
+    if (el.dataset.action === "php-ini-input") {
+      const m = state.modal;
+      if (isToolModal(m) && m.phpIni) {
+        // Dynamic key from DOM: go through unknown to allow string-keyed write.
+        // Keys are limited to known PhpIniSettings fields (rendered by tool.ts phpIniField).
+        (m.phpIni as unknown as Record<string, string | number | boolean>)[el.dataset.key!] = el.value;
+      }
+    }
   });
 
   app.addEventListener("change", (e: Event) => {
     const el = e.target as HTMLInputElement;
     if (el.dataset.action === "ns-template-change") {
-      state.newSite.template = el.value;
+      // el.value comes from a <select> whose options are "Blank"|"Laravel"|"Wordpress".
+      // The DOM guarantees the value is one of those; cast to the union.
+      state.newSite.template = el.value as "Blank" | "Laravel" | "Wordpress";
     }
     if (el.dataset.action === "px-ws") { state.proxy.websocket = el.checked; }
   });
@@ -158,7 +178,7 @@ export function bindEvents(): void {
     else if (e.key === "Escape" && state.modal === "linksite") closeLinkSite();
     else if (e.key === "Escape" && state.modal === "proxy") closeProxy();
     else if (e.key === "Escape" && state.modal === "domains") closeDomains();
-    else if (e.key === "Escape" && state.modal && state.modal.open) closeTool();
+    else if (e.key === "Escape" && isToolModal(state.modal)) closeTool();
   });
 
   // ---- focus-trap inside modal ----

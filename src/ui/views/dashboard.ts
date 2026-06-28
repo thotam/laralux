@@ -67,7 +67,7 @@ export function dashboard(): string {
   const cards = SVC_KINDS.map(serviceCard).join("");
   const preview = state.sites
     .slice(0, 3)
-    .map((s: any) => {
+    .map((s) => {
       const url = "https://" + s.hostname;
       return (
         '<div class="card site-row preview"><div class="site-tile">' + I.folder + "</div>" +

@@ -1,4 +1,5 @@
 import { state } from "../../state";
+import type { ToolModalState } from "../../state";
 import { esc } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
@@ -9,7 +10,12 @@ import {
 import { render, resetDownload, progressRing } from "../render";
 import { DISP_COMP, TOOL_KEY, TOOL_CLI } from "../constants";
 
-function phpIniField(label: string, key: string, val: any): string {
+/** Type guard — true only when the modal holds a ToolModalState object. */
+function isToolModal(m: typeof state.modal): m is ToolModalState {
+  return typeof m === "object" && m !== null && (m as ToolModalState).open === true;
+}
+
+function phpIniField(label: string, key: string, val: string | number | boolean): string {
   return '<div class="set-row"><div class="grow"><div class="t">' + esc(label) + "</div></div>" +
     '<input class="ns-input" data-action="php-ini-input" data-key="' + key + '" value="' + esc(String(val)) + '" /></div>';
 }
@@ -21,9 +27,9 @@ function phpIniToggle(label: string, key: string, on: boolean): string {
 
 export function toolModal(): string {
   const m = state.modal;
-  if (!m || !m.open) return "";
-  const verRows = (m.versions || [])
-    .map((v: any) => {
+  if (!isToolModal(m)) return "";
+  const verRows = m.versions
+    .map((v) => {
       let right: string;
       if (m.busy && m.busyVersion === v.version) right = progressRing();
       else if (v.active) right = '<span class="tag ok">Active</span>';
@@ -33,7 +39,7 @@ export function toolModal(): string {
     })
     .join("") || '<div class="set-row"><div class="h">No versions — run "Install missing" first.</div></div>';
 
-  const anyInstalled = (m.versions || []).some((v: any) => v.installed);
+  const anyInstalled = m.versions.some((v) => v.installed);
   const symlinkRow = m.cliBinary
     ? '<div class="modal-divider"></div>' +
       '<div class="set-row"><div class="grow"><div class="t">In terminal (/usr/local/bin)</div>' +
@@ -72,88 +78,100 @@ export function toolModal(): string {
 export async function openTool(toolKey: string): Promise<void> {
   const comp = Object.keys(TOOL_KEY).find((k) => TOOL_KEY[k] === toolKey);
   state.modal = {
-    open: true, toolKey, display: DISP_COMP[comp as string] || toolKey, cliBinary: TOOL_CLI[toolKey],
+    open: true, toolKey, display: DISP_COMP[comp as string] || toolKey, cliBinary: TOOL_CLI[toolKey] ?? null,
     versions: [], linked: false, busy: false, busyVersion: null,
   };
   render();
+  // Narrow to ToolModalState after assignment — safe because we just set it above.
+  const m = state.modal as ToolModalState;
   try {
     const [versions, linked] = await Promise.all([
       toolVersions(toolKey),
       toolSymlinks(),
     ]);
-    state.modal.versions = versions;
+    m.versions = versions;
     state.toolSymlinks = linked;
-    state.modal.linked = linked.includes(toolKey);
+    m.linked = linked.includes(toolKey);
   } catch (e) {
     toast({ type: "error", title: "Load failed", msg: String(e) });
   }
   if (toolKey === "php") {
-    try { state.modal.phpIni = await phpIniSettings(); }
-    catch (e) { state.modal.phpIni = null; }
+    try { m.phpIni = await phpIniSettings(); }
+    catch (_) { m.phpIni = null; }
   }
   render();
 }
 
 export function closeTool(): void {
-  if (state.modal && state.modal.busy) return;
+  const m = state.modal;
+  if (isToolModal(m) && m.busy) return;
   state.modal = null;
   render();
 }
 
 export async function useToolVersion(version: string): Promise<void> {
-  const tk = state.modal.toolKey;
-  state.modal.busy = true; state.modal.busyVersion = version; render();
+  const m = state.modal as ToolModalState;
+  const tk = m.toolKey;
+  m.busy = true; m.busyVersion = version; render();
   try {
     await setToolVersionCmd(tk, version);
-    state.modal.versions = await toolVersions(tk);
-    toast({ type: "success", title: "Version switched", msg: state.modal.display + " " + version });
+    m.versions = await toolVersions(tk);
+    toast({ type: "success", title: "Version switched", msg: m.display + " " + version });
   } catch (e) {
     toast({ type: "error", title: "Switch failed", msg: String(e) });
   } finally {
-    if (state.modal) { state.modal.busy = false; state.modal.busyVersion = null; } resetDownload(); render();
+    if (isToolModal(state.modal)) { state.modal.busy = false; state.modal.busyVersion = null; }
+    resetDownload(); render();
   }
 }
 
 export async function installToolVersion(version: string): Promise<void> {
-  const tk = state.modal.toolKey;
-  state.modal.busy = true; state.modal.busyVersion = version; render();
+  const m = state.modal as ToolModalState;
+  const tk = m.toolKey;
+  m.busy = true; m.busyVersion = version; render();
   try {
-    state.modal.versions = await installToolVersionCmd(tk, version);
-    toast({ type: "success", title: "Installed", msg: state.modal.display + " " + version });
+    m.versions = await installToolVersionCmd(tk, version);
+    toast({ type: "success", title: "Installed", msg: m.display + " " + version });
   } catch (e) {
     toast({ type: "error", title: "Install failed", msg: String(e) });
   } finally {
-    if (state.modal) { state.modal.busy = false; state.modal.busyVersion = null; } resetDownload(); render();
+    if (isToolModal(state.modal)) { state.modal.busy = false; state.modal.busyVersion = null; }
+    resetDownload(); render();
   }
 }
 
 export async function toggleToolSymlink(): Promise<void> {
-  const tk = state.modal.toolKey;
-  const next = !state.modal.linked;
-  state.modal.busy = true; render();
+  const m = state.modal as ToolModalState;
+  const tk = m.toolKey;
+  const next = !m.linked;
+  m.busy = true; render();
   try {
     state.toolSymlinks = await setToolSymlink(tk, next);
-    state.modal.linked = state.toolSymlinks.includes(tk);
+    m.linked = state.toolSymlinks.includes(tk);
     toast({ type: "success", title: next ? "Linked" : "Unlinked",
-            msg: String(state.modal.cliBinary).split(", ").map((b: string) => "/usr/local/bin/" + b).join(", ") });
+            msg: String(m.cliBinary).split(", ").map((b: string) => "/usr/local/bin/" + b).join(", ") });
   } catch (e) {
     toast({ type: "error", title: "Symlink failed", msg: String(e) });
   } finally {
-    if (state.modal) { state.modal.busy = false; } render();
+    if (isToolModal(state.modal)) { state.modal.busy = false; }
+    render();
   }
 }
 
 export async function applyPhpIni(): Promise<void> {
-  if (!state.modal || !state.modal.phpIni) return;
-  const payload = { ...state.modal.phpIni };
-  payload.max_execution_time = parseInt(payload.max_execution_time, 10) || 0;
-  state.modal.busy = true; render();
+  if (!isToolModal(state.modal) || !state.modal.phpIni) return;
+  const m = state.modal;
+  const pi = m.phpIni!; // narrowed: guard above confirmed it is truthy
+  const payload = { ...pi };
+  payload.max_execution_time = parseInt(String(payload.max_execution_time), 10) || 0;
+  m.busy = true; render();
   try {
-    state.modal.phpIni = await setPhpIniSettings(payload);
+    m.phpIni = await setPhpIniSettings(payload);
     toast({ type: "success", title: "PHP settings applied", msg: "Restarted php-fpm; CLI uses them too." });
   } catch (e) {
     toast({ type: "error", title: "Couldn't apply PHP settings", msg: String(e) });
   } finally {
-    if (state.modal) state.modal.busy = false; render();
+    if (isToolModal(state.modal)) state.modal.busy = false;
+    render();
   }
 }

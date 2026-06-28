@@ -1,4 +1,5 @@
 import { state } from "../../state";
+import type { Site } from "../../ipc/types";
 import { esc, validName } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
@@ -41,7 +42,7 @@ export function sitesView(): string {
     bodyHtml =
       '<div class="stack-col g9">' +
       state.sites
-        .map((s: any) => {
+        .map((s) => {
           const url = "https://" + s.hostname;
           const isProxy = s.source === "Proxy";
           const isLinked = s.source === "Linked";
@@ -180,11 +181,11 @@ export async function submitLinkSite(): Promise<void> {
   }
 }
 
-export function openProxy(site?: any): void {
+export function openProxy(site?: Site): void {
   if (site && site.proxy) {
     state.proxy = {
       mode: "edit", name: site.name, websocket: !!site.proxy.websocket,
-      routes: (site.proxy.routes || []).map((r: any) => ({ path: r.path, upstream: r.upstream })),
+      routes: (site.proxy.routes || []).map((r) => ({ path: r.path, upstream: r.upstream })),
       busy: false, error: "",
     };
     if (!state.proxy.routes.length) state.proxy.routes = [{ path: "/", upstream: "" }];
@@ -193,7 +194,7 @@ export function openProxy(site?: any): void {
   }
   state.modal = "proxy";
   render();
-  requestAnimationFrame(() => { const inp = document.getElementById("px-name"); if (inp && !(inp as any).readOnly) inp.focus(); });
+  requestAnimationFrame(() => { const inp = document.getElementById("px-name") as HTMLInputElement | null; if (inp && !inp.readOnly) inp.focus(); });
 }
 
 export function closeProxy(): void {
@@ -215,7 +216,7 @@ export async function submitProxy(): Promise<void> {
   }
   p.busy = true; p.error = ""; render();
   try {
-    const routes = p.routes.map((r: any) => ({ path: r.path, upstream: r.upstream }));
+    const routes = p.routes.map((r) => ({ path: r.path, upstream: r.upstream }));
     const site = await (p.mode === "edit"
       ? updateProxy(p.name, routes, p.websocket)
       : addProxy(p.name, routes, p.websocket));
@@ -233,7 +234,7 @@ export async function submitProxy(): Promise<void> {
   }
 }
 
-export function openDomains(site: any): void {
+export function openDomains(site: Site): void {
   const ds = (site.domains && site.domains.length) ? site.domains.slice() : [site.hostname];
   state.siteDomains = { name: site.name, domains: ds, busy: false, error: "" };
   state.modal = "domains";

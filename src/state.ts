@@ -1,10 +1,117 @@
 import { COMP_ORDER } from "./ui/constants";
+import type { Site, ServiceState, ToolVersion, ComponentStatus, SetupReport, PhpIniSettings, ProxyRoute } from "./ipc/types";
+
+// ---- Toast ------------------------------------------------------------------
+
+export interface Toast {
+  id: number;
+  type: "success" | "error" | "info";
+  title: string;
+  msg?: string;
+  sticky?: boolean;
+  details?: string[];
+}
+
+// ---- Tool modal state -------------------------------------------------------
+
+export interface ToolModalState {
+  open: true;
+  toolKey: string;
+  display: string;
+  cliBinary: string | null;
+  versions: ToolVersion[];
+  linked: boolean;
+  busy: boolean;
+  busyVersion: string | null;
+  phpIni?: PhpIniSettings | null;
+}
+
+// ---- Sub-states -------------------------------------------------------------
+
+export interface NewSiteState {
+  name: string;
+  template: "Blank" | "Laravel" | "Wordpress";
+  busy: boolean;
+  error: string;
+}
+
+export interface LinkSiteState {
+  root: string;
+  name: string;
+  busy: boolean;
+  error: string;
+}
+
+export interface ProxyState {
+  mode: "create" | "edit";
+  name: string;
+  websocket: boolean;
+  routes: ProxyRoute[];
+  busy: boolean;
+  error: string;
+}
+
+export interface SiteDomainsState {
+  name: string;
+  domains: string[];
+  busy: boolean;
+  error: string;
+}
+
+export interface DownloadState {
+  active: boolean;
+  label: string;
+  step: { done: number; total: number };
+  bytes: { current: number; total: number };
+  overall: number;
+}
+
+export interface SetupState {
+  phase: "idle" | "installing" | "done";
+  report: SetupReport | null;
+  components: ComponentStatus[];
+}
+
+// ---- AppState ---------------------------------------------------------------
+
+export interface AppState {
+  view: string;
+  dark: boolean;
+  compact: boolean;
+  /** Keyed by ServiceKind string (e.g. "Nginx", "PhpFpm", …) */
+  services: Record<string, ServiceState>;
+  sites: Site[];
+  setup: SetupState;
+  pkexecMsg: string | null;
+  startingAll: boolean;
+  busy: boolean;
+  toasts: Toast[];
+  tId: number;
+  /**
+   * null         — no modal open
+   * "newsite"    — New Site modal
+   * "linksite"   — Link Site modal
+   * "proxy"      — Reverse Proxy modal
+   * "domains"    — Edit Domains modal
+   * ToolModalState — Tool detail modal (open: true)
+   */
+  modal: null | "newsite" | "linksite" | "proxy" | "domains" | ToolModalState;
+  toolSymlinks: string[];
+  newSite: NewSiteState;
+  linkSite: LinkSiteState;
+  confirmRemove: string | null;
+  proxy: ProxyState;
+  siteDomains: SiteDomainsState;
+  download: DownloadState;
+}
+
+// ---- initial state ----------------------------------------------------------
 
 const stored = localStorage.getItem("laralux-theme");
 const prefersDark =
   window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
 
-export const state: any = {
+export const state: AppState = {
   view: "dashboard",
   dark: stored ? stored === "dark" : !!prefersDark,
   compact: false,
