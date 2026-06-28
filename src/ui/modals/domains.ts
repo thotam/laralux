@@ -8,7 +8,7 @@ export function domainsModal(): string {
   const errorHtml = sd.error ? '<div class="ns-error">' + esc(sd.error) + '</div>' : '';
   const d = sd.busy ? ' disabled' : '';
   const rows = sd.domains.map((v: string, i: number) =>
-    '<div class="pr-row">' +
+    '<div class="pr-row" data-key="dom-' + i + '">' +
     '<input class="ns-input" type="text" placeholder="app.example.com or *.example.com" value="' + esc(v) + '" autocomplete="off" spellcheck="false" data-action="dm-input" data-idx="' + i + '"' + d + ' />' +
     (sd.domains.length > 1 ? '<button class="icon-btn sq32" data-action="dm-del" data-idx="' + i + '" aria-label="Remove domain"' + d + '>' + I.close + '</button>' : '') +
     '</div>'

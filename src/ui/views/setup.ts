@@ -20,7 +20,7 @@ export function setupView(): string {
         : '<span class="tag miss">Missing</span>';
       const tk = TOOL_KEY[c.component] || "";
       return (
-        '<button class="setup-item setup-item-btn" data-action="open-tool" data-tool="' + esc(tk) + '">' +
+        '<button class="setup-item setup-item-btn" data-action="open-tool" data-tool="' + esc(tk) + '" data-key="comp-' + esc(String(c.component)) + '">' +
         '<div class="setup-tile">' + I.setupItem + "</div>" +
         '<span class="nm">' + esc(DISP_COMP[c.component] || c.component) + "</span>" + tag +
         '<span class="chev">›</span></button>'

@@ -10,7 +10,7 @@ export function proxyModal(): string {
   const errorHtml = p.error ? '<div class="ns-error">' + esc(p.error) + '</div>' : '';
   const d = p.busy ? ' disabled' : '';
   const rows = p.routes.map((r, i: number) =>
-    '<div class="pr-row">' +
+    '<div class="pr-row" data-key="route-' + i + '">' +
     '<input class="ns-input pr-path" type="text" placeholder="/" value="' + esc(r.path) + '" autocomplete="off" spellcheck="false" data-action="pr-path" data-idx="' + i + '"' + d + ' />' +
     '<input class="ns-input pr-up" type="text" placeholder="3000 or 127.0.0.1:5173" value="' + esc(r.upstream) + '" autocomplete="off" spellcheck="false" data-action="pr-upstream" data-idx="' + i + '"' + d + ' />' +
     (p.routes.length > 1 ? '<button class="icon-btn sq32" data-action="pr-del" data-idx="' + i + '" aria-label="Remove route"' + d + '>' + I.close + '</button>' : '') +

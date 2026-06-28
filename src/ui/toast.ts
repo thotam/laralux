@@ -35,7 +35,7 @@ export function toasts(): string {
       return (
         '<div class="toast ' +
         t.type +
-        '" role="status"><span class="ico">' +
+        '" role="status" data-key="toast-' + t.id + '"><span class="ico">' +
         ico +
         "</span>" +
         '<div class="body"><div class="ttl">' +

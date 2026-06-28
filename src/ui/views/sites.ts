@@ -65,7 +65,7 @@ export function sitesView(): string {
             ? ""
             : '<button class="icon-btn sq32" data-action="open-terminal" data-path="' + esc(s.root) + '" aria-label="Open terminal" title="Open terminal here">' + I.terminal + "</button>";
           return (
-            '<div class="card site-row"><div class="site-tile">' + I.folder18 + "</div>" +
+            '<div class="card site-row" data-key="site-' + esc(s.name) + '"><div class="site-tile">' + I.folder18 + "</div>" +
             '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
             '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a>" +
             subRight + "</div></div>" +

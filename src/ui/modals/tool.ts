@@ -35,7 +35,7 @@ export function toolModal(): string {
       else if (v.active) right = '<span class="tag ok">Active</span>';
       else if (v.installed) right = '<button class="btn-sm" data-action="use-tool-version" data-version="' + esc(v.version) + '"' + (m.busy ? " disabled" : "") + ">Use</button>";
       else right = '<button class="btn-sm" data-action="install-tool-version" data-version="' + esc(v.version) + '"' + (m.busy ? " disabled" : "") + ">Install</button>";
-      return '<div class="set-row"><div class="grow"><div class="t">' + esc(m.display) + " " + esc(v.version) + '</div><div class="h">' + (v.installed ? "Installed" : "Not installed") + "</div></div>" + right + "</div>";
+      return '<div class="set-row" data-key="ver-' + esc(v.version) + '"><div class="grow"><div class="t">' + esc(m.display) + " " + esc(v.version) + '</div><div class="h">' + (v.installed ? "Installed" : "Not installed") + "</div></div>" + right + "</div>";
     })
     .join("") || '<div class="set-row"><div class="h">No versions — run "Install missing" first.</div></div>';
 
