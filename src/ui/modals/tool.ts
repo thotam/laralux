@@ -2,7 +2,10 @@ import { state } from "../../state";
 import { esc } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
-import { invoke } from "../legacy-invoke";
+import {
+  toolVersions, toolSymlinks, installToolVersion as installToolVersionCmd,
+  setToolVersion as setToolVersionCmd, setToolSymlink, phpIniSettings, setPhpIniSettings,
+} from "../../ipc/commands";
 import { render, resetDownload, progressRing } from "../render";
 import { DISP_COMP, TOOL_KEY, TOOL_CLI } from "../constants";
 
@@ -75,8 +78,8 @@ export async function openTool(toolKey: string): Promise<void> {
   render();
   try {
     const [versions, linked] = await Promise.all([
-      invoke("tool_versions", { tool: toolKey }),
-      invoke("tool_symlinks"),
+      toolVersions(toolKey),
+      toolSymlinks(),
     ]);
     state.modal.versions = versions;
     state.toolSymlinks = linked;
@@ -85,7 +88,7 @@ export async function openTool(toolKey: string): Promise<void> {
     toast({ type: "error", title: "Load failed", msg: String(e) });
   }
   if (toolKey === "php") {
-    try { state.modal.phpIni = await invoke("php_ini_settings"); }
+    try { state.modal.phpIni = await phpIniSettings(); }
     catch (e) { state.modal.phpIni = null; }
   }
   render();
@@ -101,8 +104,8 @@ export async function useToolVersion(version: string): Promise<void> {
   const tk = state.modal.toolKey;
   state.modal.busy = true; state.modal.busyVersion = version; render();
   try {
-    await invoke("set_tool_version", { tool: tk, version });
-    state.modal.versions = await invoke("tool_versions", { tool: tk });
+    await setToolVersionCmd(tk, version);
+    state.modal.versions = await toolVersions(tk);
     toast({ type: "success", title: "Version switched", msg: state.modal.display + " " + version });
   } catch (e) {
     toast({ type: "error", title: "Switch failed", msg: String(e) });
@@ -115,7 +118,7 @@ export async function installToolVersion(version: string): Promise<void> {
   const tk = state.modal.toolKey;
   state.modal.busy = true; state.modal.busyVersion = version; render();
   try {
-    state.modal.versions = await invoke("install_tool_version", { tool: tk, version });
+    state.modal.versions = await installToolVersionCmd(tk, version);
     toast({ type: "success", title: "Installed", msg: state.modal.display + " " + version });
   } catch (e) {
     toast({ type: "error", title: "Install failed", msg: String(e) });
@@ -129,7 +132,7 @@ export async function toggleToolSymlink(): Promise<void> {
   const next = !state.modal.linked;
   state.modal.busy = true; render();
   try {
-    state.toolSymlinks = await invoke("set_tool_symlink", { tool: tk, enabled: next });
+    state.toolSymlinks = await setToolSymlink(tk, next);
     state.modal.linked = state.toolSymlinks.includes(tk);
     toast({ type: "success", title: next ? "Linked" : "Unlinked",
             msg: String(state.modal.cliBinary).split(", ").map((b: string) => "/usr/local/bin/" + b).join(", ") });
@@ -146,7 +149,7 @@ export async function applyPhpIni(): Promise<void> {
   payload.max_execution_time = parseInt(payload.max_execution_time, 10) || 0;
   state.modal.busy = true; render();
   try {
-    state.modal.phpIni = await invoke("set_php_ini_settings", { settings: payload });
+    state.modal.phpIni = await setPhpIniSettings(payload);
     toast({ type: "success", title: "PHP settings applied", msg: "Restarted php-fpm; CLI uses them too." });
   } catch (e) {
     toast({ type: "error", title: "Couldn't apply PHP settings", msg: String(e) });

@@ -2,7 +2,12 @@ import { state } from "../../state";
 import { esc, validName } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
-import { invoke } from "../legacy-invoke";
+import {
+  createSite, listSites, linkSite, unlinkSite,
+  addProxy, updateProxy, setSiteDomains, openTerminalAt,
+} from "../../ipc/commands";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { render, resetDownload } from "../render";
 
 const DOMAIN_RE = /^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
@@ -98,14 +103,14 @@ export async function submitNewSite(): Promise<void> {
   state.newSite.busy = true; state.newSite.error = ""; render();
   state.download.active = true; state.download.label = "Creating site…"; render();
   try {
-    const rep = await invoke("create_site", { name, template });
+    const rep = await createSite(name, template);
     const extra = rep.database_created ? " · database created" : "";
     const warn = rep.warnings && rep.warnings.length ? { details: rep.warnings } : {};
     toast({ type: "success", title: "Created " + rep.site_name, msg: "https://" + rep.hostname + extra, ...warn });
     state.modal = null;
     state.newSite = { name: "", template: "Blank", busy: false, error: "" };
     try {
-      const sites = await invoke("list_sites");
+      const sites = await listSites();
       state.sites = Array.isArray(sites) ? sites : [];
     } catch (_) {}
     render();
@@ -138,9 +143,7 @@ export function closeLinkSite(): void {
 
 export async function browseFolder(): Promise<void> {
   try {
-    const dlg = (window as any).__TAURI__ && (window as any).__TAURI__.dialog;
-    if (!dlg) { toast({ type: "error", title: "Folder picker unavailable" }); return; }
-    const picked = await dlg.open({ directory: true, multiple: false, title: "Choose project folder" });
+    const picked = await openDialog({ directory: true, multiple: false, title: "Choose project folder" });
     if (!picked) return; // cancelled
     const path: string = Array.isArray(picked) ? picked[0] : picked;
     state.linkSite.root = path;
@@ -158,12 +161,12 @@ export async function submitLinkSite(): Promise<void> {
   if (!validName(name)) { state.linkSite.error = "Use lowercase letters, digits, hyphens (e.g. my-app)"; render(); return; }
   state.linkSite.busy = true; state.linkSite.error = ""; render();
   try {
-    const site = await invoke("link_site", { name, root });
+    const site = await linkSite(name, root);
     toast({ type: "success", title: "Linked " + site.name, msg: "https://" + site.hostname });
     state.modal = null;
     state.linkSite = { root: "", name: "", busy: false, error: "" };
     try {
-      const sites = await invoke("list_sites");
+      const sites = await listSites();
       state.sites = Array.isArray(sites) ? sites : [];
     } catch (_) {}
     render();
@@ -212,15 +215,14 @@ export async function submitProxy(): Promise<void> {
   }
   p.busy = true; p.error = ""; render();
   try {
-    const cmd = p.mode === "edit" ? "update_proxy" : "add_proxy";
-    const site = await invoke(cmd, {
-      name: p.name, websocket: p.websocket,
-      routes: p.routes.map((r: any) => ({ path: r.path, upstream: r.upstream })),
-    });
+    const routes = p.routes.map((r: any) => ({ path: r.path, upstream: r.upstream }));
+    const site = await (p.mode === "edit"
+      ? updateProxy(p.name, routes, p.websocket)
+      : addProxy(p.name, routes, p.websocket));
     toast({ type: "success", title: (p.mode === "edit" ? "Updated " : "Proxy ") + site.name, msg: "https://" + site.hostname });
     state.modal = null;
     state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" };
-    try { const sites = await invoke("list_sites"); state.sites = Array.isArray(sites) ? sites : []; } catch (_) {}
+    try { const sites = await listSites(); state.sites = Array.isArray(sites) ? sites : []; } catch (_) {}
     render();
   } catch (e) {
     p.error = String(e); p.busy = false;
@@ -248,7 +250,7 @@ export async function submitDomains(): Promise<void> {
   for (const d of domains) { if (!validDomain(d)) { sd.error = "Invalid domain: " + d; render(); return; } }
   sd.busy = true; sd.error = ""; render();
   try {
-    const res = await invoke("set_site_domains", { name: sd.name, domains });
+    const res = await setSiteDomains(sd.name, domains);
     state.sites = Array.isArray(res && res.sites) ? res.sites : [];
     toast({ type: "success", title: "Domains updated", msg: domains.join(", ") });
     if (res && Array.isArray(res.warnings)) {
@@ -268,9 +270,9 @@ export async function removeSite(name: string): Promise<void> {
   if (state.confirmRemove !== name) { state.confirmRemove = name; render(); return; }
   state.confirmRemove = null;
   try {
-    await invoke("unlink_site", { name });
+    await unlinkSite(name);
     toast({ type: "success", title: "Removed " + name });
-    const sites = await invoke("list_sites");
+    const sites = await listSites();
     state.sites = Array.isArray(sites) ? sites : [];
     render();
   } catch (e) {
@@ -291,7 +293,7 @@ export async function copySite(name: string): Promise<void> {
 
 export async function openTerminal(path: string): Promise<void> {
   try {
-    await invoke("open_terminal", { path });
+    await openTerminalAt(path);
   } catch (e) {
     toast({ type: "error", title: "Couldn't open terminal", msg: String(e) });
   }
@@ -302,11 +304,10 @@ export async function openTerminal(path: string): Promise<void> {
 export async function openExternal(url: string): Promise<void> {
   if (!url) return;
   try {
-    const op = (window as any).__TAURI__ && (window as any).__TAURI__.opener;
-    if (op && op.openUrl) { await op.openUrl(url); return; }
-    window.open(url, "_blank");
+    await openUrl(url);
   } catch (e) {
-    toast({ type: "error", title: "Couldn't open", msg: String(e) });
+    // Fallback to window.open for non-Tauri dev environments
+    window.open(url, "_blank");
   }
 }
 

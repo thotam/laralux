@@ -2,7 +2,7 @@ import { state } from "../../state";
 import { esc } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
-import { invoke } from "../legacy-invoke";
+import { stackStartAll, stackStopAll, serviceStart, serviceStop } from "../../ipc/commands";
 import { render, applyServices } from "../render";
 import { SVC_KINDS, DISP, META } from "../constants";
 
@@ -103,7 +103,7 @@ export async function startAll(): Promise<void> {
   state.pkexecMsg = "Authorize to update /etc/hosts — enter your password in the system prompt.";
   render();
   try {
-    const arr = await invoke("stack_start_all");
+    const arr = await stackStartAll();
     applyServices(arr);
     toast({ type: "success", title: "All services running", msg: "Sites are reachable at https://*.dev" });
   } catch (e) {
@@ -122,7 +122,7 @@ export async function stopAll(): Promise<void> {
   for (const k of SVC_KINDS) if (state.services[k] === "Running") state.services[k] = "Stopping";
   render();
   try {
-    const arr = await invoke("stack_stop_all");
+    const arr = await stackStopAll();
     applyServices(arr);
     toast({ type: "info", title: "All services stopped" });
   } catch (e) {
@@ -136,12 +136,11 @@ export async function stopAll(): Promise<void> {
 export async function toggleService(kind: string): Promise<void> {
   if (state.busy) return;
   const running = state.services[kind] === "Running";
-  const cmd = running ? "service_stop" : "service_start";
   state.busy = true;
   state.services[kind] = running ? "Stopping" : "Starting";
   render();
   try {
-    const arr = await invoke(cmd, { kind });
+    const arr = await (running ? serviceStop(kind) : serviceStart(kind));
     applyServices(arr);
     if (!running) toast({ type: "success", title: DISP[kind] + " started" });
   } catch (e) {

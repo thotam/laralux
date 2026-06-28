@@ -2,7 +2,7 @@ import { state } from "../../state";
 import { esc } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
-import { invoke } from "../legacy-invoke";
+import { runSetupCmd, setupStatus } from "../../ipc/commands";
 import { render, applyComponents, resetDownload, progressRing } from "../render";
 import { DISP_COMP, TOOL_KEY } from "../constants";
 
@@ -80,14 +80,14 @@ export async function runSetup(): Promise<void> {
   // global top banner — avoids the duplicate, prettier on the Setup tab.
   state.download.active = true; render();
   try {
-    const report = await invoke("run_setup_cmd");
+    const report = await runSetupCmd();
     state.setup.report = report;
     state.setup.phase = "done";
     if (report && report.errors && report.errors.length)
       toast({ type: "error", sticky: true, title: "Setup finished with errors", details: report.errors });
     else toast({ type: "success", title: "Environment ready", msg: "All components installed" });
     try {
-      applyComponents(await invoke("setup_status"));
+      applyComponents(await setupStatus());
     } catch (_) {}
   } catch (e) {
     state.setup.phase = "idle";

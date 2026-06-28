@@ -15,7 +15,7 @@ import { newSiteModal } from "./modals/newsite";
 import { linkSiteModal } from "./modals/linksite";
 import { proxyModal } from "./modals/proxy";
 import { domainsModal } from "./modals/domains";
-import { invoke } from "./legacy-invoke";
+import { stackStatus, listSites, setupStatus } from "../ipc/commands";
 
 // ---- shared helpers (single copy) ----
 
@@ -249,9 +249,9 @@ export async function refresh(): Promise<void> {
   if (state.busy) return;
   try {
     const [svc, sites, comps] = await Promise.all([
-      invoke("stack_status"),
-      invoke("list_sites"),
-      invoke("setup_status"),
+      stackStatus(),
+      listSites(),
+      setupStatus(),
     ]);
     applyServices(svc);
     state.sites = Array.isArray(sites) ? sites : [];
