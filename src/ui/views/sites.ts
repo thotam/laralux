@@ -300,14 +300,13 @@ export async function openTerminal(path: string): Promise<void> {
 }
 
 // Open a URL in the system browser. In the Tauri webview, <a target="_blank">
-// does nothing, so route through the opener plugin (fallback to window.open for dev).
+// does nothing, so route through the opener plugin.
 export async function openExternal(url: string): Promise<void> {
   if (!url) return;
   try {
     await openUrl(url);
   } catch (e) {
-    // Fallback to window.open for non-Tauri dev environments
-    window.open(url, "_blank");
+    toast({ type: "error", title: "Couldn't open", msg: String(e) });
   }
 }
 
