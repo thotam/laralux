@@ -3,15 +3,16 @@ import { esc } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
 import { stackStartAll, stackStopAll, serviceStart, serviceStop, openDbClient } from "../../ipc/commands";
-import { render, applyServices, progressRing, resetDownload } from "../render";
-import { SVC_KINDS, DISP, META } from "../constants";
+import { render, applyServices, progressRing, resetDownload, runningCount } from "../render";
+import { SVC_ORDER, FLAG_KEY, DISP, META } from "../constants";
 
-const SVC_ICON: Record<string, string> = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
-const PORTS: Record<string, string[]> = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
-const LOG_FILE: Record<string, string> = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Redis: "redis.log", Mailpit: "mailpit.log" };
+const SVC_ICON: Record<string, string> = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Postgres: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
+const PORTS: Record<string, string[]> = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Postgres: ["5432"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
+const LOG_FILE: Record<string, string> = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Postgres: "postgres.log", Redis: "redis.log", Mailpit: "mailpit.log" };
 
-export function runningCount(): number {
-  return SVC_KINDS.filter((k) => state.services[k] === "Running").length;
+// Services currently enabled in the stack, in display order.
+function enabledKinds(): string[] {
+  return SVC_ORDER.filter((k) => state.serviceFlags[FLAG_KEY[k]]);
 }
 
 function spinner(klass: string): string {
@@ -68,9 +69,10 @@ export async function launchDbClient(): Promise<void> {
 
 export function dashboard(): string {
   const run = runningCount();
-  const allRunning = run === 5;
+  const kinds = enabledKinds();
+  const allRunning = run === kinds.length && kinds.length > 0;
   const noneRunning = run === 0;
-  const dots = SVC_KINDS.map((k) => {
+  const dots = kinds.map((k) => {
     const cls = (META[state.services[k]] || META.Stopped).cls;
     return '<span class="bgc-' + cls + '" title="' + esc(DISP[k] + ": " + state.services[k]) + '"></span>';
   }).join("");
@@ -78,7 +80,7 @@ export function dashboard(): string {
     ? '<button class="btn h36 btn-primary btn-busy" disabled>' + spinner("on-primary") + "Starting…</button>"
     : '<button class="btn h36 btn-primary' + (allRunning ? " btn-dim" : "") + '" data-action="start-all"' +
       (allRunning ? " disabled" : "") + ">" + I.play + "Start All</button>";
-  const cards = SVC_KINDS.map(serviceCard).join("");
+  const cards = kinds.map(serviceCard).join("");
   const preview = state.sites
     .slice(0, 3)
     .map((s) => {
@@ -96,7 +98,7 @@ export function dashboard(): string {
     "<div><h1 class=\"h1\">Dashboard</h1>" +
     '<p class="subtitle">Local stack · pretty HTTPS at <code class="chip-code">*.dev</code></p></div>' +
     '<div class="card summary">' +
-    '<div class="big"><span class="num">' + run + '</span><span class="den">/ 5</span></div>' +
+    '<div class="big"><span class="num">' + run + '</span><span class="den">/ ' + kinds.length + '</span></div>' +
     '<div style="min-width:0"><div class="lbl">services running</div><div class="dots">' + dots + "</div></div>" +
     '<span class="spacer"></span><div class="actions">' + startBtn +
     '<button class="btn h36 btn-outline' + (noneRunning ? " btn-dim" : "") + '" data-action="stop-all"' +
@@ -119,7 +121,7 @@ export function dashboard(): string {
 }
 
 export async function startAll(): Promise<void> {
-  if (state.busy || runningCount() === 5) return;
+  if (state.busy || runningCount() === enabledKinds().length) return;
   state.busy = true;
   state.startingAll = true;
   state.pkexecMsg = "Authorize to update /etc/hosts — enter your password in the system prompt.";
@@ -141,7 +143,7 @@ export async function startAll(): Promise<void> {
 export async function stopAll(): Promise<void> {
   if (state.busy || runningCount() === 0) return;
   state.busy = true;
-  for (const k of SVC_KINDS) if (state.services[k] === "Running") state.services[k] = "Stopping";
+  for (const k of SVC_ORDER) if (state.services[k] === "Running") state.services[k] = "Stopping";
   render();
   try {
     const arr = await stackStopAll();

@@ -7,7 +7,7 @@ import type { ServiceStatus, ComponentStatus, ProgressPayload } from "../ipc/typ
 import { esc } from "./util";
 import { I } from "./icons";
 import { toasts } from "./toast";
-import { COMP_ORDER, SVC_KINDS } from "./constants";
+import { COMP_ORDER, SVC_ORDER, FLAG_KEY } from "./constants";
 import { dashboard } from "./views/dashboard";
 import { sitesView } from "./views/sites";
 import { setupView } from "./views/setup";
@@ -93,8 +93,8 @@ export function updateRing(): void {
 
 // ---- layout helpers (used only by render) ----
 
-function runningCount(): number {
-  return SVC_KINDS.filter((k) => state.services[k] === "Running").length;
+export function runningCount(): number {
+  return SVC_ORDER.filter((k) => state.serviceFlags[FLAG_KEY[k]] && state.services[k] === "Running").length;
 }
 
 function missingCount(): number {
@@ -107,8 +107,9 @@ function spinner(klass: string): string {
 
 function header(): string {
   const run = runningCount();
-  const health = run === 5 ? "bgc-running" : run === 0 ? "bgc-stopped" : "bgc-starting";
-  const allRunning = run === 5;
+  const total = SVC_ORDER.filter((k) => state.serviceFlags[FLAG_KEY[k]]).length;
+  const health = (run > 0 && run === total) ? "bgc-running" : run === 0 ? "bgc-stopped" : "bgc-starting";
+  const allRunning = run === total && total > 0;
   const noneRunning = run === 0;
   const startBtn = state.startingAll
     ? '<button class="btn btn-primary btn-busy" disabled>' + spinner("on-primary") + "Starting…</button>"
@@ -121,7 +122,7 @@ function header(): string {
     '<div class="brand-name">Laralux</div></div>' +
     '<span class="spacer"></span>' +
     '<div class="health-pill"><span class="dot ' + health + '"></span>' +
-    '<span class="txt">' + run + "/5 running</span></div>" +
+    '<span class="txt">' + run + "/" + total + " running</span></div>" +
     startBtn +
     '<button class="btn btn-outline' + (noneRunning ? " btn-dim" : "") + '" data-action="stop-all"' +
     (noneRunning ? " disabled" : "") +
