@@ -83,6 +83,11 @@ fn main() {
                 .items(&[&start, &stop, &dashboard, &db_client, &quit])
                 .build()?;
 
+            // Tray shows only one of Start All / Stop All; start on the stopped
+            // stack so only Start All is visible. The monitor toggles them.
+            // (Tauri 2.11 MenuItem has no set_visible; we remove/insert instead.)
+            let _ = menu.remove(&stop);
+
             // Start on the "stopped" icon; the monitor below swaps it to reflect
             // the live stack state (running / starting / crashed).
             let tray = TrayIconBuilder::new()
@@ -149,9 +154,13 @@ fn main() {
             {
                 let handle = app.handle().clone();
                 let tray = tray.clone();
+                let start_item = start.clone();
+                let stop_item = stop.clone();
+                let menu_handle = menu.clone();
                 std::thread::spawn(move || {
                     let mut last: Option<Vec<laralux_core::ServiceStatus>> = None;
                     let mut last_tray: Option<TrayState> = None;
+                    let mut last_all_running: Option<bool> = None;
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         let Some(state) = handle.try_state::<AppState>() else { continue };
@@ -172,6 +181,20 @@ fn main() {
                                 let _ = tray.set_icon(Some(img));
                             }
                             last_tray = Some(ts);
+                        }
+                        // Tray shows only one of Start All / Stop All: all up → Stop All.
+                        // Tauri 2.11 MenuItem has no set_visible; we remove/insert instead.
+                        let all_running = !snap.is_empty()
+                            && snap.iter().all(|s| s.state == laralux_core::ServiceState::Running);
+                        if last_all_running != Some(all_running) {
+                            if all_running {
+                                let _ = menu_handle.remove(&start_item);
+                                let _ = menu_handle.insert(&stop_item, 0);
+                            } else {
+                                let _ = menu_handle.remove(&stop_item);
+                                let _ = menu_handle.insert(&start_item, 0);
+                            }
+                            last_all_running = Some(all_running);
                         }
                     }
                 });
