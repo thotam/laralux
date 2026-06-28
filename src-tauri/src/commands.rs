@@ -574,6 +574,27 @@ pub fn open_folder(path: String) -> Result<(), String> {
     laralux_core::open_folder(&dir).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn open_db_client(app: tauri::AppHandle) -> Result<(), String> {
+    let app_for_progress = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let state = app.state::<AppState>();
+        if !laralux_core::beekeeper::is_installed(&state.paths) {
+            let progress = TauriProgress(app_for_progress);
+            laralux_core::beekeeper::ensure_beekeeper(
+                &state.paths,
+                &CurlDownloader,
+                &RealCommandRunner,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        laralux_core::open_beekeeper(&state.paths).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 const RESOLVED_DROPIN_PATH: &str = "/etc/systemd/resolved.conf.d/laralux.conf";
 
 /// Best-effort: kill any CoreDNS spawned from our managed bin (e.g. an orphan
