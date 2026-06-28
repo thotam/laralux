@@ -70,6 +70,8 @@ fn main() {
             commands::open_folder,
             commands::set_site_domains,
             commands::open_db_client,
+            commands::hide_site,
+            commands::delete_site_folder,
         ])
         .setup(|app| {
             let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;

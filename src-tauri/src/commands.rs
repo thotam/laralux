@@ -341,6 +341,40 @@ fn sync_and_reload(state: &AppState, config: &Config) {
     }
 }
 
+/// Hide a scanned (www-folder) site: rename it to `.<name>` so it drops out of
+/// the list/hosts/nginx, keeping the files. Then drop its vhost and re-sync.
+#[tauri::command]
+pub async fn hide_site(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let state = app.state::<AppState>();
+        laralux_core::hide_scanned_site(&state.paths, &name).map_err(|e| e.to_string())?;
+        let vhost = state.paths.etc_for("nginx").join("sites").join(format!("{name}.conf"));
+        let _ = std::fs::remove_file(&vhost);
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        sync_and_reload(&state, &config);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Permanently delete a scanned (www-folder) site's folder, drop its vhost and
+/// re-sync (so /etc/hosts and nginx stop referencing it).
+#[tauri::command]
+pub async fn delete_site_folder(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let state = app.state::<AppState>();
+        laralux_core::delete_scanned_site(&state.paths, &name).map_err(|e| e.to_string())?;
+        let vhost = state.paths.etc_for("nginx").join("sites").join(format!("{name}.conf"));
+        let _ = std::fs::remove_file(&vhost);
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+        sync_and_reload(&state, &config);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn add_proxy(
     app: tauri::AppHandle,
