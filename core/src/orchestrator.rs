@@ -248,6 +248,27 @@ impl Orchestrator {
         crate::orphans::reap(&self.paths.bin(), &keep)
     }
 
+    /// Replace the managed service definitions with `new_services`. Any service
+    /// kind present before but absent now is stopped (terminating its child and
+    /// dropping its handle) and its state cleared; running handles for surviving
+    /// kinds are preserved. Used to apply a `config.services` change at runtime
+    /// without restarting the app or orphaning processes.
+    pub fn reconcile(&mut self, new_services: Vec<Box<dyn Service>>) {
+        let new_kinds: std::collections::HashSet<ServiceKind> =
+            new_services.iter().map(|s| s.kind()).collect();
+        let removed: Vec<ServiceKind> = self
+            .services
+            .iter()
+            .map(|s| s.kind())
+            .filter(|k| !new_kinds.contains(k))
+            .collect();
+        for kind in removed {
+            let _ = self.stop(kind);
+            self.states.remove(&kind);
+        }
+        self.services = new_services;
+    }
+
     pub fn start_all(&mut self) -> Result<(), ServiceError> {
         // Orphans from a prior session are reaped by `start()` itself (it runs on
         // every start path), so each service clears leftovers before it spawns.
@@ -654,5 +675,23 @@ mod tests {
         s.memory_limit = "".into();
         assert!(orch.apply_php_ini(&s).is_err());
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn reconcile_adds_and_removes_services() {
+        let spawner = FakeSpawner::new();
+        let mut o = Orchestrator::new(
+            LaraluxPaths::new("/tmp/lara".into()),
+            vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })],
+            Box::new(spawner),
+        );
+        o.start(ServiceKind::Redis).unwrap();
+        assert_eq!(o.state(ServiceKind::Redis), ServiceState::Running);
+
+        // Reconcile to a set WITHOUT redis but WITH mariadb: redis is stopped+dropped.
+        o.reconcile(vec![Box::new(Dummy { kind: ServiceKind::Mariadb, name: "mariadbd" })]);
+        assert_eq!(o.state(ServiceKind::Redis), ServiceState::Stopped);
+        assert!(o.start_order().contains(&ServiceKind::Mariadb));
+        assert!(!o.start_order().contains(&ServiceKind::Redis));
     }
 }
