@@ -74,19 +74,18 @@ fn main() {
             commands::delete_site_folder,
         ])
         .setup(|app| {
-            let start = MenuItemBuilder::with_id("start_all", "Start All").build(app)?;
-            let stop = MenuItemBuilder::with_id("stop_all", "Stop All").build(app)?;
+            // One menu item whose LABEL toggles between Start All / Stop All so the
+            // tray shows a single action. We change its text (set_text), never the
+            // menu structure: the AppIndicator tray serializes its menu over DBus,
+            // and adding/removing items desyncs it and renders the menu blank.
+            // Start on the stopped-stack label.
+            let toggle = MenuItemBuilder::with_id("stack_toggle", "Start All").build(app)?;
             let dashboard = MenuItemBuilder::with_id("dashboard", "Dashboard").build(app)?;
             let db_client = MenuItemBuilder::with_id("db_client", "DB client (DbGate)").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&start, &stop, &dashboard, &db_client, &quit])
+                .items(&[&toggle, &dashboard, &db_client, &quit])
                 .build()?;
-
-            // Tray shows only one of Start All / Stop All; start on the stopped
-            // stack so only Start All is visible. The monitor toggles them.
-            // (Tauri 2.11 MenuItem has no set_visible; we remove/insert instead.)
-            let _ = menu.remove(&stop);
 
             // Start on the "stopped" icon; the monitor below swaps it to reflect
             // the live stack state (running / starting / crashed).
@@ -95,28 +94,38 @@ fn main() {
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "start_all" => {
+                    "stack_toggle" => {
                         if let Some(state) = app.try_state::<AppState>() {
-                            if state.starting.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                                return;
-                            }
-                            struct ResetGuard<'a>(&'a std::sync::atomic::AtomicBool);
-                            impl Drop for ResetGuard<'_> {
-                                fn drop(&mut self) {
-                                    self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+                            // Decide by current state: all up → Stop All, else Start All.
+                            let all_running = match state.orch.lock() {
+                                Ok(mut o) => {
+                                    o.refresh();
+                                    let s = o.snapshot();
+                                    !s.is_empty()
+                                        && s.iter().all(|x| x.state == laralux_core::ServiceState::Running)
                                 }
-                            }
-                            let _reset = ResetGuard(&state.starting);
-                            // Same full startup as the UI command (sync hosts/cert/DNS +
-                            // setcap + start_all); each privileged step self-skips when
-                            // unchanged, so this prompts for a password only when needed.
-                            let _ = commands::run_full_start(&state);
-                        }
-                    }
-                    "stop_all" => {
-                        if let Some(state) = app.try_state::<AppState>() {
-                            if let Ok(mut orch) = state.orch.lock() {
-                                orch.stop_all();
+                                Err(_) => return,
+                            };
+                            if all_running {
+                                if let Ok(mut orch) = state.orch.lock() {
+                                    orch.stop_all();
+                                }
+                            } else {
+                                if state.starting.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                                    return;
+                                }
+                                struct ResetGuard<'a>(&'a std::sync::atomic::AtomicBool);
+                                impl Drop for ResetGuard<'_> {
+                                    fn drop(&mut self) {
+                                        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+                                    }
+                                }
+                                let _reset = ResetGuard(&state.starting);
+                                // Same full startup as the UI command (sync hosts/cert/DNS
+                                // + setcap + start_all); each privileged step self-skips
+                                // when unchanged, so it prompts for a password only when
+                                // needed.
+                                let _ = commands::run_full_start(&state);
                             }
                         }
                     }
@@ -154,15 +163,12 @@ fn main() {
             {
                 let handle = app.handle().clone();
                 let tray = tray.clone();
-                let start_item = start.clone();
-                let stop_item = stop.clone();
-                let menu_handle = menu.clone();
+                let toggle_item = toggle.clone();
                 std::thread::spawn(move || {
                     let mut last: Option<Vec<laralux_core::ServiceStatus>> = None;
                     let mut last_tray: Option<TrayState> = None;
-                    // Seed to the actual initial menu state: startup removed `stop`,
-                    // so the menu shows only Start All (= not-all-running). This makes
-                    // the first stopped-stack tick a no-op (no duplicate Start All).
+                    // Seed to the initial toggle label ("Start All" = not-all-running),
+                    // so the first stopped-stack tick is a no-op.
                     let mut last_all_running: Option<bool> = Some(false);
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -185,27 +191,16 @@ fn main() {
                             }
                             last_tray = Some(ts);
                         }
-                        // Tray shows only one of Start All / Stop All: all up → Stop All.
-                        // Tauri 2.11 MenuItem has no set_visible; we remove/insert instead.
+                        // Toggle label: all services up → "Stop All", else "Start All".
                         let all_running = !snap.is_empty()
                             && snap.iter().all(|s| s.state == laralux_core::ServiceState::Running);
                         if last_all_running != Some(all_running) {
-                            // The menu is a GTK object on Linux: mutating it from this
-                            // background thread corrupts it (the tray menu then renders
-                            // blank when next opened). Marshal the swap onto the main
-                            // thread. Position 0 is where Start/Stop sit in the original
-                            // MenuBuilder order; keep this in sync if the menu is reordered.
-                            let menu_m = menu_handle.clone();
-                            let start_m = start_item.clone();
-                            let stop_m = stop_item.clone();
+                            // Update the single toggle item's LABEL only — no structural
+                            // menu mutation (that blanks the AppIndicator menu). On the
+                            // main thread because it touches the GTK/menu object.
+                            let toggle_m = toggle_item.clone();
                             let _ = handle.run_on_main_thread(move || {
-                                if all_running {
-                                    let _ = menu_m.remove(&start_m);
-                                    let _ = menu_m.insert(&stop_m, 0);
-                                } else {
-                                    let _ = menu_m.remove(&stop_m);
-                                    let _ = menu_m.insert(&start_m, 0);
-                                }
+                                let _ = toggle_m.set_text(if all_running { "Stop All" } else { "Start All" });
                             });
                             last_all_running = Some(all_running);
                         }
