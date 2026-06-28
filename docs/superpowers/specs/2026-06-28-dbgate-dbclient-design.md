@@ -61,10 +61,20 @@ Self-contained: outside the Setup ManagedTool list and not bundled into "Install
   extractor — no FUSE) producing `install_dir/squashfs-root`; remove the downloaded AppImage. Returns
   the version.
 - `pub fn open_dbgate(paths) -> Result<(), DbgateError>`: `NotInstalled` if `!is_installed`; else spawn
-  `apprun_path` detached with the `APPDIR` env var set to `squashfs-root` and **no args**. DbGate's
-  AppRun auto-detects the AppDir using `$1` as a sentinel filename when `$APPDIR` is empty, so passing
-  any flag (e.g. `--no-sandbox`) breaks detection. DbGate runs unprivileged without needing
-  `--no-sandbox` (its `dbgate` binary rejects that flag — verified empirically on x86_64).
+  `apprun_path` detached with **no args** and a carefully-set env (DbGate's `dbgate` binary rejects CLI
+  flags — `--no-sandbox`/`--ozone-*` → "bad option" — so all tuning is via env):
+  - `APPDIR=squashfs-root` — AppRun auto-detects the AppDir using `$1` as a sentinel filename when
+    `$APPDIR` is empty; setting it + passing no args avoids that path.
+  - `ELECTRON_DISABLE_SANDBOX=1` — the extracted `chrome-sandbox` is not SUID root, so Electron aborts
+    ("SUID sandbox helper … not configured correctly") unless the sandbox is disabled. Standard for a
+    portable Electron app run unprivileged.
+  - `APPIMAGE_SILENT_INSTALL=1` — skips AppRun's first-run zenity EULA dialog (DbGate is GPL-3.0) so the
+    launch is non-interactive.
+  - remove `ELECTRON_RUN_AS_NODE` (and `VSCODE_ESM_ENTRYPOINT`) — when Laralux is launched from an
+    Electron-derived parent (e.g. the VSCode integrated terminal) these leak in and make DbGate run
+    headless as Node instead of opening a GUI window.
+  (All verified empirically on x86_64 Wayland: with this env, 4 stable Electron processes + a live
+  renderer; without `ELECTRON_DISABLE_SANDBOX` it aborts on the sandbox check.)
 - `#[derive(thiserror::Error)] pub enum DbgateError { Arch(String), Download(String), Extract(String), NotInstalled, Spawn(String), Io(#[from] std::io::Error) }`.
 - Exported from `lib.rs`: `ensure_dbgate, open_dbgate, DbgateError`.
 

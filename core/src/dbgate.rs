@@ -86,11 +86,22 @@ pub fn ensure_dbgate(
     Ok(DBGATE_VERSION.to_string())
 }
 
-/// Launch the extracted DbGate detached via its AppRun (with APPDIR set). DbGate's
-/// AppRun auto-detects the AppDir using `$1` as a sentinel filename when `$APPDIR`
-/// is empty, so passing a flag (e.g. `--no-sandbox`) breaks detection. We set
-/// `APPDIR` explicitly and pass NO args: DbGate runs unprivileged without needing
-/// `--no-sandbox` (its `dbgate` binary rejects that flag anyway).
+/// Launch the extracted DbGate detached via its AppRun. The launch environment is
+/// the load-bearing part here; DbGate's `dbgate` binary rejects CLI flags
+/// (`--no-sandbox` etc. → "bad option"), so everything is done via env vars:
+///
+/// - `APPDIR` = `squashfs-root`. AppRun auto-detects the AppDir using `$1` as a
+///   sentinel filename when `$APPDIR` is empty; we set it explicitly and pass no
+///   args so detection never runs.
+/// - `ELECTRON_DISABLE_SANDBOX=1`. The extracted `chrome-sandbox` is not SUID
+///   root, so Electron aborts ("SUID sandbox helper … not configured correctly")
+///   unless the sandbox is disabled — standard for a portable Electron app run
+///   unprivileged from `~/laralux`.
+/// - `APPIMAGE_SILENT_INSTALL=1`. Skips AppRun's first-run zenity EULA dialog
+///   (DbGate is GPL-3.0), so the launch is non-interactive.
+/// - remove `ELECTRON_RUN_AS_NODE`. When Laralux is started from an
+///   Electron-derived parent (e.g. the VSCode integrated terminal) this leaks in
+///   and makes DbGate run headless as Node instead of opening a GUI window.
 pub fn open_dbgate(paths: &LaraluxPaths) -> Result<(), DbgateError> {
     if !is_installed(paths) {
         return Err(DbgateError::NotInstalled);
@@ -98,6 +109,10 @@ pub fn open_dbgate(paths: &LaraluxPaths) -> Result<(), DbgateError> {
     let appdir = install_dir(paths).join("squashfs-root");
     std::process::Command::new(apprun_path(paths))
         .env("APPDIR", &appdir)
+        .env("ELECTRON_DISABLE_SANDBOX", "1")
+        .env("APPIMAGE_SILENT_INSTALL", "1")
+        .env_remove("ELECTRON_RUN_AS_NODE")
+        .env_remove("VSCODE_ESM_ENTRYPOINT")
         .spawn()
         .map_err(|e| DbgateError::Spawn(e.to_string()))?;
     Ok(())
