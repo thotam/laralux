@@ -55,6 +55,15 @@ impl Orchestrator {
             }
         }
 
+        // Clear any *managed* orphan left by a prior session (a non-graceful exit
+        // — e.g. a dev Ctrl+C — skips the stop-on-exit handler, leaving nginx etc.
+        // holding :80/:443/sockets). Reap excludes our tracked services, so it only
+        // kills leftovers. Doing this here (not only in start_all) covers EVERY
+        // start path — the per-service toggle and the nginx version swap reuse
+        // start(), and both previously skipped the reap, so an orphan would crash
+        // the fresh bind ("bind() … Address in use").
+        let _ = self.reap_orphans();
+
         let svc = self
             .find(kind)
             .ok_or_else(|| ServiceError::Config(format!("no such service: {kind:?}")))?;
@@ -240,9 +249,8 @@ impl Orchestrator {
     }
 
     pub fn start_all(&mut self) -> Result<(), ServiceError> {
-        // Clear orphans from a prior session before spawning, so the fresh
-        // stack does not collide with leftovers on ports/sockets/locks.
-        let _ = self.reap_orphans();
+        // Orphans from a prior session are reaped by `start()` itself (it runs on
+        // every start path), so each service clears leftovers before it spawns.
         for kind in self.start_order() {
             self.start(kind)?;
         }
@@ -345,6 +353,53 @@ mod tests {
 
         o.stop(ServiceKind::Redis).unwrap();
         assert_eq!(o.state(ServiceKind::Redis), ServiceState::Stopped);
+    }
+
+    /// `start()` reaps a managed orphan from a prior session (an executable under
+    /// `bin/` we don't track) before spawning, so a leftover never holds the
+    /// port/socket and crashes the fresh service. This is the regression guard
+    /// for the per-service / version-swap start paths, which reuse start().
+    #[test]
+    fn start_reaps_prior_session_orphan() {
+        let sleep = ["/bin/sleep", "/usr/bin/sleep"]
+            .iter()
+            .map(std::path::PathBuf::from)
+            .find(|p| p.exists());
+        let sleep = match sleep {
+            Some(s) => s,
+            None => return, // no `sleep` on this host; skip
+        };
+
+        let root = std::env::temp_dir().join(format!("lara-orch-orphan-{}", std::process::id()));
+        let bindir = root.join("bin").join("nginx").join("1.0.0");
+        std::fs::create_dir_all(&bindir).unwrap();
+        let exe = bindir.join("sleep");
+        std::fs::copy(&sleep, &exe).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        // A leftover "managed" process from a prior session, holding a resource.
+        let mut orphan = std::process::Command::new(&exe).arg("30").spawn().unwrap();
+
+        let services: Vec<Box<dyn Service>> =
+            vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
+        let mut o =
+            Orchestrator::new(LaraluxPaths::new(root.clone()), services, Box::new(FakeSpawner::new()));
+
+        // Starting any service reaps the untracked orphan before it spawns.
+        o.start(ServiceKind::Redis).unwrap();
+
+        // The orphan (our child) was signalled; reap waits until it is gone, so it
+        // is now a zombie we can reap with try_wait.
+        let status = orphan.try_wait().unwrap();
+        assert!(status.is_some(), "start() must reap the prior-session orphan");
+
+        let _ = orphan.kill();
+        let _ = orphan.wait();
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
