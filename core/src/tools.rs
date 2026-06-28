@@ -6,12 +6,13 @@ use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ManagedTool { Php, Nginx, Mariadb, Redis, Mailpit, Mkcert, Composer, Node }
+pub enum ManagedTool { Php, Nginx, Mariadb, Postgres, Redis, Mailpit, Mkcert, Composer, Node }
 
 impl ManagedTool {
-    pub const ALL: [ManagedTool; 8] = [
-        ManagedTool::Php, ManagedTool::Nginx, ManagedTool::Mariadb, ManagedTool::Redis,
-        ManagedTool::Mailpit, ManagedTool::Mkcert, ManagedTool::Composer, ManagedTool::Node,
+    pub const ALL: [ManagedTool; 9] = [
+        ManagedTool::Php, ManagedTool::Nginx, ManagedTool::Mariadb, ManagedTool::Postgres,
+        ManagedTool::Redis, ManagedTool::Mailpit, ManagedTool::Mkcert, ManagedTool::Composer,
+        ManagedTool::Node,
     ];
 }
 
@@ -38,6 +39,7 @@ pub fn info(tool: ManagedTool) -> ToolInfo {
         Php => ToolInfo { key: "php", display: "PHP", cli_binaries: &["php"], service_kind: Some(ServiceKind::PhpFpm) },
         Nginx => ToolInfo { key: "nginx", display: "Nginx", cli_binaries: &["nginx"], service_kind: Some(ServiceKind::Nginx) },
         Mariadb => ToolInfo { key: "mariadb", display: "MariaDB", cli_binaries: &["mariadb", "mysql"], service_kind: Some(ServiceKind::Mariadb) },
+        Postgres => ToolInfo { key: "postgres", display: "PostgreSQL", cli_binaries: &["psql", "pg_dump", "pg_restore", "createdb", "dropdb"], service_kind: Some(ServiceKind::Postgres) },
         Redis => ToolInfo { key: "redis", display: "Redis", cli_binaries: &["redis-cli"], service_kind: Some(ServiceKind::Redis) },
         Mailpit => ToolInfo { key: "mailpit", display: "Mailpit", cli_binaries: &[], service_kind: Some(ServiceKind::Mailpit) },
         Mkcert => ToolInfo { key: "mkcert", display: "mkcert", cli_binaries: &["mkcert"], service_kind: None },
@@ -119,6 +121,11 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             crate::layout::installed_versions(paths, "mariadb"),
             &cfg.versions.get("mariadb").cloned().unwrap_or_default(),
         ),
+        ManagedTool::Postgres => known_catalog(
+            &crate::postgres_static::KNOWN_POSTGRES_VERSIONS,
+            crate::layout::installed_versions(paths, "postgres"),
+            &cfg.versions.get("postgres").cloned().unwrap_or_default(),
+        ),
         ManagedTool::Redis => known_catalog(
             &crate::redis_static::KNOWN_REDIS_VERSIONS,
             crate::layout::installed_versions(paths, "redis"),
@@ -162,6 +169,8 @@ pub fn install_version(
         ManagedTool::Nginx => crate::nginx_static::install_nginx_version(paths, version, downloader, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Mariadb => crate::mariadb_static::install_mariadb_version(paths, version, downloader, runner, sink)
+            .map_err(|e| ToolError::Install(e.to_string())),
+        ManagedTool::Postgres => crate::postgres_static::install_postgres_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Redis => crate::redis_static::install_redis_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
@@ -297,5 +306,14 @@ mod tests {
         assert!(!vs.iter().find(|v| v.version == "18.20.8").unwrap().installed);
         assert_eq!(vs[0].version, "24.18.0"); // newest first
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn postgres_tool_info_and_versions() {
+        assert_eq!(key(ManagedTool::Postgres), "postgres");
+        assert_eq!(info(ManagedTool::Postgres).service_kind, Some(ServiceKind::Postgres));
+        let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-pgtool-{}", std::process::id())));
+        let vs = available_versions(ManagedTool::Postgres, &paths);
+        assert_eq!(vs.len(), crate::postgres_static::KNOWN_POSTGRES_VERSIONS.len());
     }
 }

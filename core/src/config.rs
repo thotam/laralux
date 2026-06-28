@@ -19,11 +19,13 @@ pub struct ServicesConfig {
     pub mariadb: bool,
     pub redis: bool,
     pub mailpit: bool,
+    #[serde(default)]
+    pub postgres: bool,
 }
 
 impl Default for ServicesConfig {
     fn default() -> Self {
-        Self { nginx: true, php: true, mariadb: true, redis: true, mailpit: true }
+        Self { nginx: true, php: true, mariadb: true, redis: true, mailpit: true, postgres: false }
     }
 }
 
