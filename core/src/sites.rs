@@ -1,6 +1,61 @@
 use crate::paths::LaraluxPaths;
 use std::path::PathBuf;
 
+#[derive(Debug, thiserror::Error)]
+pub enum SiteFsError {
+    #[error("invalid site name: {0}")]
+    InvalidName(String),
+    #[error("site folder not found: {0}")]
+    NotFound(String),
+    #[error("destination already exists: {0}")]
+    AlreadyExists(String),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// True iff `name` is safe to treat as a direct child folder of `www`: non-empty,
+/// not `.`/`..`, free of path separators, and not already hidden (leading `.`).
+pub fn valid_scanned_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.starts_with('.')
+        && !name.contains('/')
+        && !name.contains('\\')
+}
+
+/// Hide a scanned site by renaming `www/<name>` → `www/.<name>`. `scan_sites`
+/// skips dot-prefixed dirs, so the site vanishes from the list / hosts / nginx
+/// after a re-sync while all files are kept. Reversible by renaming back.
+pub fn hide_scanned_site(paths: &LaraluxPaths, name: &str) -> Result<(), SiteFsError> {
+    if !valid_scanned_name(name) {
+        return Err(SiteFsError::InvalidName(name.to_string()));
+    }
+    let src = paths.www().join(name);
+    if !src.is_dir() {
+        return Err(SiteFsError::NotFound(name.to_string()));
+    }
+    let dst = paths.www().join(format!(".{name}"));
+    if dst.exists() {
+        return Err(SiteFsError::AlreadyExists(format!(".{name}")));
+    }
+    std::fs::rename(&src, &dst)?;
+    Ok(())
+}
+
+/// Permanently delete a scanned site's folder `www/<name>`.
+pub fn delete_scanned_site(paths: &LaraluxPaths, name: &str) -> Result<(), SiteFsError> {
+    if !valid_scanned_name(name) {
+        return Err(SiteFsError::InvalidName(name.to_string()));
+    }
+    let dir = paths.www().join(name);
+    if !dir.is_dir() {
+        return Err(SiteFsError::NotFound(name.to_string()));
+    }
+    std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
 /// Where a site came from: the `www/` scan, or the explicit registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum SiteSource {
@@ -527,5 +582,54 @@ mod tests {
         let conf = site.vhost_config(&paths, std::path::Path::new("/x/php.sock"),
             std::path::Path::new("/x/c.pem"), std::path::Path::new("/x/k.pem"));
         assert!(conf.contains("server_name demo.dev *.demo.dev;"));
+    }
+
+    #[test]
+    fn valid_scanned_name_accepts_plain_rejects_unsafe() {
+        assert!(valid_scanned_name("myapp"));
+        assert!(valid_scanned_name("my-app_2"));
+        assert!(!valid_scanned_name(""));
+        assert!(!valid_scanned_name("."));
+        assert!(!valid_scanned_name(".."));
+        assert!(!valid_scanned_name(".hidden"));
+        assert!(!valid_scanned_name("a/b"));
+        assert!(!valid_scanned_name("a\\b"));
+    }
+
+    #[test]
+    fn hide_scanned_site_renames_to_dot_prefix() {
+        let root = std::env::temp_dir().join(format!("lara-hide-{}", std::process::id()));
+        let paths = LaraluxPaths::new(root.clone());
+        std::fs::create_dir_all(paths.www().join("foo")).unwrap();
+
+        hide_scanned_site(&paths, "foo").unwrap();
+        assert!(!paths.www().join("foo").exists());
+        assert!(paths.www().join(".foo").is_dir());
+
+        // NotFound when the source dir is absent.
+        assert!(matches!(hide_scanned_site(&paths, "missing"), Err(SiteFsError::NotFound(_))));
+        // InvalidName for a traversing name.
+        assert!(matches!(hide_scanned_site(&paths, "../x"), Err(SiteFsError::InvalidName(_))));
+        // AlreadyExists when the dot-target is taken.
+        std::fs::create_dir_all(paths.www().join("bar")).unwrap();
+        std::fs::create_dir_all(paths.www().join(".bar")).unwrap();
+        assert!(matches!(hide_scanned_site(&paths, "bar"), Err(SiteFsError::AlreadyExists(_))));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn delete_scanned_site_removes_folder() {
+        let root = std::env::temp_dir().join(format!("lara-del-{}", std::process::id()));
+        let paths = LaraluxPaths::new(root.clone());
+        std::fs::create_dir_all(paths.www().join("foo").join("public")).unwrap();
+
+        delete_scanned_site(&paths, "foo").unwrap();
+        assert!(!paths.www().join("foo").exists());
+
+        assert!(matches!(delete_scanned_site(&paths, "missing"), Err(SiteFsError::NotFound(_))));
+        assert!(matches!(delete_scanned_site(&paths, ".."), Err(SiteFsError::InvalidName(_))));
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

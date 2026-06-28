@@ -46,7 +46,10 @@ pub use process::RealSpawner;
 pub use service::registry::build_services;
 pub use service::{ServiceKind, ServiceState};
 pub use privileged::{PkexecPrivileged, Privileged, SudoPrivileged};
-pub use sites::{list_all_sites, scan_sites, ProxySpec, Site, SiteSource};
+pub use sites::{
+    delete_scanned_site, hide_scanned_site, list_all_sites, scan_sites, valid_scanned_name,
+    ProxySpec, Site, SiteFsError, SiteSource,
+};
 pub use site_registry::{
     validate_domain, ProxyRoute, ProxySite, RegisteredSite, RegistryError, SiteDomains, SiteRegistry,
 };
