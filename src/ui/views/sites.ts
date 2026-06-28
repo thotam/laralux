@@ -4,7 +4,7 @@ import { esc, validName } from "../util";
 import { I } from "../icons";
 import { toast } from "../toast";
 import {
-  createSite, listSites, linkSite, unlinkSite,
+  createSite, listSites, linkSite,
   addProxy, updateProxy, setSiteDomains, openTerminalAt, openFolderAt,
 } from "../../ipc/commands";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -64,10 +64,7 @@ export function sitesView(): string {
             '<button class="row-menu-item" data-action="copy-site" data-name="' + esc(s.name) + '">' + I.copy + "Copy URL</button>" +
             '<button class="row-menu-item" data-action="edit-domains" data-name="' + esc(s.name) + '">Domains</button>' +
             (isProxy ? '<button class="row-menu-item" data-action="edit-proxy" data-name="' + esc(s.name) + '">Edit proxy</button>' : "") +
-            ((isProxy || isLinked)
-              ? '<button class="row-menu-item danger" data-action="remove-site" data-name="' + esc(s.name) + '">' +
-                (state.confirmRemove === s.name ? "Confirm remove?" : "Remove") + "</button>"
-              : "");
+            '<button class="row-menu-item danger" data-action="delete-site" data-name="' + esc(s.name) + '">Delete</button>';
           const menu = state.rowMenu === s.name ? '<div class="row-menu">' + menuItems + "</div>" : "";
 
           const actions =
@@ -279,17 +276,49 @@ export async function submitDomains(): Promise<void> {
   }
 }
 
-export async function removeSite(name: string): Promise<void> {
-  if (state.confirmRemove !== name) { state.confirmRemove = name; render(); return; }
-  state.confirmRemove = null;
+export function openDeleteSite(name: string): void {
+  const s = state.sites.find((x) => x.name === name);
+  if (!s) return;
+  state.deleteSite = {
+    name: s.name,
+    source: s.source as "Scanned" | "Linked" | "Proxy",
+    root: s.root,
+    url: "https://" + s.hostname,
+    busy: false,
+    error: "",
+  };
+  state.rowMenu = null;
+  state.modal = "deletesite";
+  render();
+}
+
+export function closeDeleteSite(): void {
+  if (state.deleteSite && state.deleteSite.busy) return;
+  state.modal = null;
+  state.deleteSite = null;
+  render();
+}
+
+export async function runDeleteAction(fn: (name: string) => Promise<void>): Promise<void> {
+  const d = state.deleteSite;
+  if (!d || d.busy) return;
+  d.busy = true;
+  d.error = "";
+  render();
   try {
-    await unlinkSite(name);
-    toast({ type: "success", title: "Removed " + name });
+    await fn(d.name);
+    toast({ type: "success", title: "Deleted " + d.name });
     const sites = await listSites();
     state.sites = Array.isArray(sites) ? sites : [];
+    state.modal = null;
+    state.deleteSite = null;
     render();
   } catch (e) {
-    toast({ type: "error", title: "Remove failed", msg: String(e) });
+    if (state.deleteSite) {
+      state.deleteSite.busy = false;
+      state.deleteSite.error = String(e);
+    }
+    toast({ type: "error", title: "Delete failed", msg: String(e) });
     render();
   }
 }

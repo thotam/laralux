@@ -76,6 +76,14 @@ export const linkSite = (name: string, root: string): Promise<Site> =>
 export const unlinkSite = (name: string): Promise<void> =>
   invoke<void>("unlink_site", { name });
 
+/** Hide a scanned site (rename its www folder to `.<name>`). */
+export const hideSite = (name: string): Promise<void> =>
+  invoke<void>("hide_site", { name });
+
+/** Permanently delete a scanned site's www folder. */
+export const deleteSiteFolder = (name: string): Promise<void> =>
+  invoke<void>("delete_site_folder", { name });
+
 /**
  * Add a reverse proxy site.
  * Arg keys: `name`, `routes`, `websocket` — verified: main.ts

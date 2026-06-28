@@ -95,11 +95,18 @@ export interface AppState {
    * "domains"    — Edit Domains modal
    * ToolModalState — Tool detail modal (open: true)
    */
-  modal: null | "newsite" | "linksite" | "proxy" | "domains" | ToolModalState;
+  modal: null | "newsite" | "linksite" | "proxy" | "domains" | "deletesite" | ToolModalState;
   toolSymlinks: string[];
   newSite: NewSiteState;
   linkSite: LinkSiteState;
-  confirmRemove: string | null;
+  deleteSite: null | {
+    name: string;
+    source: "Scanned" | "Linked" | "Proxy";
+    root: string;
+    url: string;
+    busy: boolean;
+    error: string;
+  };
   rowMenu: string | null;
   proxy: ProxyState;
   siteDomains: SiteDomainsState;
@@ -129,7 +136,7 @@ export const state: AppState = {
   toolSymlinks: [],
   newSite: { name: "", template: "Blank", busy: false, error: "" },
   linkSite: { root: "", name: "", busy: false, error: "" },
-  confirmRemove: null,
+  deleteSite: null,
   rowMenu: null,
   proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
   siteDomains: { name: "", domains: [""], busy: false, error: "" },

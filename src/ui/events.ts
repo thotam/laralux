@@ -10,7 +10,7 @@ import {
   openLinkSite, closeLinkSite, browseFolder, submitLinkSite,
   openProxy, closeProxy, addProxyRoute, delProxyRoute, submitProxy,
   openDomains, closeDomains, addDomainRow, delDomainRow, submitDomains,
-  removeSite, copySite, openTerminal, openFolder, openExternal,
+  openDeleteSite, closeDeleteSite, runDeleteAction, copySite, openTerminal, openFolder, openExternal,
 } from "./views/sites";
 import { runSetup } from "./views/setup";
 import { toggleDark } from "./views/settings";
@@ -19,6 +19,7 @@ import {
   toggleToolSymlink, applyPhpIni,
 } from "./modals/tool";
 import { dismiss } from "./toast";
+import { hideSite, deleteSiteFolder, unlinkSite } from "../ipc/commands";
 
 /** Narrow state.modal to ToolModalState (object with open: true). */
 function isToolModal(m: typeof state.modal): m is ToolModalState {
@@ -27,7 +28,6 @@ function isToolModal(m: typeof state.modal): m is ToolModalState {
 
 function setView(v: string): void {
   state.view = v;
-  state.confirmRemove = null;
   state.rowMenu = null;
   render();
 }
@@ -42,7 +42,7 @@ export function bindEvents(): void {
 
     // Dismiss the row kebab menu on any click except its own toggle or the
     // remove two-step. Covers outside clicks, quick buttons, and menu items.
-    if (state.rowMenu && a !== "row-menu" && a !== "remove-site") {
+    if (state.rowMenu && a !== "row-menu" && a !== "delete-site") {
       state.rowMenu = null;
       render();
       if (!el) return;
@@ -92,7 +92,12 @@ export function bindEvents(): void {
       if (e.target === el) closeNewSite();
     }
     else if (a === "link-site") openLinkSite();
-    else if (a === "remove-site") removeSite(el.getAttribute("data-name")!);
+    else if (a === "delete-site") openDeleteSite(el.getAttribute("data-name")!);
+    else if (a === "ds-close") closeDeleteSite();
+    else if (a === "ds-hide") runDeleteAction(hideSite);
+    else if (a === "ds-delete") runDeleteAction(deleteSiteFolder);
+    else if (a === "ds-remove") runDeleteAction(unlinkSite);
+    else if (a === "ds-overlay-click") { if (e.target === el) closeDeleteSite(); }
     else if (a === "ls-close") closeLinkSite();
     else if (a === "ls-submit") submitLinkSite();
     else if (a === "ls-browse") browseFolder();
@@ -196,12 +201,13 @@ export function bindEvents(): void {
     else if (e.key === "Escape" && state.modal === "proxy") closeProxy();
     else if (e.key === "Escape" && state.modal === "domains") closeDomains();
     else if (e.key === "Escape" && isToolModal(state.modal)) closeTool();
+    else if (e.key === "Escape" && state.modal === "deletesite") closeDeleteSite();
     else if (e.key === "Escape" && state.rowMenu) { state.rowMenu = null; render(); }
   });
 
   // ---- focus-trap inside modal ----
   app.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite" && state.modal !== "proxy" && state.modal !== "domains")) return;
+    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite" && state.modal !== "proxy" && state.modal !== "domains" && state.modal !== "deletesite")) return;
     const card = document.querySelector(".ns-card");
     if (!card) return;
     const focusable = Array.from(card.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'));

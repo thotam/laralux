@@ -430,3 +430,7 @@ button:disabled { cursor:not-allowed; }
 .row-menu-item:hover { background: var(--surface-2, rgba(127,127,127,.12)); }
 .row-menu-item.danger { color: var(--danger, #dc2626); }
 .row-menu-item svg { width: 15px; height: 15px; flex: none; }
+.ds-url { font-size: 13px; color: var(--text-muted); margin: 2px 0 6px; }
+.ds-root { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px; }
+.btn-danger { background: var(--danger, #dc2626); color: #fff; border: none; }
+.btn-danger:hover { filter: brightness(0.95); }
