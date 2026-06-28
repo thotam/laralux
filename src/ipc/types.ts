@@ -28,7 +28,7 @@ export interface ServicesFlags {
  * ServiceKind variants from core/src/service/mod.rs.
  */
 export interface ServiceStatus {
-  kind: "Nginx" | "PhpFpm" | "Mariadb" | "Redis" | "Mailpit" | "Coredns";
+  kind: "Nginx" | "PhpFpm" | "Mariadb" | "Postgres" | "Redis" | "Mailpit" | "Coredns";
   state: ServiceState;
 }
 
