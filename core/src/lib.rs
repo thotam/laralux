@@ -70,7 +70,7 @@ pub use mkcert_static::{install_mkcert, MkcertError};
 pub use nginx_static::{install_nginx, NginxError};
 pub use redis_static::{install_redis, RedisError};
 pub use mariadb_static::{install_mariadb, MariadbError};
-pub use postgres_static::{install_postgres, PostgresError};
+pub use postgres_static::{install_postgres, install_postgres_version, PostgresError};
 pub use node_static::{install_node, NodeError};
 pub use certutil_static::{install_certutil, mkcert_install_nss, CertutilError};
 pub use orphans::reap as reap_orphans;
