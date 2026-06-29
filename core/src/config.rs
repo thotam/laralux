@@ -44,6 +44,8 @@ pub struct Config {
     #[serde(default)]
     pub symlinks: BTreeSet<String>,
     #[serde(default)]
+    pub proc_autostart: BTreeSet<String>,
+    #[serde(default)]
     pub php_ini: crate::php_ini::PhpIniSettings,
 }
 
@@ -56,7 +58,7 @@ fn default_php() -> String {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), versions: BTreeMap::new(), symlinks: BTreeSet::new(), php_ini: crate::php_ini::PhpIniSettings::default() }
+        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), versions: BTreeMap::new(), symlinks: BTreeSet::new(), proc_autostart: BTreeSet::new(), php_ini: crate::php_ini::PhpIniSettings::default() }
     }
 }
 
@@ -165,6 +167,19 @@ mod tests {
         // missing `symlinks` defaults to empty.
         let c: Config = toml::from_str("tld = \"dev\"\nphp_version = \"8.4\"\nshell_integration = true\n").unwrap();
         assert!(c.symlinks.is_empty());
+    }
+
+    #[test]
+    fn proc_autostart_defaults_empty_and_roundtrips() {
+        let mut c = Config::default();
+        assert!(c.proc_autostart.is_empty());
+        c.proc_autostart.insert("blog".to_string());
+        let toml = toml::to_string(&c).unwrap();
+        let back: Config = toml::from_str(&toml).unwrap();
+        assert!(back.proc_autostart.contains("blog"));
+        // old config without the field still loads
+        let old: Config = toml::from_str("tld = \"dev\"\nphp_version = \"8.4\"\n").unwrap();
+        assert!(old.proc_autostart.is_empty());
     }
 
     #[test]
