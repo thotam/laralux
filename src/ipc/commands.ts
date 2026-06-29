@@ -208,28 +208,28 @@ export const setToolSymlink = (
 // ---- site procs -------------------------------------------------------------
 
 export const siteProcs = (name: string, root: string): Promise<SiteProcsView> =>
-  invoke("site_procs", { name, root });
+  invoke<SiteProcsView>("site_procs", { name, root });
 
 export const startSiteProc = (name: string, root: string, proc: string): Promise<SiteProcsView> =>
-  invoke("start_site_proc", { name, root, proc });
+  invoke<SiteProcsView>("start_site_proc", { name, root, proc });
 
 export const stopSiteProc = (name: string, root: string, proc: string): Promise<SiteProcsView> =>
-  invoke("stop_site_proc", { name, root, proc });
+  invoke<SiteProcsView>("stop_site_proc", { name, root, proc });
 
 export const startSiteProcs = (name: string, root: string): Promise<SiteProcsView> =>
-  invoke("start_site_procs", { name, root });
+  invoke<SiteProcsView>("start_site_procs", { name, root });
 
 export const stopSiteProcs = (name: string, root: string): Promise<SiteProcsView> =>
-  invoke("stop_site_procs", { name, root });
+  invoke<SiteProcsView>("stop_site_procs", { name, root });
 
 export const setSiteAutostart = (name: string, enabled: boolean): Promise<boolean> =>
-  invoke("set_site_autostart", { name, enabled });
+  invoke<boolean>("set_site_autostart", { name, enabled });
 
 export const siteProcLogPath = (name: string, proc: string): Promise<string> =>
-  invoke("site_proc_log_path", { name, proc });
+  invoke<string>("site_proc_log_path", { name, proc });
 
 export const siteProcCounts = (): Promise<Record<string, number>> =>
-  invoke("site_proc_counts", {});
+  invoke<Record<string, number>>("site_proc_counts", {});
 
 // ---- php.ini ----------------------------------------------------------------
 
