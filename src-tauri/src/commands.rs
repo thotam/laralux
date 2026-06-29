@@ -136,6 +136,7 @@ pub fn set_service_enabled(
         ServiceKind::PhpFpm => config.services.php = enabled,
         ServiceKind::Mariadb => config.services.mariadb = enabled,
         ServiceKind::Postgres => config.services.postgres = enabled,
+        ServiceKind::Mongodb => config.services.mongodb = enabled,
         ServiceKind::Redis => config.services.redis = enabled,
         ServiceKind::Mailpit => config.services.mailpit = enabled,
         ServiceKind::Coredns => return Err("coredns is managed automatically".into()),
