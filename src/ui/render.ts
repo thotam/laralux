@@ -19,7 +19,7 @@ import { proxyModal } from "./modals/proxy";
 import { domainsModal } from "./modals/domains";
 import { deleteSiteModal } from "./modals/deletesite";
 import { procsModal } from "./modals/procs";
-import { stackStatus, listSites, setupStatus, serviceFlags } from "../ipc/commands";
+import { stackStatus, listSites, setupStatus, serviceFlags, launchConfig } from "../ipc/commands";
 
 // ---- shared helpers (single copy) ----
 
@@ -244,6 +244,15 @@ export async function loadServiceFlags(): Promise<void> {
     if (f && typeof f === "object") {
       state.serviceFlags = f as unknown as Record<string, boolean>;
     }
+  } catch {
+    /* keep defaults */
+  }
+}
+
+export async function loadLaunchConfig(): Promise<void> {
+  try {
+    const c = await launchConfig();
+    if (c && typeof c === "object") state.launch = c;
   } catch {
     /* keep defaults */
   }

@@ -1,7 +1,8 @@
 import { state } from "../../state";
 import { render } from "../render";
 import { SVC_ORDER, DISP, FLAG_KEY } from "../constants";
-import { setServiceEnabled, serviceFlags } from "../../ipc/commands";
+import { setServiceEnabled, serviceFlags, setLaunchOption } from "../../ipc/commands";
+import { toast } from "../toast";
 
 export function settingsView(): string {
   return (
@@ -14,8 +15,9 @@ export function settingsView(): string {
     '<code class="code-chip">.dev</code></div>' +
     '<div class="set-row"><div class="grow"><div class="t">Sites directory</div><div class="h">Where projects are scanned</div></div>' +
     '<code class="code-chip">~/laralux/www</code></div>' +
-    '<div class="set-row"><div class="grow"><div class="t">Start on login</div><div class="h">Autostart in system tray — coming soon</div></div>' +
-    '<span class="toggle-off"><span class="knob"></span></span></div>' +
+    launchRow("start_on_login", "Start on login", "Launch Laralux when you log in") +
+    launchRow("start_minimized", "Start minimized to tray", "Launch hidden — open from the tray icon") +
+    launchRow("autostart_services", "Auto-start services on launch", "Start the stack automatically when the app opens") +
     '<div class="set-row"><div class="grow"><div class="t">Services</div><div class="h">Enable/disable services in the stack</div></div></div>' +
     SVC_ORDER.map((k) => {
       const on = !!state.serviceFlags[FLAG_KEY[k]];
@@ -32,6 +34,26 @@ export function settingsView(): string {
 export function toggleDark(): void {
   state.dark = !state.dark;
   localStorage.setItem("laralux-theme", state.dark ? "dark" : "light");
+  render();
+}
+
+function launchRow(key: string, title: string, hint: string): string {
+  const on = !!(state.launch as unknown as Record<string, boolean>)[key];
+  return '<div class="set-row"><div class="grow"><div class="t">' + title + '</div><div class="h">' + hint + "</div></div>" +
+    '<button class="' + (on ? "toggle-on" : "toggle-off") + '" data-action="launch-option" data-key="' + key + '" aria-pressed="' + on + '"><span class="knob"></span></button></div>';
+}
+
+export async function toggleLaunchOption(key: string): Promise<void> {
+  const cur = state.launch as unknown as Record<string, boolean>;
+  const next = !cur[key];
+  state.launch = { ...state.launch, [key]: next };
+  render();
+  try {
+    state.launch = await setLaunchOption(key, next);
+  } catch (e) {
+    state.launch = { ...state.launch, [key]: !next };
+    toast({ type: "error", title: "Couldn't change launch setting", msg: String(e) });
+  }
   render();
 }
 

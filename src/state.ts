@@ -1,5 +1,5 @@
 import { COMP_ORDER } from "./ui/constants";
-import type { Site, ServiceState, ToolVersion, ComponentStatus, SetupReport, PhpIniSettings, ProxyRoute, SiteProcsView } from "./ipc/types";
+import type { Site, ServiceState, ToolVersion, ComponentStatus, SetupReport, PhpIniSettings, ProxyRoute, SiteProcsView, LaunchConfig } from "./ipc/types";
 
 // ---- Toast ------------------------------------------------------------------
 
@@ -81,6 +81,7 @@ export interface AppState {
   /** Keyed by ServiceKind string (e.g. "Nginx", "PhpFpm", …) */
   services: Record<string, ServiceState>;
   serviceFlags: Record<string, boolean>;
+  launch: LaunchConfig;
   sites: Site[];
   setup: SetupState;
   pkexecMsg: string | null;
@@ -130,6 +131,7 @@ export const state: AppState = {
   compact: false,
   services: { Nginx: "Stopped", PhpFpm: "Stopped", Mariadb: "Stopped", Postgres: "Stopped", Mongodb: "Stopped", Redis: "Stopped", Mailpit: "Stopped" },
   serviceFlags: { nginx: true, php: true, mariadb: true, redis: true, mailpit: true, postgres: false, mongodb: false },
+  launch: { start_on_login: false, start_minimized: false, autostart_services: false },
   sites: [],
   setup: { phase: "idle", report: null, components: COMP_ORDER.map((c) => ({ component: c, present: false })) },
   pkexecMsg: null,

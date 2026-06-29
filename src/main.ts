@@ -1,6 +1,6 @@
 import "./styles.css";
 import { state } from "./state";
-import { render, refresh, applyServices, applyProgress, updateRing, loadServiceFlags } from "./ui/render";
+import { render, refresh, applyServices, applyProgress, updateRing, loadServiceFlags, loadLaunchConfig } from "./ui/render";
 import { onServicesChanged, onSitesChanged, onDownloadProgress, onSiteProcsChanged } from "./ipc/events";
 import { listSites, siteProcCounts } from "./ipc/commands";
 import { refreshProcs } from "./ui/modals/procs";
@@ -48,6 +48,7 @@ onSiteProcsChanged(() => { refreshProcs(); });
 
 (async () => {
   await loadServiceFlags();
+  await loadLaunchConfig();
   render();
   refresh();
   loadProcCounts();

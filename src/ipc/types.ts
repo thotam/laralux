@@ -20,6 +20,12 @@ export interface ServicesFlags {
   nginx: boolean; php: boolean; mariadb: boolean; redis: boolean; mailpit: boolean; postgres: boolean; mongodb: boolean;
 }
 
+export interface LaunchConfig {
+  start_on_login: boolean;
+  start_minimized: boolean;
+  autostart_services: boolean;
+}
+
 /**
  * ServiceStatus — mirrors core/src/orchestrator.rs `ServiceStatus` + ServiceKind.
  * Serializes as { kind: "Nginx" | "PhpFpm" | ..., state: ServiceState }.

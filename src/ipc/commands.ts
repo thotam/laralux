@@ -21,6 +21,7 @@ import type {
   SetDomainsResult,
   ServicesFlags,
   SiteProcsView,
+  LaunchConfig,
 } from "./types";
 
 // ---- stack / services -------------------------------------------------------
@@ -57,6 +58,11 @@ export const serviceFlags = (): Promise<ServicesFlags> => invoke<ServicesFlags>(
 /** Enable/disable a service by ServiceKind ("Nginx" | "PhpFpm" | ... | "Postgres"). */
 export const setServiceEnabled = (kind: string, enabled: boolean): Promise<unknown> =>
   invoke("set_service_enabled", { kind, enabled });
+
+export const launchConfig = (): Promise<LaunchConfig> => invoke<LaunchConfig>("launch_config");
+
+export const setLaunchOption = (key: string, enabled: boolean): Promise<LaunchConfig> =>
+  invoke<LaunchConfig>("set_launch_option", { key, enabled });
 
 // ---- sites ------------------------------------------------------------------
 

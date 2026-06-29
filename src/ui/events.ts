@@ -13,7 +13,7 @@ import {
   openDeleteSite, closeDeleteSite, runDeleteAction, copySite, openTerminal, openFolder, openExternal,
 } from "./views/sites";
 import { runSetup } from "./views/setup";
-import { toggleDark, toggleServiceEnabled } from "./views/settings";
+import { toggleDark, toggleServiceEnabled, toggleLaunchOption } from "./views/settings";
 import {
   openTool, closeTool, useToolVersion, installToolVersion,
   toggleToolSymlink, applyPhpIni,
@@ -53,6 +53,7 @@ export function bindEvents(): void {
     if (a === "nav") setView(el.getAttribute("data-view")!);
     else if (a === "toggle-dark") toggleDark();
     else if (a === "svc-enable") toggleServiceEnabled(el.getAttribute("data-kind")!);
+    else if (a === "launch-option") toggleLaunchOption(el.getAttribute("data-key")!);
     else if (a === "start-all") startAll();
     else if (a === "stop-all") stopAll();
     else if (a === "run-setup") runSetup();
