@@ -8,6 +8,7 @@ pub enum ServiceKind {
     PhpFpm,
     Mariadb,
     Postgres,
+    Mongodb,
     Redis,
     Mailpit,
     Coredns,
@@ -132,6 +133,7 @@ pub fn probe_tcp(port: u16) -> Result<(), ServiceError> {
 pub mod coredns;
 pub mod mailpit;
 pub mod mariadb;
+pub mod mongodb;
 pub mod nginx;
 pub mod php_fpm;
 pub mod postgres;
