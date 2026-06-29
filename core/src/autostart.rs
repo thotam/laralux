@@ -25,7 +25,7 @@ fn entry_contents(exec_path: &Path) -> String {
          Type=Application\n\
          Name=Laralux\n\
          Exec={}\n\
-         Icon=laralux\n\
+         Icon=com.laralux.linux\n\
          Terminal=false\n\
          X-GNOME-Autostart-enabled=true\n\
          Comment=Local web-development environment manager\n",
@@ -84,6 +84,7 @@ mod tests {
         assert!(body.contains("Exec=/usr/bin/laralux"));
         assert!(body.contains("Name=Laralux"));
         assert!(body.contains("Type=Application"));
+        assert!(body.contains("Icon=com.laralux.linux"));
         // remove, then remove again — both succeed
         remove_entry(&path).unwrap();
         assert!(!path.exists());

@@ -2,7 +2,8 @@
 Name=Laralux
 Comment=Local web-development environment manager
 Exec=laralux
-Icon=laralux
+Icon=com.laralux.linux
 Terminal=false
 Type=Application
+StartupWMClass=com.laralux.linux
 Categories=Development;WebDevelopment;
