@@ -82,6 +82,8 @@ fn main() {
             commands::set_site_autostart,
             commands::site_proc_log_path,
             commands::site_proc_counts,
+            commands::launch_config,
+            commands::set_launch_option,
         ])
         .setup(|app| {
             // One menu item whose LABEL toggles between Start All / Stop All so the

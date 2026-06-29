@@ -1,9 +1,10 @@
 use laralux_core::{
-    build_services, create_site as core_create_site, detect_components, ensure_coredns,
-    ensure_nginx_bind_cap, list_all_sites, read_procfile, resolved_dropin, run_setup, sync_sites,
-    Config, CreateReport, LaraluxPaths, MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged,
-    ProxyRoute, ProcStatus, RealCommandRunner, RealSpawner, ServiceKind, ServiceState,
-    ServiceStatus, Site, SiteProcs, SiteRegistry, SiteTemplate,
+    build_services, create_site as core_create_site, detect_components, disable_autostart,
+    enable_autostart, ensure_coredns, ensure_nginx_bind_cap, list_all_sites, read_procfile,
+    resolved_dropin, run_setup, sync_sites, Config, CreateReport, LaraluxPaths, LaunchConfig,
+    MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged, ProxyRoute, ProcStatus,
+    RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site, SiteProcs,
+    SiteRegistry, SiteTemplate,
 };
 use laralux_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laralux_core::service::php_fpm::PhpFpmService;
@@ -877,4 +878,37 @@ pub fn site_proc_counts(state: tauri::State<AppState>) -> Result<std::collection
         }
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub fn launch_config(state: tauri::State<AppState>) -> Result<LaunchConfig, String> {
+    let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    Ok(config.launch)
+}
+
+/// Persist a launch flag; for `start_on_login` also write/remove the XDG
+/// autostart entry (pointing at the running executable). Returns the new config.
+#[tauri::command]
+pub fn set_launch_option(
+    state: tauri::State<AppState>,
+    key: String,
+    enabled: bool,
+) -> Result<LaunchConfig, String> {
+    let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    match key.as_str() {
+        "start_on_login" => config.launch.start_on_login = enabled,
+        "start_minimized" => config.launch.start_minimized = enabled,
+        "autostart_services" => config.launch.autostart_services = enabled,
+        _ => return Err(format!("unknown launch option: {key}")),
+    }
+    config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
+    if key == "start_on_login" {
+        if enabled {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            enable_autostart(&exe).map_err(|e| e.to_string())?;
+        } else {
+            disable_autostart().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(config.launch)
 }
