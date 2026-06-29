@@ -1,3 +1,12 @@
+laralux (0.3.0-1) UNRELEASED; urgency=medium
+
+  * Enforce single instance: opening the app while running focuses the
+    existing window instead of spawning a duplicate.
+  * App icon ships at standard sizes (32/128/256/512) so it resolves in
+    the dock/taskbar (was a single non-standard 671x671 size).
+
+ -- thotam <thanhtamtotaa@gmail.com>  Mon, 29 Jun 2026 16:04:10 +0700
+
 laralux (0.2.0-1) UNRELEASED; urgency=medium
 
   * App icon shows in the GNOME/Wayland dock/taskbar (StartupWMClass

@@ -4,6 +4,17 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-06-29
+
+### Fixed
+- Single instance: opening Laralux while it is already running now focuses the
+  existing window instead of spawning a duplicate process (multiple instances
+  previously fought over the same ports and crashed services).
+- App icon now resolves in the dock/taskbar and app grid: the icon ships at
+  standard sizes (32/128/256/512) so it lands in recognized hicolor
+  directories, instead of a single non-standard 671×671 size that desktop
+  environments ignored.
+
 ## [0.2.0] - 2026-06-29
 
 ### Added
@@ -40,5 +51,6 @@ Initial release.
 - Debian packaging (`debian/` source package) and a GitHub Actions release
   workflow that builds the `.deb` and publishes a GitHub Release on `v*` tags.
 
+[0.3.0]: https://github.com/thotam/laralux/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/thotam/laralux/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/thotam/laralux/releases/tag/v0.1.0
