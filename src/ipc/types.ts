@@ -17,7 +17,7 @@
 export type ServiceState = "Stopped" | "Starting" | "Running" | "Stopping" | "Crashed";
 
 export interface ServicesFlags {
-  nginx: boolean; php: boolean; mariadb: boolean; redis: boolean; mailpit: boolean; postgres: boolean;
+  nginx: boolean; php: boolean; mariadb: boolean; redis: boolean; mailpit: boolean; postgres: boolean; mongodb: boolean;
 }
 
 /**
@@ -28,7 +28,7 @@ export interface ServicesFlags {
  * ServiceKind variants from core/src/service/mod.rs.
  */
 export interface ServiceStatus {
-  kind: "Nginx" | "PhpFpm" | "Mariadb" | "Postgres" | "Redis" | "Mailpit" | "Coredns";
+  kind: "Nginx" | "PhpFpm" | "Mariadb" | "Postgres" | "Mongodb" | "Redis" | "Mailpit" | "Coredns";
   state: ServiceState;
 }
 

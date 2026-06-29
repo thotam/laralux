@@ -6,9 +6,9 @@ import { stackStartAll, stackStopAll, serviceStart, serviceStop, openDbClient } 
 import { render, applyServices, progressRing, resetDownload, runningCount } from "../render";
 import { SVC_ORDER, FLAG_KEY, DISP, META } from "../constants";
 
-const SVC_ICON: Record<string, string> = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Postgres: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
-const PORTS: Record<string, string[]> = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Postgres: ["5432"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
-const LOG_FILE: Record<string, string> = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Postgres: "postgres.log", Redis: "redis.log", Mailpit: "mailpit.log" };
+const SVC_ICON: Record<string, string> = { Nginx: I.svcNginx, PhpFpm: I.svcPhp, Mariadb: I.svcMaria, Postgres: I.svcMaria, Mongodb: I.svcMaria, Redis: I.svcRedis, Mailpit: I.svcMail };
+const PORTS: Record<string, string[]> = { Nginx: ["80", "443"], PhpFpm: ["socket"], Mariadb: ["3306"], Postgres: ["5432"], Mongodb: ["27017"], Redis: ["6379"], Mailpit: ["8025", "1025"] };
+const LOG_FILE: Record<string, string> = { Nginx: "nginx-error.log", PhpFpm: "php-fpm.log", Mariadb: "mariadb.log", Postgres: "postgres.log", Mongodb: "mongodb.log", Redis: "redis.log", Mailpit: "mailpit.log" };
 
 // Services currently enabled in the stack, in display order.
 function enabledKinds(): string[] {
@@ -111,7 +111,7 @@ export function dashboard(): string {
     '<div class="row-between mt4"><h2 class="section-label">Tools</h2></div>' +
     '<div class="card site-row preview"><div class="site-tile">' + I.svcMaria + "</div>" +
     '<div class="site-info"><div class="site-name">DB client</div>' +
-    '<div class="site-desc">DbGate — manage MariaDB, PostgreSQL &amp; Redis</div></div>' +
+    '<div class="site-desc">DbGate — manage MariaDB, PostgreSQL, MongoDB &amp; Redis</div></div>' +
     (state.dbClientBusy
       ? progressRing()
       : '<button class="btn-sm" data-action="open-db-client">' + I.external + "Open</button>") +

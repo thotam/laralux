@@ -6,7 +6,7 @@ export const SVC_KINDS = ["Nginx", "PhpFpm", "Mariadb", "Redis", "Mailpit"];
 export const COMP_ORDER = ["Nginx", "Php", "Mariadb", "Redis", "Mkcert", "Mailpit", "Composer", "Node"];
 
 export const DISP: Record<string, string> = {
-  Nginx: "Nginx", PhpFpm: "PHP-FPM", Mariadb: "MariaDB", Postgres: "PostgreSQL", Redis: "Redis", Mailpit: "Mailpit",
+  Nginx: "Nginx", PhpFpm: "PHP-FPM", Mariadb: "MariaDB", Postgres: "PostgreSQL", Mongodb: "MongoDB", Redis: "Redis", Mailpit: "Mailpit",
 };
 
 export const DISP_COMP: Record<string, string> = {
@@ -33,9 +33,9 @@ export const META: Record<string, { label: string; cls: string; busy: boolean; b
 };
 
 // Service display order for the dashboard grid + Settings toggles.
-export const SVC_ORDER = ["Nginx", "PhpFpm", "Mariadb", "Postgres", "Redis", "Mailpit"];
+export const SVC_ORDER = ["Nginx", "PhpFpm", "Mariadb", "Postgres", "Mongodb", "Redis", "Mailpit"];
 
 // ServiceKind (enum variant) -> ServicesFlags key.
 export const FLAG_KEY: Record<string, string> = {
-  Nginx: "nginx", PhpFpm: "php", Mariadb: "mariadb", Postgres: "postgres", Redis: "redis", Mailpit: "mailpit",
+  Nginx: "nginx", PhpFpm: "php", Mariadb: "mariadb", Postgres: "postgres", Mongodb: "mongodb", Redis: "redis", Mailpit: "mailpit",
 };
