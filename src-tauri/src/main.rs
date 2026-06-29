@@ -42,6 +42,18 @@ fn tray_state_bytes(s: TrayState) -> &'static [u8] {
 
 fn main() {
     tauri::Builder::default()
+        // MUST be the first plugin: enforce a single instance. A second launch
+        // (from the launcher/dock while already running) hands its argv to the
+        // running instance and exits, instead of spawning a duplicate window
+        // that would fight over the same ports/state. We just resurface the
+        // existing window.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
+                let _ = win.unminimize();
+                let _ = win.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(build_state())
