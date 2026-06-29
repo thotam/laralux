@@ -6,13 +6,13 @@ use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ManagedTool { Php, Nginx, Mariadb, Postgres, Redis, Mailpit, Mkcert, Composer, Node }
+pub enum ManagedTool { Php, Nginx, Mariadb, Postgres, Mongodb, Redis, Mailpit, Mkcert, Composer, Node }
 
 impl ManagedTool {
-    pub const ALL: [ManagedTool; 9] = [
+    pub const ALL: [ManagedTool; 10] = [
         ManagedTool::Php, ManagedTool::Nginx, ManagedTool::Mariadb, ManagedTool::Postgres,
-        ManagedTool::Redis, ManagedTool::Mailpit, ManagedTool::Mkcert, ManagedTool::Composer,
-        ManagedTool::Node,
+        ManagedTool::Mongodb, ManagedTool::Redis, ManagedTool::Mailpit, ManagedTool::Mkcert,
+        ManagedTool::Composer, ManagedTool::Node,
     ];
 }
 
@@ -40,6 +40,7 @@ pub fn info(tool: ManagedTool) -> ToolInfo {
         Nginx => ToolInfo { key: "nginx", display: "Nginx", cli_binaries: &["nginx"], service_kind: Some(ServiceKind::Nginx) },
         Mariadb => ToolInfo { key: "mariadb", display: "MariaDB", cli_binaries: &["mariadb", "mysql"], service_kind: Some(ServiceKind::Mariadb) },
         Postgres => ToolInfo { key: "postgres", display: "PostgreSQL", cli_binaries: &["psql", "pg_dump", "pg_restore", "createdb", "dropdb"], service_kind: Some(ServiceKind::Postgres) },
+        Mongodb => ToolInfo { key: "mongodb", display: "MongoDB", cli_binaries: &["mongod", "mongosh"], service_kind: Some(ServiceKind::Mongodb) },
         Redis => ToolInfo { key: "redis", display: "Redis", cli_binaries: &["redis-cli"], service_kind: Some(ServiceKind::Redis) },
         Mailpit => ToolInfo { key: "mailpit", display: "Mailpit", cli_binaries: &[], service_kind: Some(ServiceKind::Mailpit) },
         Mkcert => ToolInfo { key: "mkcert", display: "mkcert", cli_binaries: &["mkcert"], service_kind: None },
@@ -126,6 +127,11 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             crate::layout::installed_versions(paths, "postgres"),
             &cfg.versions.get("postgres").cloned().unwrap_or_default(),
         ),
+        ManagedTool::Mongodb => known_catalog(
+            &crate::mongodb_static::KNOWN_MONGODB_VERSIONS,
+            crate::layout::installed_versions(paths, "mongodb"),
+            &cfg.versions.get("mongodb").cloned().unwrap_or_default(),
+        ),
         ManagedTool::Redis => known_catalog(
             &crate::redis_static::KNOWN_REDIS_VERSIONS,
             crate::layout::installed_versions(paths, "redis"),
@@ -171,6 +177,8 @@ pub fn install_version(
         ManagedTool::Mariadb => crate::mariadb_static::install_mariadb_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Postgres => crate::postgres_static::install_postgres_version(paths, version, downloader, runner, sink)
+            .map_err(|e| ToolError::Install(e.to_string())),
+        ManagedTool::Mongodb => crate::mongodb_static::install_mongodb_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
         ManagedTool::Redis => crate::redis_static::install_redis_version(paths, version, downloader, runner, sink)
             .map_err(|e| ToolError::Install(e.to_string())),
@@ -315,5 +323,14 @@ mod tests {
         let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-pgtool-{}", std::process::id())));
         let vs = available_versions(ManagedTool::Postgres, &paths);
         assert_eq!(vs.len(), crate::postgres_static::KNOWN_POSTGRES_VERSIONS.len());
+    }
+
+    #[test]
+    fn mongodb_tool_info_and_versions() {
+        assert_eq!(key(ManagedTool::Mongodb), "mongodb");
+        assert_eq!(info(ManagedTool::Mongodb).service_kind, Some(ServiceKind::Mongodb));
+        let paths = LaraluxPaths::new("/tmp/lara".into());
+        let vs = available_versions(ManagedTool::Mongodb, &paths);
+        assert_eq!(vs.len(), crate::mongodb_static::KNOWN_MONGODB_VERSIONS.len());
     }
 }

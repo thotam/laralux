@@ -4,6 +4,7 @@ use crate::service::mailpit::MailpitService;
 use crate::service::mariadb::MariadbService;
 use crate::service::nginx::NginxService;
 use crate::service::php_fpm::PhpFpmService;
+use crate::service::mongodb::MongodbService;
 use crate::service::postgres::PostgresService;
 use crate::service::redis::RedisService;
 use crate::service::Service;
@@ -20,6 +21,9 @@ pub fn build_services(config: &Config, paths: &LaraluxPaths) -> Vec<Box<dyn Serv
     }
     if config.services.postgres {
         services.push(Box::new(PostgresService::new()));
+    }
+    if config.services.mongodb {
+        services.push(Box::new(MongodbService::new()));
     }
     if config.services.redis {
         services.push(Box::new(RedisService::new()));
@@ -81,5 +85,15 @@ mod tests {
             "postgres must be opt-in (off by default)");
         cfg.services.postgres = true;
         assert!(build_services(&cfg, &p).iter().any(|s| s.kind() == ServiceKind::Postgres));
+    }
+
+    #[test]
+    fn mongodb_included_only_when_enabled() {
+        let p = LaraluxPaths::new("/tmp/lara".into());
+        let mut cfg = Config::default();
+        assert!(!build_services(&cfg, &p).iter().any(|s| s.kind() == ServiceKind::Mongodb),
+            "mongodb must be opt-in (off by default)");
+        cfg.services.mongodb = true;
+        assert!(build_services(&cfg, &p).iter().any(|s| s.kind() == ServiceKind::Mongodb));
     }
 }
