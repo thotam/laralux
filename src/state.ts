@@ -1,5 +1,5 @@
 import { COMP_ORDER } from "./ui/constants";
-import type { Site, ServiceState, ToolVersion, ComponentStatus, SetupReport, PhpIniSettings, ProxyRoute } from "./ipc/types";
+import type { Site, ServiceState, ToolVersion, ComponentStatus, SetupReport, PhpIniSettings, ProxyRoute, SiteProcsView } from "./ipc/types";
 
 // ---- Toast ------------------------------------------------------------------
 
@@ -96,7 +96,10 @@ export interface AppState {
    * "domains"    — Edit Domains modal
    * ToolModalState — Tool detail modal (open: true)
    */
-  modal: null | "newsite" | "linksite" | "proxy" | "domains" | "deletesite" | ToolModalState;
+  modal: null | "newsite" | "linksite" | "proxy" | "domains" | "deletesite" | "procs" | ToolModalState;
+  procCounts: Record<string, number>;
+  procModal: { name: string; root: string } | null;
+  siteProcs: SiteProcsView | null;
   toolSymlinks: string[];
   newSite: NewSiteState;
   linkSite: LinkSiteState;
@@ -135,6 +138,9 @@ export const state: AppState = {
   toasts: [],
   tId: 1,
   modal: null,
+  procCounts: {},
+  procModal: null,
+  siteProcs: null,
   toolSymlinks: [],
   newSite: { name: "", template: "Blank", busy: false, error: "" },
   linkSite: { root: "", name: "", busy: false, error: "" },

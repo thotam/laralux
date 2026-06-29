@@ -42,3 +42,11 @@ export const onDownloadProgress = (
   cb: (payload: ProgressPayload) => void,
 ): Promise<UnlistenFn> =>
   listen<ProgressPayload>("download-progress", (e) => cb(e.payload));
+
+/**
+ * Subscribe to "site-procs-changed" — emitted (change-only) by the monitor when
+ * any tracked per-site process changes state. Payload is empty; the handler
+ * re-fetches the open Processes modal.
+ */
+export const onSiteProcsChanged = (cb: () => void): Promise<UnlistenFn> =>
+  listen("site-procs-changed", () => cb());

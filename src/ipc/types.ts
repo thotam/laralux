@@ -32,6 +32,19 @@ export interface ServiceStatus {
   state: ServiceState;
 }
 
+export interface ProcStatus {
+  site: string;
+  name: string;
+  command: string;
+  state: ServiceState;
+  pid: number | null;
+}
+
+export interface SiteProcsView {
+  procs: ProcStatus[];
+  autostart: boolean;
+}
+
 // ---- tools ------------------------------------------------------------------
 
 /**
