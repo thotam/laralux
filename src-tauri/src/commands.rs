@@ -81,6 +81,19 @@ pub fn run_full_start(state: &AppState) -> Vec<String> {
     if let Ok(mut orch) = state.orch.lock() {
         let _ = orch.start_all();
     }
+    // Start each autostart site's Procfile processes once the stack is up.
+    let cfg = Config::load(&state.paths.config_file()).unwrap_or_default();
+    if !cfg.proc_autostart.is_empty() {
+        if let Ok((sites, _warnings)) = list_all_sites(&state.paths, &state.tld) {
+            if let Ok(mut sp) = state.site_procs.lock() {
+                for s in &sites {
+                    if cfg.proc_autostart.contains(&s.name) {
+                        sp.start_site(&s.name, &s.root);
+                    }
+                }
+            }
+        }
+    }
     warnings
 }
 
@@ -115,6 +128,9 @@ pub async fn stack_start_all(app: tauri::AppHandle) -> Result<Vec<ServiceStatus>
 pub fn stack_stop_all(state: tauri::State<AppState>) -> Result<Vec<ServiceStatus>, String> {
     let mut orch = state.orch.lock().map_err(lock_err)?;
     orch.stop_all();
+    if let Ok(mut sp) = state.site_procs.lock() {
+        sp.stop_all();
+    }
     Ok(orch.snapshot())
 }
 

@@ -160,6 +160,9 @@ fn main() {
                             if let Ok(mut orch) = state.orch.lock() {
                                 orch.stop_all();
                             }
+                            if let Ok(mut sp) = state.site_procs.lock() {
+                                sp.stop_all();
+                            }
                         }
                         app.exit(0);
                     }
@@ -180,6 +183,7 @@ fn main() {
                     // Seed to the initial toggle label ("Start All" = not-all-running),
                     // so the first stopped-stack tick is a no-op.
                     let mut last_all_running: Option<bool> = Some(false);
+                    let mut last_procs: Vec<(String, String, laralux_core::ServiceState)> = Vec::new();
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         let Some(state) = handle.try_state::<AppState>() else { continue };
@@ -213,6 +217,16 @@ fn main() {
                                 let _ = toggle_m.set_text(if all_running { "Stop All" } else { "Start All" });
                             });
                             last_all_running = Some(all_running);
+                        }
+                        {
+                            if let Ok(mut sp) = state.site_procs.lock() {
+                                sp.refresh();
+                                let pairs = sp.state_pairs();
+                                if pairs != last_procs {
+                                    let _ = handle.emit("site-procs-changed", ());
+                                    last_procs = pairs;
+                                }
+                            };
                         }
                     }
                 });
@@ -259,6 +273,9 @@ fn main() {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     if let Ok(mut orch) = state.orch.lock() {
                         orch.stop_all();
+                    }
+                    if let Ok(mut sp) = state.site_procs.lock() {
+                        sp.stop_all();
                     }
                 }
             }
