@@ -11,12 +11,12 @@ request at runtime — no `apt` needed for the managed stack.
 
 ## Install (Debian/Ubuntu, x86_64)
 
-Download the latest `Laralux_<version>_amd64.deb` from the
+Download the latest `laralux_<version>_amd64.deb` from the
 [Releases page](https://github.com/thotam/laralux/releases) and install it with
 apt (it resolves the runtime dependencies automatically):
 
 ```sh
-sudo apt install ./Laralux_<version>_amd64.deb
+sudo apt install ./laralux_<version>_amd64.deb
 ```
 
 To remove:

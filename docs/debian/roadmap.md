@@ -19,7 +19,7 @@ gated by a Debian Developer sponsor. Status of each step:
    → syncs into the **next** Ubuntu release.
 
 **Interim install (works today):** existing Ubuntu users install the CI-built
-`.deb` from the public GitHub Release with `sudo apt install ./Laralux_*.deb`.
+`.deb` from the public GitHub Release with `sudo apt install ./laralux_*.deb`.
 Bare-name `apt install laralux` only works once the package is in a release the
 user's machine already tracks (i.e. after step 7, on a new enough Ubuntu).
 

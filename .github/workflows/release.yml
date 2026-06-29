@@ -53,10 +53,10 @@ jobs:
           releaseBody: |
             ## Install (Debian/Ubuntu, x86_64)
 
-            Download `Laralux_<version>_amd64.deb` below, then:
+            Download `laralux_<version>_amd64.deb` below, then:
 
             ```sh
-            sudo apt install ./Laralux_<version>_amd64.deb
+            sudo apt install ./laralux_<version>_amd64.deb
             ```
 
             apt resolves the runtime dependencies automatically (no repository to add).
