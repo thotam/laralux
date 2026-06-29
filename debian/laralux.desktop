@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Laralux
+Comment=Local web-development environment manager
+Exec=laralux
+Icon=laralux
+Terminal=false
+Type=Application
+Categories=Development;WebDevelopment;

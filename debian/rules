@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+# Keep cargo's downloads inside the build tree (network build — see roadmap.md).
+export CARGO_HOME = $(CURDIR)/debian/cargo_home
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	npm ci
+	npm run build
+	cargo build --release -p laralux-desktop
+
+override_dh_auto_install:
+	install -Dm755 target/release/laralux-desktop debian/laralux/usr/bin/laralux
+	install -Dm644 debian/laralux.desktop debian/laralux/usr/share/applications/laralux.desktop
+	install -Dm644 src-tauri/icons/icon.png debian/laralux/usr/share/icons/hicolor/512x512/apps/laralux.png
+
+override_dh_auto_test:
+	cargo test -p laralux-core
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo_home node_modules dist

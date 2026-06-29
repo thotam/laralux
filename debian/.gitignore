@@ -1,0 +1,6 @@
+/laralux/
+/cargo_home/
+/files
+/*.substvars
+/*.debhelper
+/debhelper-build-stamp
