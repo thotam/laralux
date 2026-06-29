@@ -62,7 +62,7 @@ SOFTWARE.
 ```markdown
 # Laralux
 
-A native Linux clone of [Laragon](https://laragon.org/): a system-tray + GUI
+A native Linux local web-development environment manager: a system-tray + GUI
 manager for a local web-development stack — **nginx, PHP-FPM, MariaDB,
 PostgreSQL, MongoDB, Redis, Mailpit** — with pretty `*.dev` HTTPS, automatic
 [mkcert](https://github.com/FiloSottile/mkcert) SSL, multi-version tool
@@ -116,7 +116,7 @@ with:
     "licenseFile": "../LICENSE",
     "category": "DeveloperTool",
     "shortDescription": "Native Linux local web-development environment manager",
-    "longDescription": "Laralux is a native Linux clone of Laragon: a tray and GUI manager for a local web-development stack (nginx, PHP-FPM, MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with pretty *.dev HTTPS, automatic mkcert SSL, and multi-version tools downloaded as static binaries into ~/laralux.",
+    "longDescription": "Laralux is a native Linux local web-development environment manager: a tray and GUI manager for a local web-development stack (nginx, PHP-FPM, MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with pretty *.dev HTTPS, automatic mkcert SSL, and multi-version tools downloaded as static binaries into ~/laralux.",
     "linux": {
       "deb": {
         "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libayatana-appindicator3-1"],
@@ -285,10 +285,10 @@ Depends: ${shlibs:Depends},
  ${misc:Depends},
  libayatana-appindicator3-1
 Description: native Linux local web-development environment manager
- Laralux is a native Linux clone of Laragon: a system-tray and GUI manager for
- a local web-development stack (nginx, PHP-FPM, MariaDB, PostgreSQL, MongoDB,
- Redis, Mailpit) with pretty *.dev HTTPS, automatic mkcert SSL, and
- multi-version tool switching.
+ Laralux is a native Linux local web-development environment manager: a
+ system-tray and GUI manager for a local web-development stack (nginx, PHP-FPM,
+ MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with pretty *.dev HTTPS,
+ automatic mkcert SSL, and multi-version tool switching.
  .
  The managed tool binaries are downloaded as static builds into ~/laralux at
  the user's request at runtime; they are not shipped in this package.
@@ -455,10 +455,10 @@ Severity: wishlist
   Programming Lang: Rust, TypeScript
   Description      : native Linux local web-development environment manager
 
-Laralux is a native Linux clone of Laragon: a system-tray and GUI manager for a
-local web-development stack (nginx, PHP-FPM, MariaDB, PostgreSQL, MongoDB,
-Redis, Mailpit) with pretty *.dev HTTPS, automatic mkcert SSL, and multi-version
-tool switching.
+Laralux is a native Linux local web-development environment manager: a
+system-tray and GUI manager for a local web-development stack (nginx, PHP-FPM,
+MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with pretty *.dev HTTPS, automatic
+mkcert SSL, and multi-version tool switching.
 
 Disclosure: the managed tool binaries (nginx, mariadb, php, …) are downloaded as
 upstream static builds into ~/laralux at the user's request at runtime; they are
@@ -489,8 +489,8 @@ I am looking for a sponsor for my package **laralux**.
 * Section      : web
 
 It builds a single binary package: `laralux` — a native Linux local
-web-development environment manager (a Laragon clone) built with Tauri 2
-(Rust + a TypeScript/WebKitGTK frontend).
+web-development environment manager built with Tauri 2 (Rust + a
+TypeScript/WebKitGTK frontend).
 
 Known review topics I would value guidance on:
 

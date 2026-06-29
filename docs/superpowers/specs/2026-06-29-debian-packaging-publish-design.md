@@ -29,10 +29,10 @@ install via the Release `.deb` until/unless official acceptance lands.
 - **Runtime nature to disclose:** Laralux downloads static third-party binaries (nginx, mariadb,
   php, …) into `~/laralux/` at the user's request at runtime. This is legal and user-initiated but is
   unusual for a Debian package and must be disclosed in the ITP so a sponsor isn't surprised.
-- **Repo:** currently `github.com/thotam/laragon-linux`; the user will rename it to
-  `github.com/thotam/laralux`. All URLs in this work use `thotam/laralux`; because GitHub auto-
-  redirects and CI/Release use repo-relative paths, the rename is non-breaking (the user runs
-  `git remote set-url origin https://github.com/thotam/laralux.git` afterward).
+- **Repo:** the GitHub repository is being renamed to `laralux`. All URLs in this work use
+  `github.com/thotam/laralux`; because GitHub auto-redirects and CI/Release use repo-relative paths,
+  the rename is non-breaking (the user runs `git remote set-url origin
+  https://github.com/thotam/laralux.git` afterward).
 - **Build deps (from Tauri/webkit):** `libwebkit2gtk-4.1-dev libgtk-3-dev
   libayatana-appindicator3-dev librsvg2-dev libssl-dev pkg-config` + Rust + Node/npm.
 - **Runtime deps:** the webkit2gtk/gtk shared libs (auto via shlibs) plus
