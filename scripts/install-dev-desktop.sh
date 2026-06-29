@@ -28,6 +28,12 @@ else
   exit 1
 fi
 
+# On Wayland/GTK the running window's app_id is the program name = the binary
+# basename (e.g. "laralux-desktop"), NOT the bundle identifier. The compositor
+# matches that app_id to this entry via StartupWMClass, so it MUST equal the
+# binary basename for the dock/taskbar to show this entry's icon + name.
+WMCLASS="$(basename "$BIN")"
+
 mkdir -p "$DEST_DIR"
 cat > "$DEST" <<EOF
 [Desktop Entry]
@@ -36,7 +42,7 @@ Name=Laralux
 Exec=$BIN
 Icon=$ICON
 Terminal=false
-StartupWMClass=$APP_ID
+StartupWMClass=$WMCLASS
 Categories=Development;WebDevelopment;
 EOF
 

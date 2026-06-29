@@ -5,5 +5,5 @@ Exec=laralux
 Icon=com.laralux.linux
 Terminal=false
 Type=Application
-StartupWMClass=com.laralux.linux
+StartupWMClass=laralux
 Categories=Development;WebDevelopment;

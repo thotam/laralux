@@ -45,9 +45,14 @@ logo** to use that same "L" mark (replacing the current green cube glyph).
 
 ## 3. App-icon resolution — desktop entry matched to the app_id
 
-The window app_id is `com.laralux.linux`. The fix is to provide a `.desktop` the compositor can match
-(filename = app_id, **and** `StartupWMClass=com.laralux.linux` as belt-and-suspenders) whose `Icon=`
-points at the brand icon — for both dev and packaged installs.
+**Correction (verified at runtime on GNOME/Wayland):** the running window's app_id is NOT the bundle
+identifier — it is the GTK **program name = the executable basename** (`laralux-desktop` for the dev
+binary, `laralux` for the packaged `/usr/bin/laralux`), because the app sets no explicit GTK app id.
+GNOME associates a running window with a `.desktop` by matching that app_id to the entry's
+**`StartupWMClass`** (or the `.desktop` filename). So `StartupWMClass` MUST equal the executable
+basename — **`laralux-desktop`** in the dev entry, **`laralux`** in the packaged entry. (The
+reverse-DNS `.desktop` filename `com.laralux.linux.desktop` is kept for the app-grid identity;
+`StartupWMClass` is what bridges the running window to it.)
 
 ### 3a. Dev — `scripts/install-dev-desktop.sh` (+ uninstall)
 A POSIX shell script (committed, executable) that installs a dev desktop entry so the icon shows
