@@ -1,3 +1,13 @@
+laralux (0.2.0-1) UNRELEASED; urgency=medium
+
+  * App icon shows in the GNOME/Wayland dock/taskbar (StartupWMClass
+    matches the running window app_id).
+  * Desktop entry + hicolor icon named after the bundle identifier
+    (com.laralux.linux) so the icon resolves on installed systems.
+  * Sidebar brand logo uses the Laralux app icon.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Mon, 29 Jun 2026 15:16:54 +0700
+
 laralux (0.1.0-1) UNRELEASED; urgency=medium
 
   * Initial Debian packaging.
