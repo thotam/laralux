@@ -74,6 +74,14 @@ fn main() {
             commands::delete_site_folder,
             commands::service_flags,
             commands::set_service_enabled,
+            commands::site_procs,
+            commands::start_site_proc,
+            commands::stop_site_proc,
+            commands::start_site_procs,
+            commands::stop_site_procs,
+            commands::set_site_autostart,
+            commands::site_proc_log_path,
+            commands::site_proc_counts,
         ])
         .setup(|app| {
             // One menu item whose LABEL toggles between Start All / Stop All so the

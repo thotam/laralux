@@ -1,12 +1,13 @@
 use laralux_core::{
     build_services, create_site as core_create_site, detect_components, ensure_coredns,
-    ensure_nginx_bind_cap, list_all_sites, resolved_dropin, run_setup, sync_sites, Config,
-    CreateReport, LaraluxPaths, MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged,
-    ProxyRoute, RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site,
-    SiteRegistry, SiteTemplate,
+    ensure_nginx_bind_cap, list_all_sites, read_procfile, resolved_dropin, run_setup, sync_sites,
+    Config, CreateReport, LaraluxPaths, MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged,
+    ProxyRoute, ProcStatus, RealCommandRunner, RealSpawner, ServiceKind, ServiceState,
+    ServiceStatus, Site, SiteProcs, SiteRegistry, SiteTemplate,
 };
 use laralux_core::{ComponentStatus, CurlDownloader, SetupReport};
 use laralux_core::service::php_fpm::PhpFpmService;
+use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Emitter;
@@ -23,6 +24,7 @@ impl laralux_core::ProgressSink for TauriProgress {
 /// processes, so it must live as long as the app and be stopped on exit.
 pub struct AppState {
     pub orch: Mutex<Orchestrator>,
+    pub site_procs: Mutex<SiteProcs>,
     pub paths: LaraluxPaths,
     pub tld: String,
     pub starting: AtomicBool,
@@ -37,7 +39,8 @@ pub fn build_state() -> AppState {
     // at startup, so the active versions match config regardless of prior installs.
     let _ = laralux_core::apply_versions(&paths, &config);
     let orch = Orchestrator::new(paths.clone(), build_services(&config, &paths), Box::new(RealSpawner));
-    AppState { orch: Mutex::new(orch), paths, tld: config.tld, starting: AtomicBool::new(false) }
+    let site_procs = SiteProcs::new(paths.clone(), Box::new(RealSpawner));
+    AppState { orch: Mutex::new(orch), site_procs: Mutex::new(site_procs), paths, tld: config.tld, starting: AtomicBool::new(false) }
 }
 
 fn lock_err<T>(_: std::sync::PoisonError<T>) -> String {
@@ -756,4 +759,106 @@ pub async fn set_site_domains(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// View-model for the Processes modal: the site's declared procs (merged with
+/// live state) plus its autostart flag.
+#[derive(serde::Serialize)]
+pub struct SiteProcsView {
+    pub procs: Vec<ProcStatus>,
+    pub autostart: bool,
+}
+
+/// Build the view: refresh liveness, merge the parsed Procfile entries with
+/// current state, and read the autostart flag. Caller holds the SiteProcs lock.
+fn site_procs_view(sp: &mut SiteProcs, paths: &LaraluxPaths, name: &str, root: &str) -> SiteProcsView {
+    sp.refresh();
+    let entries = read_procfile(Path::new(root)).unwrap_or_default();
+    let procs = entries
+        .into_iter()
+        .map(|e| ProcStatus {
+            site: name.to_string(),
+            name: e.name.clone(),
+            command: e.command,
+            state: sp.state_of(name, &e.name),
+            pid: sp.pid_of(name, &e.name),
+        })
+        .collect();
+    let autostart = Config::load(&paths.config_file())
+        .unwrap_or_default()
+        .proc_autostart
+        .contains(name);
+    SiteProcsView { procs, autostart }
+}
+
+#[tauri::command]
+pub fn site_procs(state: tauri::State<AppState>, name: String, root: String) -> Result<SiteProcsView, String> {
+    let mut sp = state.site_procs.lock().map_err(lock_err)?;
+    Ok(site_procs_view(&mut sp, &state.paths, &name, &root))
+}
+
+#[tauri::command]
+pub fn start_site_proc(state: tauri::State<AppState>, name: String, root: String, proc: String) -> Result<SiteProcsView, String> {
+    let cmd = read_procfile(Path::new(&root))
+        .unwrap_or_default()
+        .into_iter()
+        .find(|e| e.name == proc)
+        .map(|e| e.command);
+    let mut sp = state.site_procs.lock().map_err(lock_err)?;
+    if let Some(c) = cmd {
+        let _ = sp.start(&name, Path::new(&root), &proc, &c);
+    }
+    Ok(site_procs_view(&mut sp, &state.paths, &name, &root))
+}
+
+#[tauri::command]
+pub fn stop_site_proc(state: tauri::State<AppState>, name: String, root: String, proc: String) -> Result<SiteProcsView, String> {
+    let mut sp = state.site_procs.lock().map_err(lock_err)?;
+    sp.stop(&name, &proc);
+    Ok(site_procs_view(&mut sp, &state.paths, &name, &root))
+}
+
+#[tauri::command]
+pub fn start_site_procs(state: tauri::State<AppState>, name: String, root: String) -> Result<SiteProcsView, String> {
+    let mut sp = state.site_procs.lock().map_err(lock_err)?;
+    sp.start_site(&name, Path::new(&root));
+    Ok(site_procs_view(&mut sp, &state.paths, &name, &root))
+}
+
+#[tauri::command]
+pub fn stop_site_procs(state: tauri::State<AppState>, name: String, root: String) -> Result<SiteProcsView, String> {
+    let mut sp = state.site_procs.lock().map_err(lock_err)?;
+    sp.stop_site(&name);
+    Ok(site_procs_view(&mut sp, &state.paths, &name, &root))
+}
+
+#[tauri::command]
+pub fn set_site_autostart(state: tauri::State<AppState>, name: String, enabled: bool) -> Result<bool, String> {
+    let mut config = Config::load(&state.paths.config_file()).unwrap_or_default();
+    if enabled {
+        config.proc_autostart.insert(name);
+    } else {
+        config.proc_autostart.remove(&name);
+    }
+    config.save(&state.paths.config_file()).map_err(|e| e.to_string())?;
+    Ok(enabled)
+}
+
+#[tauri::command]
+pub fn site_proc_log_path(state: tauri::State<AppState>, name: String, proc: String) -> Result<String, String> {
+    Ok(state.paths.log().join(format!("proc-{name}-{proc}.log")).display().to_string())
+}
+
+#[tauri::command]
+pub fn site_proc_counts(state: tauri::State<AppState>) -> Result<std::collections::BTreeMap<String, usize>, String> {
+    let (sites, _warnings) = list_all_sites(&state.paths, &state.tld).map_err(|e| e.to_string())?;
+    let mut out = std::collections::BTreeMap::new();
+    for s in sites {
+        if let Some(entries) = read_procfile(&s.root) {
+            if !entries.is_empty() {
+                out.insert(s.name, entries.len());
+            }
+        }
+    }
+    Ok(out)
 }
