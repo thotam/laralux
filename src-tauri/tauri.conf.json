@@ -27,6 +27,19 @@
   "bundle": {
     "active": true,
     "targets": ["deb"],
-    "icon": ["icons/icon.png"]
+    "icon": ["icons/icon.png"],
+    "publisher": "thotam",
+    "homepage": "https://github.com/thotam/laralux",
+    "licenseFile": "../LICENSE",
+    "category": "DeveloperTool",
+    "shortDescription": "Native Linux local web-development environment manager",
+    "longDescription": "Laralux is a native Linux local web-development environment manager: a tray and GUI manager for a local web-development stack (nginx, PHP-FPM, MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with pretty *.dev HTTPS, automatic mkcert SSL, and multi-version tools downloaded as static binaries into ~/laralux.",
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libayatana-appindicator3-1"],
+        "section": "web",
+        "priority": "optional"
+      }
+    }
   }
 }
