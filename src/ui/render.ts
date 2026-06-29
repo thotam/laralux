@@ -119,7 +119,7 @@ function header(): string {
       ' title="' + (allRunning ? "All services already running" : "Start all services") + '">' + I.play + "Start All</button>";
   return (
     '<header class="header">' +
-    '<div class="brand"><div class="brand-mark">' + I.cube + "</div>" +
+    '<div class="brand"><div class="brand-mark"><img class="brand-logo" src="/laralux.png" alt="Laralux" /></div>' +
     '<div class="brand-name">Laralux</div></div>' +
     '<span class="spacer"></span>' +
     '<div class="health-pill"><span class="dot ' + health + '"></span>' +
