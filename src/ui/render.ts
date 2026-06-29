@@ -18,6 +18,7 @@ import { linkSiteModal } from "./modals/linksite";
 import { proxyModal } from "./modals/proxy";
 import { domainsModal } from "./modals/domains";
 import { deleteSiteModal } from "./modals/deletesite";
+import { procsModal } from "./modals/procs";
 import { stackStatus, listSites, setupStatus, serviceFlags } from "../ipc/commands";
 
 // ---- shared helpers (single copy) ----
@@ -185,6 +186,7 @@ export function render(): void {
     : state.modal === "proxy" ? proxyModal()
     : state.modal === "domains" ? domainsModal()
     : state.modal === "deletesite" ? deleteSiteModal()
+    : state.modal === "procs" ? procsModal()
     : "";
   const html =
     '<div class="root" data-compact="' + state.compact + '">' +

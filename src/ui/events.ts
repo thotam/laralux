@@ -20,6 +20,7 @@ import {
 } from "./modals/tool";
 import { dismiss } from "./toast";
 import { hideSite, deleteSiteFolder, unlinkSite } from "../ipc/commands";
+import { openProcs, closeProcs, procStart, procStop, procStartAll, procStopAll, procToggleAutostart, procLogs } from "./modals/procs";
 
 /** Narrow state.modal to ToolModalState (object with open: true). */
 function isToolModal(m: typeof state.modal): m is ToolModalState {
@@ -116,6 +117,15 @@ export function bindEvents(): void {
     else if (a === "dm-add") addDomainRow();
     else if (a === "dm-del") delDomainRow(parseInt(el.getAttribute("data-idx")!, 10));
     else if (a === "dm-overlay-click") { if (e.target === el) closeDomains(); }
+    else if (a === "open-procs") openProcs(el.getAttribute("data-name")!, el.getAttribute("data-root")!);
+    else if (a === "close-procs") closeProcs();
+    else if (a === "procs-overlay-click") { if (e.target === el) closeProcs(); }
+    else if (a === "proc-start") procStart(el.getAttribute("data-proc")!);
+    else if (a === "proc-stop") procStop(el.getAttribute("data-proc")!);
+    else if (a === "proc-start-all") procStartAll();
+    else if (a === "proc-stop-all") procStopAll();
+    else if (a === "proc-autostart") procToggleAutostart();
+    else if (a === "proc-logs") procLogs(el.getAttribute("data-proc")!);
   });
 
   // ---- modal input events (delegated on app) ----
@@ -203,6 +213,7 @@ export function bindEvents(): void {
     else if (e.key === "Escape" && state.modal === "domains") closeDomains();
     else if (e.key === "Escape" && isToolModal(state.modal)) closeTool();
     else if (e.key === "Escape" && state.modal === "deletesite") closeDeleteSite();
+    else if (e.key === "Escape" && state.modal === "procs") closeProcs();
     else if (e.key === "Escape" && state.rowMenu) { state.rowMenu = null; render(); }
   });
 

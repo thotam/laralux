@@ -64,6 +64,7 @@ export function sitesView(): string {
             '<button class="row-menu-item" data-action="copy-site" data-name="' + esc(s.name) + '">' + I.copy + "Copy URL</button>" +
             '<button class="row-menu-item" data-action="edit-domains" data-name="' + esc(s.name) + '">Domains</button>' +
             (isProxy ? '<button class="row-menu-item" data-action="edit-proxy" data-name="' + esc(s.name) + '">Edit proxy</button>' : "") +
+            (state.procCounts[s.name] ? '<button class="row-menu-item" data-action="open-procs" data-name="' + esc(s.name) + '" data-root="' + esc(s.root) + '">' + I.terminal + "Processes</button>" : "") +
             '<button class="row-menu-item danger" data-action="delete-site" data-name="' + esc(s.name) + '">Delete</button>';
           const menu = state.rowMenu === s.name ? '<div class="row-menu">' + menuItems + "</div>" : "";
 
@@ -79,6 +80,7 @@ export function sitesView(): string {
             '<div class="card site-row" data-key="site-' + esc(s.name) + '"><div class="site-tile">' + I.folder18 + "</div>" +
             '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
             '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a>" +
+            (state.procCounts[s.name] ? '<span class="proc-chip" title="' + state.procCounts[s.name] + ' process(es) in Procfile">⚙ ' + state.procCounts[s.name] + "</span>" : "") +
             subRight + "</div></div>" +
             badge +
             actions +

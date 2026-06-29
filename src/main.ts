@@ -1,8 +1,9 @@
 import "./styles.css";
 import { state } from "./state";
 import { render, refresh, applyServices, applyProgress, updateRing, loadServiceFlags } from "./ui/render";
-import { onServicesChanged, onSitesChanged, onDownloadProgress } from "./ipc/events";
-import { listSites } from "./ipc/commands";
+import { onServicesChanged, onSitesChanged, onDownloadProgress, onSiteProcsChanged } from "./ipc/events";
+import { listSites, siteProcCounts } from "./ipc/commands";
+import { refreshProcs } from "./ui/modals/procs";
 import { bindEvents } from "./ui/events";
 
 // ---- responsive (compact <820px) ----
@@ -32,15 +33,22 @@ onServicesChanged((statuses) => {
   applyServices(statuses);
   if (!state.modal) render();
 });
+async function loadProcCounts(): Promise<void> {
+  try { state.procCounts = await siteProcCounts(); render(); } catch { /* ignore */ }
+}
+
 onSitesChanged(() => {
   listSites().then((s) => {
     state.sites = Array.isArray(s) ? s : [];
     if (!state.modal) render();
   }).catch(() => {});
+  loadProcCounts();
 });
+onSiteProcsChanged(() => { refreshProcs(); });
 
 (async () => {
   await loadServiceFlags();
   render();
   refresh();
+  loadProcCounts();
 })();
