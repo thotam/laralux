@@ -31,6 +31,16 @@ impl Default for ServicesConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct LaunchConfig {
+    #[serde(default)]
+    pub start_on_login: bool,
+    #[serde(default)]
+    pub start_minimized: bool,
+    #[serde(default)]
+    pub autostart_services: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_tld")]
@@ -47,6 +57,8 @@ pub struct Config {
     pub proc_autostart: BTreeSet<String>,
     #[serde(default)]
     pub php_ini: crate::php_ini::PhpIniSettings,
+    #[serde(default)]
+    pub launch: LaunchConfig,
 }
 
 fn default_tld() -> String {
@@ -58,7 +70,7 @@ fn default_php() -> String {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), versions: BTreeMap::new(), symlinks: BTreeSet::new(), proc_autostart: BTreeSet::new(), php_ini: crate::php_ini::PhpIniSettings::default() }
+        Self { tld: default_tld(), php_version: default_php(), services: ServicesConfig::default(), versions: BTreeMap::new(), symlinks: BTreeSet::new(), php_ini: crate::php_ini::PhpIniSettings::default(), proc_autostart: BTreeSet::new(), launch: LaunchConfig::default() }
     }
 }
 
@@ -207,5 +219,20 @@ mod tests {
         let loaded = Config::load(&f).unwrap();
         assert_eq!(loaded.php_ini, crate::php_ini::PhpIniSettings::default());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn launch_config_defaults_false_and_roundtrips() {
+        let c = Config::default();
+        assert!(!c.launch.start_on_login && !c.launch.start_minimized && !c.launch.autostart_services);
+        let mut c2 = Config::default();
+        c2.launch.start_on_login = true;
+        c2.launch.autostart_services = true;
+        let toml = toml::to_string(&c2).unwrap();
+        let back: Config = toml::from_str(&toml).unwrap();
+        assert!(back.launch.start_on_login && back.launch.autostart_services && !back.launch.start_minimized);
+        // old config without the field loads to all-false
+        let old: Config = toml::from_str("tld = \"dev\"\nphp_version = \"8.4\"\n").unwrap();
+        assert_eq!(old.launch, LaunchConfig::default());
     }
 }

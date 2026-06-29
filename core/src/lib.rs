@@ -38,11 +38,13 @@ pub mod orphans;
 pub mod tools;
 pub mod progress;
 pub mod symlinks;
+pub mod autostart;
 
 pub use bin::ensure_nginx_bind_cap;
 pub use progress::{ProgressEvent, ProgressSink, NullProgress};
 pub use layout::{managed_bin_dirs, set_current, installed_versions, apply_versions, probe_version, resolve_installed_version};
-pub use config::{Config, ServicesConfig};
+pub use config::{Config, LaunchConfig, ServicesConfig};
+pub use autostart::{autostart_path, disable_autostart, enable_autostart, is_autostart_enabled};
 pub use tools::{available_versions, install_version, ManagedTool, ToolError, ToolInfo, ToolVersion};
 pub use orchestrator::{Orchestrator, ServiceStatus};
 pub use paths::LaraluxPaths;
