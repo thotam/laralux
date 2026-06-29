@@ -172,6 +172,38 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Apply launch-behavior config: show the window unless "start
+            // minimized", and optionally auto-start the stack on launch.
+            let launch = {
+                let st = app.state::<AppState>();
+                laralux_core::Config::load(&st.paths.config_file())
+                    .unwrap_or_default()
+                    .launch
+            };
+            if !launch.start_minimized {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
+            if launch.autostart_services {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let Some(state) = handle.try_state::<AppState>() else { return };
+                    if state.starting.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        return;
+                    }
+                    struct ResetGuard<'a>(&'a std::sync::atomic::AtomicBool);
+                    impl Drop for ResetGuard<'_> {
+                        fn drop(&mut self) {
+                            self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                    let _reset = ResetGuard(&state.starting);
+                    let _ = commands::run_full_start(&state);
+                });
+            }
+
             // Realtime service status: poll liveness server-side every ~1s and
             // push `services-changed` ONLY when the snapshot actually changes, so
             // crashes surface within ~1s and the UI never re-renders while idle.
