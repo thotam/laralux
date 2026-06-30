@@ -40,6 +40,36 @@ const MIME_TYPES: &str = r#"types {
 }
 "#;
 
+/// Full FastCGI param set PHP-FPM expects, plus the httpoxy guard
+/// (`HTTP_PROXY ""`). `HTTPS` uses `if_not_empty` so it is only set on TLS
+/// connections; site 443 blocks additionally force `HTTPS on`.
+const FASTCGI_PARAMS: &str = r#"fastcgi_param  QUERY_STRING       $query_string;
+fastcgi_param  REQUEST_METHOD     $request_method;
+fastcgi_param  CONTENT_TYPE       $content_type;
+fastcgi_param  CONTENT_LENGTH     $content_length;
+
+fastcgi_param  SCRIPT_NAME        $fastcgi_script_name;
+fastcgi_param  REQUEST_URI        $request_uri;
+fastcgi_param  DOCUMENT_URI       $document_uri;
+fastcgi_param  DOCUMENT_ROOT      $document_root;
+fastcgi_param  SERVER_PROTOCOL    $server_protocol;
+fastcgi_param  REQUEST_SCHEME     $scheme;
+fastcgi_param  HTTPS              $https if_not_empty;
+
+fastcgi_param  GATEWAY_INTERFACE  CGI/1.1;
+fastcgi_param  SERVER_SOFTWARE    nginx/$nginx_version;
+
+fastcgi_param  REMOTE_ADDR        $remote_addr;
+fastcgi_param  REMOTE_PORT        $remote_port;
+fastcgi_param  SERVER_ADDR        $server_addr;
+fastcgi_param  SERVER_PORT        $server_port;
+fastcgi_param  SERVER_NAME        $server_name;
+
+fastcgi_param  REDIRECT_STATUS    200;
+
+fastcgi_param  HTTP_PROXY         "";
+"#;
+
 pub struct NginxService {
     http_port: u16,
     php_socket: PathBuf,
@@ -121,20 +151,11 @@ impl Service for NginxService {
         std::fs::write(self.conf_path(paths), conf)?;
         // mime.types so the http-level include resolves (P0: correct MIME for assets).
         std::fs::write(paths.etc_for("nginx").join("mime.types"), MIME_TYPES)?;
-        // Provide a minimal fastcgi_params so the include resolves.
+        // Full fastcgi_params (PHP-FPM expects these; httpoxy guarded here so it
+        // covers the default server and every site PHP location at once).
         std::fs::write(
             paths.etc_for("nginx").join("fastcgi_params"),
-            "fastcgi_param QUERY_STRING $query_string;\n\
-             fastcgi_param REQUEST_METHOD $request_method;\n\
-             fastcgi_param CONTENT_TYPE $content_type;\n\
-             fastcgi_param CONTENT_LENGTH $content_length;\n\
-             fastcgi_param REQUEST_URI $request_uri;\n\
-             fastcgi_param DOCUMENT_URI $document_uri;\n\
-             fastcgi_param DOCUMENT_ROOT $document_root;\n\
-             fastcgi_param SERVER_PROTOCOL $server_protocol;\n\
-             fastcgi_param GATEWAY_INTERFACE CGI/1.1;\n\
-             fastcgi_param REMOTE_ADDR $remote_addr;\n\
-             fastcgi_param SERVER_NAME $server_name;\n",
+            FASTCGI_PARAMS,
         )?;
         Ok(())
     }
@@ -211,6 +232,26 @@ mod tests {
         assert!(mime.contains("application/javascript"));
         assert!(mime.contains("js mjs;"));
         assert!(mime.contains("font/woff2"));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn fastcgi_params_is_full_and_blocks_httpoxy() {
+        let tmp = std::env::temp_dir().join(format!("lara-nginx-fcgi-{}", std::process::id()));
+        let p = LaraluxPaths::new(tmp.clone());
+        let svc = NginxService::new(p.tmp().join("php-fpm.sock"));
+        svc.write_config(&p).unwrap();
+
+        let f = std::fs::read_to_string(p.etc_for("nginx").join("fastcgi_params")).unwrap();
+        for needle in [
+            "REDIRECT_STATUS", "REQUEST_SCHEME", "HTTPS", "SERVER_PORT",
+            "SERVER_ADDR", "REMOTE_PORT", "SCRIPT_NAME", "SERVER_SOFTWARE",
+        ] {
+            assert!(f.contains(needle), "missing fastcgi_param {needle}");
+        }
+        // httpoxy: HTTP_PROXY forced empty.
+        assert!(f.contains("HTTP_PROXY"));
+        assert!(f.contains("\"\""));
         std::fs::remove_dir_all(&tmp).ok();
     }
 
