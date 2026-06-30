@@ -404,7 +404,11 @@ mod tests {
         }
 
         // A leftover "managed" process from a prior session, holding a resource.
-        let mut orphan = std::process::Command::new(&exe).arg("30").spawn().unwrap();
+        // Retry on ETXTBSY: parallel test threads can transiently hold a writable
+        // fd on the just-copied exe, racing execve to "Text file busy".
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("30");
+        let mut orphan = crate::orphans::spawn_retrying_etxtbsy(&mut cmd);
 
         let services: Vec<Box<dyn Service>> =
             vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
