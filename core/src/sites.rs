@@ -102,6 +102,16 @@ impl Site {
         key: &std::path::Path,
     ) -> String {
         let server_names = self.domains.join(" ");
+        let is_laravel = self.root.join("artisan").is_file();
+        let build_cache = if is_laravel {
+            "\x20 location ^~ /build/ {\n\
+             \x20   expires 1y;\n\
+             \x20   add_header Cache-Control \"public, immutable\";\n\
+             \x20   try_files $uri =404;\n\
+             \x20 }\n"
+        } else {
+            ""
+        };
         if let Some(spec) = &self.proxy {
             let mut locations = String::new();
             for r in &spec.routes {
@@ -132,9 +142,14 @@ impl Site {
                  }}\n\
                  server {{\n\
                  \x20 listen 443 ssl;\n\
+                 \x20 http2 on;\n\
                  \x20 server_name {names};\n\
                  \x20 ssl_certificate {cert};\n\
                  \x20 ssl_certificate_key {key};\n\
+                 \x20 ssl_protocols TLSv1.2 TLSv1.3;\n\
+                 \x20 ssl_ciphers HIGH:!aNULL:!MD5;\n\
+                 \x20 ssl_session_cache shared:SSL:10m;\n\
+                 \x20 ssl_session_timeout 10m;\n\
                  \x20 access_log {alog};\n\
                  \x20 error_log {elog};\n\
                  {locations}\
@@ -155,13 +170,20 @@ impl Site {
              }}\n\
              server {{\n\
              \x20 listen 443 ssl;\n\
+             \x20 http2 on;\n\
              \x20 server_name {names};\n\
              \x20 ssl_certificate {cert};\n\
              \x20 ssl_certificate_key {key};\n\
+             \x20 ssl_protocols TLSv1.2 TLSv1.3;\n\
+             \x20 ssl_ciphers HIGH:!aNULL:!MD5;\n\
+             \x20 ssl_session_cache shared:SSL:10m;\n\
+             \x20 ssl_session_timeout 10m;\n\
              \x20 root {docroot};\n\
              \x20 index index.php index.html;\n\
              \x20 access_log {alog};\n\
              \x20 error_log {elog};\n\
+             \x20 location ~ /\\.(?!well-known).* {{ deny all; }}\n\
+             {build_cache}\
              \x20 location / {{ try_files $uri $uri/ /index.php?$query_string; }}\n\
              \x20 location ~ \\.php$ {{\n\
              \x20   fastcgi_pass unix:{sock};\n\
@@ -179,6 +201,7 @@ impl Site {
             elog = paths.log().join(format!("{}-error.log", self.name)).display(),
             sock = php_socket.display(),
             nginx_etc = paths.etc_for("nginx").display(),
+            build_cache = build_cache,
         )
     }
 }
@@ -363,6 +386,52 @@ mod tests {
         assert!(conf.contains(&format!("root {};", www.join("app").join("public").display())));
         assert!(conf.contains(&format!("fastcgi_pass unix:{};", sock.display())));
         assert!(conf.contains("fastcgi_param HTTPS on;"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vhost_has_http2_and_ssl_hardening_and_dotfile_deny() {
+        let root = temp_root();
+        let www = root.join("www");
+        std::fs::create_dir_all(www.join("app").join("public")).unwrap();
+        let paths = LaraluxPaths::new(root.clone());
+        let site = scan_sites(&paths, "dev").unwrap().into_iter().find(|s| s.name == "app").unwrap();
+
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("app.dev.pem");
+        let key = paths.ssl().join("app.dev-key.pem");
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+
+        assert!(conf.contains("http2 on;"));
+        assert!(conf.contains("ssl_protocols TLSv1.2 TLSv1.3;"));
+        assert!(conf.contains("ssl_ciphers HIGH:!aNULL:!MD5;"));
+        assert!(conf.contains("ssl_session_cache shared:SSL:10m;"));
+        assert!(conf.contains("location ~ /\\.(?!well-known).* { deny all; }"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vhost_build_cache_only_for_laravel() {
+        let root = temp_root();
+        let www = root.join("www");
+        // Laravel site: has an `artisan` marker in the project root.
+        std::fs::create_dir_all(www.join("lara").join("public")).unwrap();
+        std::fs::write(www.join("lara").join("artisan"), "#!/usr/bin/env php\n").unwrap();
+        // Plain site: no artisan.
+        std::fs::create_dir_all(www.join("plain")).unwrap();
+        let paths = LaraluxPaths::new(root.clone());
+        let sites = scan_sites(&paths, "dev").unwrap();
+        let by = |n: &str| sites.iter().find(|s| s.name == n).unwrap().clone();
+
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("x.pem");
+        let key = paths.ssl().join("x-key.pem");
+
+        let lara = by("lara").vhost_config(&paths, &sock, &cert, &key);
+        let plain = by("plain").vhost_config(&paths, &sock, &cert, &key);
+        assert!(lara.contains("location ^~ /build/ {"), "laravel site should cache /build/");
+        assert!(lara.contains("public, immutable"));
+        assert!(!plain.contains("/build/"), "non-laravel site must not emit /build/");
         std::fs::remove_dir_all(&root).ok();
     }
 

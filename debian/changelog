@@ -1,3 +1,27 @@
+laralux (0.4.2-1) UNRELEASED; urgency=medium
+
+  * nginx: ship a mime.types map and include it, fixing sites that rendered
+    as unstyled HTML because every asset was served as octet-stream and
+    browsers rejected the CSS/ES modules.
+  * nginx: full fastcgi_params (REDIRECT_STATUS, REQUEST_SCHEME, HTTPS,
+    SERVER_PORT, ...) plus the httpoxy guard HTTP_PROXY "".
+  * nginx: per-site HTTP/2, stronger TLS (TLSv1.2/1.3, cipher set, session
+    cache), gzip, sendfile/keepalive, charset utf-8, server_tokens off,
+    dotfile denial, and an immutable cache for Laravel /build/ assets.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Tue, 30 Jun 2026 17:30:00 +0700
+
+laralux (0.4.1-1) UNRELEASED; urgency=medium
+
+  * CoreDNS: bind a dedicated port (15353) with free-port fallback instead of
+    5353, which collided with avahi-daemon's mDNS and crash-looped the resolver
+    (tray icon stuck red).
+  * TLS: pre-seed the Chromium NSS database with the bundled certutil so the
+    mkcert CA is trusted on first browser launch (was ERR_CERT_AUTHORITY_INVALID
+    for *.dev when the browser profile appeared after setup).
+
+ -- thotam <thanhtamtotaa@gmail.com>  Tue, 30 Jun 2026 16:00:00 +0700
+
 laralux (0.4.0-1) UNRELEASED; urgency=medium
 
   * Setup: disable distro nginx/mariadb/redis units individually and skip any

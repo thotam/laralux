@@ -180,10 +180,23 @@ mod tests {
     fn pick_coredns_port_skips_a_busy_default() {
         use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, COREDNS_PORT));
-        // Hold the udp side of the preferred port; the picker must move past it.
-        // If the env already holds it, the precondition is satisfied differently —
-        // either way the result must not be the busy default.
-        let _held = UdpSocket::bind(addr);
+        // Hold the udp side of the preferred port so the picker must move past it.
+        // Acquire it exclusively, retrying past the transient free-probe binds the
+        // sibling port tests do inside `pick_coredns_port` (they run in parallel,
+        // so a one-shot bind here can spuriously fail and leave the port free).
+        let mut held = None;
+        for _ in 0..200 {
+            match UdpSocket::bind(addr) {
+                Ok(sock) => {
+                    held = Some(sock);
+                    break;
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(5)),
+            }
+        }
+        let _held = held.expect("could not acquire the preferred port to simulate it being busy");
+        // We hold UDP COREDNS_PORT, so port_free() short-circuits false on it and
+        // the picker must return a higher, free port.
         let p = pick_coredns_port();
         assert_ne!(p, COREDNS_PORT);
         assert!(p > COREDNS_PORT);

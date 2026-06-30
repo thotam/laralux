@@ -4,6 +4,28 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-06-30
+
+### Fixed
+- Sites no longer lose all CSS/JS (page renders as unstyled HTML): the generated
+  nginx `http {}` set `default_type application/octet-stream` but never included
+  a `mime.types` map and laralux shipped none, so every static asset was served
+  as `application/octet-stream` and browsers refused to apply stylesheets or
+  execute ES modules. laralux now writes a `mime.types` file and includes it, so
+  `.css` is `text/css`, `.js`/`.mjs` is `application/javascript`, etc.
+
+### Added
+- nginx `fastcgi_params` is now the full set PHP-FPM expects (`REDIRECT_STATUS`,
+  `REQUEST_SCHEME`, `HTTPS`, `SERVER_PORT`/`SERVER_ADDR`/`REMOTE_PORT`,
+  `SERVER_SOFTWARE`, …) plus the httpoxy guard `HTTP_PROXY ""`, so Laravel sees
+  the correct scheme/HTTPS without per-site overrides.
+- Per-site HTTPS hardening and performance: HTTP/2 (`http2 on;`),
+  `ssl_protocols TLSv1.2 TLSv1.3` with a stronger cipher set and SSL session
+  cache, gzip, `sendfile`/`tcp_nopush`/`keepalive`, `charset utf-8`,
+  `server_tokens off`, dotfile denial (`/\.` except `.well-known`), and a
+  long-lived immutable cache for Laravel's hashed `/build/` assets (emitted only
+  for sites with an `artisan` marker).
+
 ## [0.4.1] - 2026-06-30
 
 ### Fixed
@@ -85,6 +107,7 @@ Initial release.
 - Debian packaging (`debian/` source package) and a GitHub Actions release
   workflow that builds the `.deb` and publishes a GitHub Release on `v*` tags.
 
+[0.4.2]: https://github.com/thotam/laralux/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/thotam/laralux/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/thotam/laralux/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/thotam/laralux/compare/v0.2.0...v0.3.0

@@ -115,6 +115,25 @@ pub fn reap(match_dir: &Path, keep: &[u32]) -> Vec<u32> {
     targets
 }
 
+/// Test helper: spawn `cmd`, retrying while execve reports ETXTBSY (raw os
+/// error 26, "Text file busy"). `cargo test` runs tests in one multi-threaded
+/// process; when another thread does fork+exec it transiently inherits the
+/// writable fd of a just-`fs::copy`-ed executable, so exec'ing that file races
+/// to ETXTBSY. The window is sub-millisecond and clears on its own.
+#[cfg(test)]
+pub(crate) fn spawn_retrying_etxtbsy(cmd: &mut std::process::Command) -> std::process::Child {
+    for _ in 0..200 {
+        match cmd.spawn() {
+            Ok(child) => return child,
+            Err(e) if e.raw_os_error() == Some(26) => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(e) => panic!("spawn failed: {e}"),
+        }
+    }
+    panic!("spawn still ETXTBSY (os error 26) after retries");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,7 +195,9 @@ mod tests {
         }
 
         // Case A: excluded via `keep` → survives.
-        let mut child = std::process::Command::new(&exe).arg("30").spawn().unwrap();
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("30");
+        let mut child = spawn_retrying_etxtbsy(&mut cmd);
         let pid = child.id();
         let acted = reap(&root.join("bin"), &[pid]);
         assert!(!acted.contains(&pid), "kept pid must not be reaped");
