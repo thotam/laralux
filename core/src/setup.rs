@@ -355,11 +355,29 @@ pub fn run_setup(
         done += 1;
     }
 
-    // apt auto-starts + enables the distro nginx/mariadb/redis systemd units, which
-    // hold ports 80/3306/6379. Disable them so the app-managed processes can bind.
-    let stack_units = stack_units_to_disable();
-    if let Err(e) = privileged.disable_system_services(&stack_units) {
+    // Batch the root-requiring setup steps into ONE escalation prompt:
+    //  - disable the distro nginx/mariadb/redis systemd units (apt auto-starts +
+    //    enables them, holding ports 80/3306/6379) so app-managed procs can bind;
+    //  - install the mkcert CA into the system trust store;
+    //  - grant the resolved nginx binary the low-port bind capability.
+    let priv_plan = crate::privileged::SetupPrivPlan {
+        disable_units: stack_units_to_disable(),
+        mkcert_bin: resolve_bin("mkcert", &crate::layout::managed_bin_dirs(paths)),
+        nginx_bin: resolve_bin("nginx", &crate::layout::managed_bin_dirs(paths)),
+    };
+    let priv_out = privileged.run_setup_privileged(&priv_plan);
+    if let Err(e) = priv_out.disabled_services {
         report.errors.push(format!("disable system services: {e}"));
+    }
+    match priv_out.mkcert_ca {
+        Some(Ok(())) => report.mkcert_ca = true,
+        Some(Err(e)) => report.errors.push(format!("mkcert -install: {e}")),
+        None => report.errors.push("mkcert -install: mkcert not found".to_string()),
+    }
+    match priv_out.setcap_nginx {
+        Some(Ok(())) => report.nginx_setcap = true,
+        Some(Err(e)) => report.errors.push(format!("setcap nginx: {e}")),
+        None => {} // nginx not resolved — nothing to setcap
     }
 
     // 2. Fetch + extract mailpit (latest) into bin/mailpit/<version>/ when missing.
@@ -373,14 +391,8 @@ pub fn run_setup(
         let _ = done; // no further steps read `done`; suppress unused-assignment lint
     }
 
-    // 3. Install the mkcert local CA (idempotent).
-    match crate::bin::resolve_bin("mkcert", &crate::layout::managed_bin_dirs(paths)) {
-        Some(mk) => match privileged.install_mkcert_ca(&mk) {
-            Ok(()) => report.mkcert_ca = true,
-            Err(e) => report.errors.push(format!("mkcert -install: {e}")),
-        },
-        None => report.errors.push("mkcert -install: mkcert not found".to_string()),
-    }
+    // 3. The mkcert system-store CA install is handled by the batched privileged
+    // step above (a single escalation prompt for the whole setup).
 
     // 3b. Bundle certutil (NSS tools) and register the CA in the browser NSS
     // stores (Firefox/Chrome). No-apt: certutil is extracted from Ubuntu debs.
@@ -399,13 +411,8 @@ pub fn run_setup(
         Err(e) => report.errors.push(format!("install certutil: {e}")),
     }
 
-    // 4. setcap the resolved nginx binary (same path the orchestrator spawns).
-    if let Some(nginx) = resolve_bin("nginx", &crate::layout::managed_bin_dirs(paths)) {
-        match privileged.setcap_nginx(&nginx) {
-            Ok(()) => report.nginx_setcap = true,
-            Err(e) => report.errors.push(format!("setcap nginx: {e}")),
-        }
-    }
+    // 4. The nginx low-port bind capability (setcap) is handled by the batched
+    // privileged step above.
 
     // Reconcile all `current` symlinks from the freshly-written config.
     let cfg = crate::config::Config::load(&paths.config_file()).unwrap_or_default();

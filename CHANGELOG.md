@@ -4,6 +4,24 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-06-30
+
+### Fixed
+- Setup no longer ends with "disable system services: pkexec command failed":
+  the distro nginx/mariadb/redis systemd units are now disabled individually and
+  any that aren't installed are skipped, instead of failing the whole batch (the
+  units don't exist on a clean no-apt system, so this previously failed almost
+  every time).
+- Setup no longer ends with "mkcert -install (system) failed": the mkcert CA is
+  now installed into the system trust store under privilege escalation with
+  `CAROOT` pinned to the user's CA, instead of running mkcert unprivileged (which
+  could not write the system store and had no TTY for its internal `sudo`).
+
+### Changed
+- Setup now performs its privileged steps (disable distro services, install the
+  mkcert system CA, grant nginx the low-port bind capability) under a single
+  authorization prompt instead of one prompt per step.
+
 ## [0.3.0] - 2026-06-29
 
 ### Fixed
@@ -51,6 +69,7 @@ Initial release.
 - Debian packaging (`debian/` source package) and a GitHub Actions release
   workflow that builds the `.deb` and publishes a GitHub Release on `v*` tags.
 
+[0.4.0]: https://github.com/thotam/laralux/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/thotam/laralux/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/thotam/laralux/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/thotam/laralux/releases/tag/v0.1.0
