@@ -70,7 +70,7 @@ pub use php_ini::{render_php_ini, validate as validate_php_ini, write_php_ini, P
 pub use terminal::{open_terminal, TerminalError};
 pub use filemanager::{open_folder, FileManagerError};
 pub use dbgate::{ensure_dbgate, open_dbgate, DbgateError};
-pub use coredns::{ensure_coredns, corefile, resolved_dropin, CorednsError};
+pub use coredns::{ensure_coredns, corefile, pick_coredns_port, resolved_dropin, CorednsError, COREDNS_PORT};
 pub use mkcert_static::{install_mkcert, MkcertError};
 pub use nginx_static::{install_nginx, NginxError};
 pub use redis_static::{install_redis, RedisError};

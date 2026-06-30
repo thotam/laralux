@@ -174,9 +174,10 @@ impl Orchestrator {
     }
 
     /// Swap the active CoreDNS bases. Stops and removes any existing CoreDNS service,
-    /// then starts a new one with the given bases (port 5353). If bases is empty,
-    /// stops and removes without restarting.
-    pub fn set_coredns(&mut self, bases: Vec<String>) -> Result<(), ServiceError> {
+    /// then starts a new one with the given bases bound to `port` (use
+    /// [`crate::pick_coredns_port`] to choose one). If bases is empty, stops and
+    /// removes without restarting (`port` is then unused).
+    pub fn set_coredns(&mut self, bases: Vec<String>, port: u16) -> Result<(), ServiceError> {
         let was_running = self.state(ServiceKind::Coredns) == ServiceState::Running;
         if was_running {
             let _ = self.stop(ServiceKind::Coredns);
@@ -186,7 +187,7 @@ impl Orchestrator {
             return Ok(());
         }
         self.services
-            .push(Box::new(crate::service::coredns::CorednsService::new(bases, 5353)));
+            .push(Box::new(crate::service::coredns::CorednsService::new(bases, port)));
         self.start(ServiceKind::Coredns)
     }
 
@@ -567,11 +568,11 @@ mod tests {
         let log = spawner.log();
         let mut orch = Orchestrator::new(paths, vec![], Box::new(spawner));
 
-        orch.set_coredns(vec!["demo.dev".to_string()]).unwrap();
+        orch.set_coredns(vec!["demo.dev".to_string()], crate::COREDNS_PORT).unwrap();
         assert_eq!(orch.state(ServiceKind::Coredns), ServiceState::Running);
         assert_eq!(log.lock().unwrap().last().unwrap().program, "coredns");
 
-        orch.set_coredns(vec![]).unwrap();
+        orch.set_coredns(vec![], crate::COREDNS_PORT).unwrap();
         assert_eq!(orch.state(ServiceKind::Coredns), ServiceState::Stopped);
         std::fs::remove_dir_all(&tmp).ok();
     }

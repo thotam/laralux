@@ -615,7 +615,7 @@ mod tests {
     #[test]
     fn fake_records_resolved_dropin() {
         let f = FakePrivileged::new();
-        f.write_resolved_dropin("[Resolve]\nDNS=127.0.0.1:5353\n").unwrap();
+        f.write_resolved_dropin(&format!("[Resolve]\nDNS=127.0.0.1:{}\n", crate::coredns::COREDNS_PORT)).unwrap();
         assert_eq!(f.resolved_dropins().lock().unwrap().len(), 1);
         f.remove_resolved_dropin().unwrap();
         assert!(*f.resolved_removed().lock().unwrap());

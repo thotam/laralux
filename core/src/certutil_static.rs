@@ -149,14 +149,60 @@ pub fn install_certutil(
     Ok(bin)
 }
 
+/// The shared NSS DB that Chromium-family browsers (Chrome, Chromium, Edge,
+/// Brave) read custom CAs from, given the user's home directory.
+fn nssdb_dir_for(home: &Path) -> PathBuf {
+    home.join(".pki").join("nssdb")
+}
+
+/// Same, resolved from `$HOME`. `None` if `$HOME` is unset.
+fn user_nssdb_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|h| nssdb_dir_for(Path::new(&h)))
+}
+
+/// Create an empty, password-less Chromium NSS DB if one does not exist yet.
+///
+/// `mkcert -install` can only register the CA in an NSS DB that already exists.
+/// A user who has never launched a Chromium-family browser has no `~/.pki/nssdb`
+/// at setup time, so the CA install silently skips it — then the browser creates
+/// the DB itself on first launch *without* our CA, and every `*.dev` site shows
+/// `ERR_CERT_AUTHORITY_INVALID`. Pre-seeding an empty DB gives mkcert somewhere
+/// to write; the browser reuses it. Best-effort: failures are swallowed so the
+/// existing-store install still proceeds.
+fn ensure_user_nssdb(certutil_bin_dir: &Path, certutil_lib_dir: &Path) {
+    if let Some(dir) = user_nssdb_dir() {
+        ensure_user_nssdb_in(&dir, certutil_bin_dir, certutil_lib_dir);
+    }
+}
+
+/// [`ensure_user_nssdb`] against an explicit NSS DB directory (testable seam).
+fn ensure_user_nssdb_in(dir: &Path, certutil_bin_dir: &Path, certutil_lib_dir: &Path) {
+    if dir.join("cert9.db").is_file() {
+        return; // already initialised (by us on a prior run, or by the browser)
+    }
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let _ = std::process::Command::new(certutil_bin_dir.join("certutil"))
+        .args(["-N", "-d"])
+        .arg(format!("sql:{}", dir.display()))
+        .arg("--empty-password")
+        .env("LD_LIBRARY_PATH", certutil_lib_dir.display().to_string())
+        .status();
+}
+
 /// Run `mkcert -install` for the browser NSS stores only, using the bundled
 /// certutil (`PATH` prepend + `LD_LIBRARY_PATH`) and `TRUST_STORES=nss` so it
 /// touches only Firefox/Chrome — the system store is handled separately.
+///
+/// Pre-seeds the Chromium NSS DB first (see [`ensure_user_nssdb`]) so the CA
+/// lands even when no browser has run yet.
 pub fn mkcert_install_nss(
     mkcert_bin: &Path,
     certutil_bin_dir: &Path,
     certutil_lib_dir: &Path,
 ) -> Result<(), CertutilError> {
+    ensure_user_nssdb(certutil_bin_dir, certutil_lib_dir);
     let prev_path = std::env::var("PATH").unwrap_or_default();
     let new_path = format!("{}:{}", certutil_bin_dir.display(), prev_path);
     let status = std::process::Command::new(mkcert_bin)
@@ -208,5 +254,29 @@ mod tests {
         assert!(DEBS.iter().any(|d| d.contains("libnss3-tools")));
         assert!(DEBS.iter().any(|d| d.contains("libnspr4")));
         assert_eq!(DEBS.len(), 4);
+    }
+
+    #[test]
+    fn nssdb_dir_is_chromium_shared_path() {
+        // Chromium-family browsers read custom CAs from ~/.pki/nssdb.
+        assert_eq!(
+            nssdb_dir_for(Path::new("/home/u")),
+            Path::new("/home/u/.pki/nssdb")
+        );
+    }
+
+    #[test]
+    fn ensure_user_nssdb_skips_when_db_present() {
+        // With cert9.db already present, no certutil is spawned and the existing
+        // DB is left untouched — re-running setup must be idempotent.
+        let dir = std::env::temp_dir().join(format!("lara-nssdb-{}", std::process::id()));
+        let nss = dir.join(".pki").join("nssdb");
+        std::fs::create_dir_all(&nss).unwrap();
+        std::fs::write(nss.join("cert9.db"), b"existing").unwrap();
+        // certutil_bin_dir points nowhere runnable; the present-DB short-circuit
+        // must return before trying to exec it.
+        ensure_user_nssdb_in(&nss, Path::new("/nonexistent/bin"), Path::new("/nonexistent/lib"));
+        assert_eq!(std::fs::read(nss.join("cert9.db")).unwrap(), b"existing");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

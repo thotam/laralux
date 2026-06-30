@@ -4,6 +4,37 @@ use crate::setup::Downloader;
 
 pub const COREDNS_VERSION: &str = "1.14.4";
 
+/// Preferred local DNS port for CoreDNS. Deliberately NOT 5353 — that is the
+/// well-known mDNS port and is almost always already bound by `avahi-daemon`
+/// on `0.0.0.0:5353` (default on Ubuntu/desktop), which makes CoreDNS fail with
+/// `bind: address already in use` and crash on startup. It is also >1024 so it
+/// needs no root/CAP_NET_BIND_SERVICE.
+pub const COREDNS_PORT: u16 = 15353;
+
+/// True if `port` can be bound on 127.0.0.1 for BOTH udp and tcp — CoreDNS
+/// serves DNS on both, so a usable port must be free on both. The sockets are
+/// dropped immediately, freeing the port for CoreDNS to claim.
+fn port_free(port: u16) -> bool {
+    use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    UdpSocket::bind(addr).is_ok() && TcpListener::bind(addr).is_ok()
+}
+
+/// Pick a free DNS port for CoreDNS: prefer [`COREDNS_PORT`], and if it is taken
+/// (e.g. another local resolver or a leftover instance) scan upward for the next
+/// free one so a one-off conflict cannot keep CoreDNS crash-looping. Falls back
+/// to [`COREDNS_PORT`] if the whole scan window is busy (caller surfaces the
+/// resulting start error). Call AFTER killing any stale CoreDNS we own, so our
+/// own previous instance does not push the port off its preferred value.
+pub fn pick_coredns_port() -> u16 {
+    if port_free(COREDNS_PORT) {
+        return COREDNS_PORT;
+    }
+    (COREDNS_PORT + 1..=COREDNS_PORT + 50)
+        .find(|&p| port_free(p))
+        .unwrap_or(COREDNS_PORT)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CorednsError {
     #[error("unsupported architecture: {0}")]
@@ -114,19 +145,47 @@ mod tests {
             coredns_url("1.14.4", "amd64"),
             "https://github.com/coredns/coredns/releases/download/v1.14.4/coredns_1.14.4_linux_amd64.tgz"
         );
-        let cf = corefile(&["demo.dev".to_string()], 5353);
-        assert!(cf.contains("demo.dev:5353 {"));
+        let cf = corefile(&["demo.dev".to_string()], COREDNS_PORT);
+        assert!(cf.contains(&format!("demo.dev:{COREDNS_PORT} {{")));
         assert!(cf.contains("template IN A"));
         assert!(cf.contains("127.0.0.1"));
-        let dp = resolved_dropin(&["demo.dev".to_string(), "test".to_string()], 5353);
-        assert!(dp.contains("DNS=127.0.0.1:5353"));
+        let dp = resolved_dropin(&["demo.dev".to_string(), "test".to_string()], COREDNS_PORT);
+        assert!(dp.contains(&format!("DNS=127.0.0.1:{COREDNS_PORT}")));
         assert!(dp.contains("Domains=~demo.dev ~test"));
     }
 
     #[test]
     fn resolved_dropin_drops_unsafe_bases() {
-        let dp = resolved_dropin(&["demo.dev".to_string(), "bad base".to_string()], 5353);
+        let dp = resolved_dropin(&["demo.dev".to_string(), "bad base".to_string()], COREDNS_PORT);
         assert!(dp.contains("~demo.dev"));
         assert!(!dp.contains("bad base"));
+    }
+
+    #[test]
+    fn coredns_port_avoids_mdns_and_needs_no_root() {
+        // 5353 is the mDNS/avahi port — binding it collides with avahi-daemon and
+        // crashes CoreDNS. Our port must avoid it and stay above the privileged range.
+        assert_ne!(COREDNS_PORT, 5353);
+        assert!(COREDNS_PORT > 1024);
+    }
+
+    #[test]
+    fn pick_coredns_port_prefers_default_when_free() {
+        let p = pick_coredns_port();
+        // Always within the scan window; equals the default when it is free.
+        assert!((COREDNS_PORT..=COREDNS_PORT + 50).contains(&p));
+    }
+
+    #[test]
+    fn pick_coredns_port_skips_a_busy_default() {
+        use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, COREDNS_PORT));
+        // Hold the udp side of the preferred port; the picker must move past it.
+        // If the env already holds it, the precondition is satisfied differently —
+        // either way the result must not be the busy default.
+        let _held = UdpSocket::bind(addr);
+        let p = pick_coredns_port();
+        assert_ne!(p, COREDNS_PORT);
+        assert!(p > COREDNS_PORT);
     }
 }

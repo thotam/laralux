@@ -4,6 +4,22 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-06-30
+
+### Fixed
+- CoreDNS no longer crashes on startup (tray icon stuck red): the bundled local
+  resolver bound UDP `127.0.0.1:5353`, which collides with `avahi-daemon`'s
+  mDNS listener on `0.0.0.0:5353` (present by default on most desktops), so
+  CoreDNS exited immediately with "address already in use" and the whole stack
+  showed as crashed. It now binds a dedicated port (15353) and falls back to the
+  next free port if that is taken, so a one-off conflict can't crash-loop it.
+- `*.dev` HTTPS no longer shows `ERR_CERT_AUTHORITY_INVALID` in Chrome/Chromium
+  when the browser is first launched after setup: the mkcert CA could only be
+  registered in NSS databases that already existed, so a browser whose
+  `~/.pki/nssdb` was created later never trusted the CA. Setup now pre-seeds an
+  empty Chromium NSS database (using the bundled `certutil`, still no `apt`) so
+  the CA is always installed and the browser reuses it.
+
 ## [0.4.0] - 2026-06-30
 
 ### Fixed
@@ -69,6 +85,7 @@ Initial release.
 - Debian packaging (`debian/` source package) and a GitHub Actions release
   workflow that builds the `.deb` and publishes a GitHub Release on `v*` tags.
 
+[0.4.1]: https://github.com/thotam/laralux/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/thotam/laralux/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/thotam/laralux/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/thotam/laralux/compare/v0.1.0...v0.2.0

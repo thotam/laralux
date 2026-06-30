@@ -1,7 +1,8 @@
 use laralux_core::{
     build_services, create_site as core_create_site, detect_components, disable_autostart,
-    enable_autostart, ensure_coredns, ensure_nginx_bind_cap, list_all_sites, read_procfile,
-    resolved_dropin, run_setup, sync_sites, Config, CreateReport, LaraluxPaths, LaunchConfig,
+    enable_autostart, ensure_coredns, ensure_nginx_bind_cap, list_all_sites, pick_coredns_port,
+    read_procfile, resolved_dropin, run_setup, sync_sites, Config, CreateReport, LaraluxPaths,
+    LaunchConfig, COREDNS_PORT,
     MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged, ProxyRoute, ProcStatus,
     RealCommandRunner, RealSpawner, ServiceKind, ServiceState, ServiceStatus, Site, SiteProcs,
     SiteRegistry, SiteTemplate,
@@ -686,7 +687,7 @@ pub async fn open_db_client(app: tauri::AppHandle) -> Result<(), String> {
 const RESOLVED_DROPIN_PATH: &str = "/etc/systemd/resolved.conf.d/laralux.conf";
 
 /// Best-effort: kill any CoreDNS spawned from our managed bin (e.g. an orphan
-/// left by a crashed prior session that still holds 127.0.0.1:5353). Matching on
+/// left by a crashed prior session that still holds the DNS port). Matching on
 /// our bin path avoids touching an unrelated system CoreDNS.
 fn kill_stale_coredns(state: &AppState) {
     let pat = state.paths.bin().join("coredns");
@@ -704,7 +705,7 @@ fn apply_wildcard_dns(state: &AppState, bases: &[String]) -> Vec<String> {
     let mut warnings: Vec<String> = Vec::new();
     if bases.is_empty() {
         if let Ok(mut orch) = state.orch.lock() {
-            let _ = orch.set_coredns(vec![]);
+            let _ = orch.set_coredns(vec![], COREDNS_PORT);
         }
         kill_stale_coredns(state);
         // Only prompt to remove the drop-in if it is actually present.
@@ -720,14 +721,18 @@ fn apply_wildcard_dns(state: &AppState, bases: &[String]) -> Vec<String> {
         return warnings;
     }
     kill_stale_coredns(state);
+    // Pick the DNS port AFTER killing our stale CoreDNS, so a leftover instance we
+    // own doesn't bump the port off its preferred value. The same port feeds both
+    // the CoreDNS bind and the resolved drop-in below, so they always agree.
+    let port = pick_coredns_port();
     if let Ok(mut orch) = state.orch.lock() {
-        if let Err(e) = orch.set_coredns(bases.to_vec()) {
+        if let Err(e) = orch.set_coredns(bases.to_vec(), port) {
             warnings.push(format!("Could not start CoreDNS: {e}"));
         }
     }
     // Only prompt to write the drop-in when its content actually changed
     // (trailing-newline-insensitive), so a plain restart needs no password.
-    let desired = resolved_dropin(bases, 5353);
+    let desired = resolved_dropin(bases, port);
     let current = std::fs::read_to_string(RESOLVED_DROPIN_PATH).ok();
     if current.as_deref().map(str::trim_end) != Some(desired.trim_end()) {
         if let Err(e) = PkexecPrivileged.write_resolved_dropin(&desired) {
