@@ -1,6 +1,7 @@
 use laralux_core::{
     build_services, create_site as core_create_site, detect_components, disable_autostart,
-    enable_autostart, ensure_coredns, ensure_nginx_bind_cap, list_all_sites, pick_coredns_port,
+    coredns_port_free, enable_autostart, ensure_coredns, ensure_nginx_bind_cap, list_all_sites,
+    parse_dropin_port, pick_coredns_port_preferring, wait_port_free,
     read_procfile, resolved_dropin, run_setup, sync_sites, Config, CreateReport, LaraluxPaths,
     LaunchConfig, COREDNS_PORT,
     MkcertIssuer, Orchestrator, PkexecPrivileged, Privileged, ProxyRoute, ProcStatus,
@@ -721,10 +722,20 @@ fn apply_wildcard_dns(state: &AppState, bases: &[String]) -> Vec<String> {
         return warnings;
     }
     kill_stale_coredns(state);
-    // Pick the DNS port AFTER killing our stale CoreDNS, so a leftover instance we
-    // own doesn't bump the port off its preferred value. The same port feeds both
-    // the CoreDNS bind and the resolved drop-in below, so they always agree.
-    let port = pick_coredns_port();
+    // Read the current drop-in once: it both gives the port to prefer (below) and
+    // is compared against `desired` to decide whether a password prompt is needed.
+    let current = std::fs::read_to_string(RESOLVED_DROPIN_PATH).ok();
+    // `kill_stale_coredns` only *signals* our stale CoreDNS; it may still hold the
+    // canonical port for a moment. Wait for it to release before picking, so a
+    // restart doesn't bump onto a higher port — that would change the drop-in and
+    // re-prompt for the password on the next clean boot (bin/coredns port jitter).
+    wait_port_free(coredns_port_free, 40, std::time::Duration::from_millis(50));
+    // Pick the DNS port AFTER killing our stale CoreDNS. Prefer the port already in
+    // the drop-in so, if the canonical port is genuinely busy, we reuse the recorded
+    // one instead of scanning to a new value (which would churn the drop-in). The
+    // same port feeds both the CoreDNS bind and the resolved drop-in below.
+    let preferred = current.as_deref().and_then(parse_dropin_port);
+    let port = pick_coredns_port_preferring(preferred);
     if let Ok(mut orch) = state.orch.lock() {
         if let Err(e) = orch.set_coredns(bases.to_vec(), port) {
             warnings.push(format!("Could not start CoreDNS: {e}"));
@@ -733,7 +744,6 @@ fn apply_wildcard_dns(state: &AppState, bases: &[String]) -> Vec<String> {
     // Only prompt to write the drop-in when its content actually changed
     // (trailing-newline-insensitive), so a plain restart needs no password.
     let desired = resolved_dropin(bases, port);
-    let current = std::fs::read_to_string(RESOLVED_DROPIN_PATH).ok();
     if current.as_deref().map(str::trim_end) != Some(desired.trim_end()) {
         if let Err(e) = PkexecPrivileged.write_resolved_dropin(&desired) {
             warnings.push(format!("Could not write DNS routing drop-in: {e}"));

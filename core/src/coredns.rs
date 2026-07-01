@@ -27,12 +27,66 @@ fn port_free(port: u16) -> bool {
 /// resulting start error). Call AFTER killing any stale CoreDNS we own, so our
 /// own previous instance does not push the port off its preferred value.
 pub fn pick_coredns_port() -> u16 {
-    if port_free(COREDNS_PORT) {
+    select_coredns_port(port_free, None)
+}
+
+/// Like [`pick_coredns_port`], but when the canonical port is busy, reuse
+/// `preferred` (the port already recorded in the systemd-resolved drop-in) if it
+/// is free, before scanning for a new one. Reusing the existing port keeps the
+/// drop-in content stable across restarts, so a plain restart needs no password.
+pub fn pick_coredns_port_preferring(preferred: Option<u16>) -> u16 {
+    select_coredns_port(port_free, preferred)
+}
+
+/// Pure port selection driven by a `is_free` probe. Preference order:
+/// 1. [`COREDNS_PORT`] (canonical), 2. `preferred` if set and free, 3. the first
+/// free port in `COREDNS_PORT+1..=COREDNS_PORT+50`. Falls back to [`COREDNS_PORT`]
+/// when the whole window is busy (caller surfaces the resulting bind error).
+pub fn select_coredns_port(is_free: impl Fn(u16) -> bool, preferred: Option<u16>) -> u16 {
+    if is_free(COREDNS_PORT) {
         return COREDNS_PORT;
     }
+    if let Some(p) = preferred {
+        if p != COREDNS_PORT && is_free(p) {
+            return p;
+        }
+    }
     (COREDNS_PORT + 1..=COREDNS_PORT + 50)
-        .find(|&p| port_free(p))
+        .find(|&p| is_free(p))
         .unwrap_or(COREDNS_PORT)
+}
+
+/// Extract the CoreDNS port from a systemd-resolved drop-in body (`DNS=IP:PORT`).
+/// Returns `None` when the line is missing or the port is unparseable.
+pub fn parse_dropin_port(content: &str) -> Option<u16> {
+    content
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("DNS="))
+        .and_then(|v| v.rsplit(':').next())
+        .and_then(|p| p.trim().parse::<u16>().ok())
+}
+
+/// Poll `is_free` up to `attempts` times, sleeping `interval` between tries,
+/// returning `true` as soon as it reports free. Lets a just-killed CoreDNS we own
+/// finish releasing [`COREDNS_PORT`] before we pick, so a restart does not bump
+/// onto a higher port (which would change the drop-in and re-prompt on the next
+/// clean boot).
+pub fn wait_port_free(mut is_free: impl FnMut() -> bool, attempts: u32, interval: std::time::Duration) -> bool {
+    for i in 0..attempts {
+        if is_free() {
+            return true;
+        }
+        if i + 1 < attempts {
+            std::thread::sleep(interval);
+        }
+    }
+    false
+}
+
+/// Real-socket probe for the canonical CoreDNS port, for the app layer to wait on
+/// after killing a stale instance.
+pub fn coredns_port_free() -> bool {
+    port_free(COREDNS_PORT)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -200,5 +254,82 @@ mod tests {
         let p = pick_coredns_port();
         assert_ne!(p, COREDNS_PORT);
         assert!(p > COREDNS_PORT);
+    }
+
+    #[test]
+    fn parse_dropin_port_reads_dns_line() {
+        let body = "[Resolve]\nDNS=127.0.0.1:15354\nDomains=~member.dev ~online.dev\n";
+        assert_eq!(parse_dropin_port(body), Some(15354));
+    }
+
+    #[test]
+    fn parse_dropin_port_none_when_absent_or_garbage() {
+        assert_eq!(parse_dropin_port("[Resolve]\nDomains=~x\n"), None);
+        assert_eq!(parse_dropin_port("DNS=127.0.0.1:notaport\n"), None);
+        assert_eq!(parse_dropin_port(""), None);
+    }
+
+    #[test]
+    fn select_prefers_canonical_when_free() {
+        // Everything free: always the canonical port, even if a different one was preferred.
+        let p = select_coredns_port(|_| true, Some(COREDNS_PORT + 5));
+        assert_eq!(p, COREDNS_PORT);
+    }
+
+    #[test]
+    fn select_reuses_preferred_when_canonical_busy() {
+        // Canonical busy, preferred free -> reuse the existing drop-in port instead
+        // of scanning to a brand-new one (avoids churn that would re-prompt).
+        let preferred = COREDNS_PORT + 7;
+        let p = select_coredns_port(|port| port != COREDNS_PORT, Some(preferred));
+        assert_eq!(p, preferred);
+    }
+
+    #[test]
+    fn select_scans_when_canonical_busy_and_no_preferred() {
+        // Canonical busy, no preferred -> first free port above canonical.
+        let p = select_coredns_port(|port| port != COREDNS_PORT, None);
+        assert_eq!(p, COREDNS_PORT + 1);
+    }
+
+    #[test]
+    fn select_scans_when_preferred_also_busy() {
+        let busy = COREDNS_PORT + 7;
+        let p = select_coredns_port(|port| port != COREDNS_PORT && port != busy, Some(busy));
+        assert_eq!(p, COREDNS_PORT + 1);
+    }
+
+    #[test]
+    fn wait_port_free_returns_true_once_freed() {
+        use std::cell::Cell;
+        let calls = Cell::new(0u32);
+        // Free on the 3rd probe.
+        let ok = wait_port_free(
+            || {
+                let n = calls.get() + 1;
+                calls.set(n);
+                n >= 3
+            },
+            10,
+            std::time::Duration::ZERO,
+        );
+        assert!(ok);
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn wait_port_free_gives_up_after_attempts() {
+        use std::cell::Cell;
+        let calls = Cell::new(0u32);
+        let ok = wait_port_free(
+            || {
+                calls.set(calls.get() + 1);
+                false
+            },
+            4,
+            std::time::Duration::ZERO,
+        );
+        assert!(!ok);
+        assert_eq!(calls.get(), 4);
     }
 }
