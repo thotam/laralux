@@ -1,3 +1,16 @@
+laralux (0.4.3-1) UNRELEASED; urgency=medium
+
+  * dns: stop the recurring polkit password prompt on nearly every boot to
+    write the systemd-resolved drop-in. CoreDNS port jitter (a just-killed
+    stale instance still held the port when the next port was picked, bumping
+    onto a higher one and baking it into the drop-in) made the drop-in differ
+    from the port chosen on the next clean boot. laralux now waits for the
+    canonical port to be released before picking and reuses the port already
+    recorded in the drop-in when the canonical one is busy, keeping the
+    drop-in stable across restarts and reboots.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Wed, 01 Jul 2026 08:00:00 +0700
+
 laralux (0.4.2-1) UNRELEASED; urgency=medium
 
   * nginx: ship a mime.types map and include it, fixing sites that rendered

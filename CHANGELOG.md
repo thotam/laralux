@@ -4,6 +4,20 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.3] - 2026-07-01
+
+### Fixed
+- No more recurring "Authentication Required" password prompt on nearly every
+  boot to write the systemd-resolved drop-in. The CoreDNS port could jitter
+  between the canonical port and a higher one: `kill_stale_coredns` only *signals*
+  the stale CoreDNS, so the just-killed instance could still hold the port when
+  `pick_coredns_port` probed it, bumping onto the next port and baking that value
+  into the drop-in — which then differed from the port chosen on the next clean
+  boot, triggering a fresh `pkexec` prompt. laralux now waits for the canonical
+  port to be released before picking, and prefers the port already recorded in
+  the drop-in when the canonical one is genuinely busy, so the drop-in content
+  stays stable across restarts and reboots and no longer re-prompts.
+
 ## [0.4.2] - 2026-06-30
 
 ### Fixed
