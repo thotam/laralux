@@ -4,6 +4,22 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-07-01
+
+### Changed
+- Packaging is now driven by a single source of truth — `debian/rules`
+  (`dpkg-buildpackage`) — and the release workflow builds and publishes the
+  `.deb` through it instead of `tauri-action`, so local and CI builds produce
+  identical packages. The GUI binary installs to `/usr/bin/laralux-desktop`
+  (matching the Cargo binary name), the desktop entry is
+  `com.laralux.desktop`, and the hicolor icon is `com.laralux.png`.
+- App identifier shortened from `com.laralux.linux` to `com.laralux`; the
+  runtime autostart entry, the dev desktop entry
+  (`scripts/install-dev-desktop.sh`), and the packaged desktop entry/icon all
+  use the `com.laralux` base consistently. Existing stack config under
+  `~/laralux` is unaffected; only the WebView cache dir moves to
+  `~/.local/share/com.laralux` (the old one can be removed).
+
 ## [0.4.3] - 2026-07-01
 
 ### Fixed

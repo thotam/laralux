@@ -1,3 +1,15 @@
+laralux (0.5.0-1) UNRELEASED; urgency=medium
+
+  * packaging: debian/rules is the single source of truth; the release
+    workflow builds and publishes the .deb via dpkg-buildpackage instead of
+    tauri-action, so local and CI builds match. GUI binary installs to
+    /usr/bin/laralux-desktop, desktop entry com.laralux.desktop, icon
+    com.laralux.png.
+  * identifier: shortened com.laralux.linux -> com.laralux across the runtime
+    autostart entry, the dev desktop entry, and the packaged desktop/icon.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Wed, 01 Jul 2026 09:00:00 +0700
+
 laralux (0.4.3-1) UNRELEASED; urgency=medium
 
   * dns: stop the recurring polkit password prompt on nearly every boot to

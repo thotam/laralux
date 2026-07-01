@@ -12,9 +12,9 @@ override_dh_auto_build:
 	cargo build --release -p laralux-desktop
 
 override_dh_auto_install:
-	install -Dm755 target/release/laralux-desktop debian/laralux/usr/bin/laralux
-	install -Dm644 debian/com.laralux.linux.desktop debian/laralux/usr/share/applications/com.laralux.linux.desktop
-	install -Dm644 src-tauri/icons/icon.png debian/laralux/usr/share/icons/hicolor/512x512/apps/com.laralux.linux.png
+	install -Dm755 target/release/laralux-desktop debian/laralux/usr/bin/laralux-desktop
+	install -Dm644 debian/com.laralux.desktop debian/laralux/usr/share/applications/com.laralux.desktop
+	install -Dm644 src-tauri/icons/icon.png debian/laralux/usr/share/icons/hicolor/512x512/apps/com.laralux.png
 
 override_dh_auto_test:
 	cargo test -p laralux-core

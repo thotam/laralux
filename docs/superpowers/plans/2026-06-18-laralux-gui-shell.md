@@ -10,11 +10,11 @@
 
 ## Global Constraints
 
-- App identifier: `com.laralux.linux`. Product/window title: `Laralux`. Window label: `main`.
+- App identifier: `com.laralux`. Product/window title: `Laralux`. Window label: `main`.
 - Frontend is static files in `dist/`; `tauri.conf.json` sets `build.frontendDist = "../dist"` and `app.withGlobalTauri = true` (frontend calls `window.__TAURI__.core.invoke`). No npm/bundler.
 - The `Orchestrator` lives for the app's lifetime in managed state; the app MUST `stop_all()` before exiting so no child processes are orphaned.
 - Tray menu items (exact labels): `Start All`, `Stop All`, `Dashboard`, `Quit`.
-- IPC command names (snake_case): `stack_status`, `stack_start_all`, `stack_stop_all`, `service_start`, `service_stop`, `list_sites`. Commands return `Result<_, String>` (errors stringified).
+- IPC command names (snake*case): `stack_status`, `stack_start_all`, `stack_stop_all`, `service_start`, `service_stop`, `list_sites`. Commands return `Result<*, String>` (errors stringified).
 - `core` keeps zero Tauri deps; all Tauri code lives in `src-tauri`.
 - Linux system prerequisites for Tauri 2 (webkit2gtk 4.1, ayatana appindicator) must be installed before the app compiles — this is a one-time human step (needs interactive sudo).
 - Commit messages MUST NOT contain a `Co-Authored-By` trailer.
@@ -25,6 +25,7 @@
 ### Task 1: Core — serde derives + status snapshot
 
 **Files:**
+
 - Modify: `core/src/service/mod.rs` (derive serde on `ServiceKind`, `ServiceState`)
 - Modify: `core/src/sites.rs` (derive `Serialize` on `Site`)
 - Modify: `core/src/orchestrator.rs` (add `ServiceStatus` + `Orchestrator::snapshot()`)
@@ -32,12 +33,13 @@
 - Modify: `core/src/lib.rs` (re-export `ServiceStatus`)
 
 **Interfaces:**
+
 - Consumes: `ServiceKind`, `ServiceState`, `Orchestrator::{start_order, state}` (Plan 1).
 - Produces:
-  - `ServiceKind` and `ServiceState` derive `serde::Serialize + serde::Deserialize` (serialize as their variant names, e.g. `"Nginx"`, `"Running"`).
-  - `Site` derives `serde::Serialize`.
-  - `struct ServiceStatus { pub kind: ServiceKind, pub state: ServiceState }` (derives `Serialize, Deserialize, Clone, Debug, PartialEq, Eq`).
-  - `Orchestrator::snapshot(&self) -> Vec<ServiceStatus>` — one entry per registered service in `start_order()`, each carrying its current `state(kind)`.
+    - `ServiceKind` and `ServiceState` derive `serde::Serialize + serde::Deserialize` (serialize as their variant names, e.g. `"Nginx"`, `"Running"`).
+    - `Site` derives `serde::Serialize`.
+    - `struct ServiceStatus { pub kind: ServiceKind, pub state: ServiceState }` (derives `Serialize, Deserialize, Clone, Debug, PartialEq, Eq`).
+    - `Orchestrator::snapshot(&self) -> Vec<ServiceStatus>` — one entry per registered service in `start_order()`, each carrying its current `state(kind)`.
 
 - [ ] **Step 1: Add the serde_json dev-dependency**
 
@@ -171,6 +173,7 @@ git commit -m "feat(core): add serde derives and Orchestrator::snapshot"
 ### Task 2: Tauri app scaffold + window
 
 **Files:**
+
 - Create: `src-tauri/Cargo.toml`
 - Create: `src-tauri/build.rs`
 - Create: `src-tauri/tauri.conf.json`
@@ -181,15 +184,18 @@ git commit -m "feat(core): add serde derives and Orchestrator::snapshot"
 - Modify: `Cargo.toml` (workspace members)
 
 **Interfaces:**
+
 - Produces: a buildable `laralux-desktop` binary that opens one empty window. Later tasks add state, commands, tray.
 
 **Human prerequisite (run once, interactive sudo — NOT the implementer subagent):**
 Install Tauri 2 Linux system dependencies:
+
 ```bash
 sudo apt update
 sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
   libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 ```
+
 If these are absent, `cargo build -p laralux-desktop` fails with a `webkit2gtk-4.1` / `glib` pkg-config error; that means the prerequisite has not been run yet — report BLOCKED with the error so the human can install them.
 
 - [ ] **Step 1: Add the crate to the workspace**
@@ -235,33 +241,33 @@ fn main() {
 
 ```json
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Laralux",
-  "version": "0.1.0",
-  "identifier": "com.laralux.linux",
-  "build": {
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "Laralux",
-        "width": 900,
-        "height": 600,
-        "visible": true
-      }
-    ],
-    "security": {
-      "csp": null
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Laralux",
+    "version": "0.1.0",
+    "identifier": "com.laralux",
+    "build": {
+        "frontendDist": "../dist"
+    },
+    "app": {
+        "withGlobalTauri": true,
+        "windows": [
+            {
+                "label": "main",
+                "title": "Laralux",
+                "width": 900,
+                "height": 600,
+                "visible": true
+            }
+        ],
+        "security": {
+            "csp": null
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": ["deb"],
+        "icon": ["icons/icon.png"]
     }
-  },
-  "bundle": {
-    "active": true,
-    "targets": ["deb"],
-    "icon": ["icons/icon.png"]
-  }
 }
 ```
 
@@ -269,10 +275,10 @@ fn main() {
 
 ```json
 {
-  "identifier": "default",
-  "description": "Default capability for the main window",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+    "identifier": "default",
+    "description": "Default capability for the main window",
+    "windows": ["main"],
+    "permissions": ["core:default"]
 }
 ```
 
@@ -299,6 +305,7 @@ open("src-tauri/icons/icon.png", "wb").write(png)
 print("wrote", len(png), "bytes")
 PY
 ```
+
 Expected: prints `wrote <N> bytes` and creates `src-tauri/icons/icon.png`.
 
 - [ ] **Step 7: Create `src-tauri/src/main.rs` (minimal app)**
@@ -319,15 +326,15 @@ fn main() {
 ```html
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Laralux</title>
-  </head>
-  <body>
-    <h1>Laralux</h1>
-    <p>Dashboard loading…</p>
-  </body>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Laralux</title>
+    </head>
+    <body>
+        <h1>Laralux</h1>
+        <p>Dashboard loading…</p>
+    </body>
 </html>
 ```
 
@@ -352,21 +359,23 @@ git commit -m "feat(desktop): scaffold Tauri 2 app with empty window"
 ### Task 3: App state + IPC commands
 
 **Files:**
+
 - Create: `src-tauri/src/commands.rs`
 - Modify: `src-tauri/src/main.rs`
 
 **Interfaces:**
+
 - Consumes: `laralux_core::{Config, LaraluxPaths, Orchestrator, RealSpawner, build_services, ServiceKind, ServiceStatus, scan_sites, Site}`.
 - Produces:
-  - `struct AppState { orch: std::sync::Mutex<Orchestrator>, paths: LaraluxPaths, tld: String }`
-  - Commands (all `#[tauri::command]`, in `commands.rs`):
-    - `stack_status(state) -> Result<Vec<ServiceStatus>, String>`
-    - `stack_start_all(state) -> Result<Vec<ServiceStatus>, String>`
-    - `stack_stop_all(state) -> Result<Vec<ServiceStatus>, String>`
-    - `service_start(state, kind: ServiceKind) -> Result<Vec<ServiceStatus>, String>`
-    - `service_stop(state, kind: ServiceKind) -> Result<Vec<ServiceStatus>, String>`
-    - `list_sites(state) -> Result<Vec<Site>, String>`
-  - `commands::build_state() -> AppState` (loads config, ensures dirs, builds orchestrator with `RealSpawner`).
+    - `struct AppState { orch: std::sync::Mutex<Orchestrator>, paths: LaraluxPaths, tld: String }`
+    - Commands (all `#[tauri::command]`, in `commands.rs`):
+        - `stack_status(state) -> Result<Vec<ServiceStatus>, String>`
+        - `stack_start_all(state) -> Result<Vec<ServiceStatus>, String>`
+        - `stack_stop_all(state) -> Result<Vec<ServiceStatus>, String>`
+        - `service_start(state, kind: ServiceKind) -> Result<Vec<ServiceStatus>, String>`
+        - `service_stop(state, kind: ServiceKind) -> Result<Vec<ServiceStatus>, String>`
+        - `list_sites(state) -> Result<Vec<Site>, String>`
+    - `commands::build_state() -> AppState` (loads config, ensures dirs, builds orchestrator with `RealSpawner`).
 
 - [ ] **Step 1: Create `src-tauri/src/commands.rs`**
 
@@ -500,9 +509,11 @@ git commit -m "feat(desktop): add app state and stack/sites IPC commands"
 ### Task 4: System-tray icon + menu
 
 **Files:**
+
 - Modify: `src-tauri/src/main.rs`
 
 **Interfaces:**
+
 - Consumes: `AppState`, the commands' underlying orchestrator (via `AppState`).
 - Produces: a tray icon with a menu (`Start All`, `Stop All`, `Dashboard`, `Quit`) wired in the Tauri `setup` hook; `Start All`/`Stop All` drive the orchestrator, `Dashboard` shows/focuses the main window, `Quit` stops the stack then exits.
 
@@ -615,11 +626,13 @@ git commit -m "feat(desktop): add system-tray icon and menu"
 ### Task 5: Frontend dashboard
 
 **Files:**
+
 - Modify: `dist/index.html`
 - Create: `dist/main.js`
 - Create: `dist/styles.css`
 
 **Interfaces:**
+
 - Consumes (via `window.__TAURI__.core.invoke`): `stack_status`, `stack_start_all`, `stack_stop_all`, `service_start`, `service_stop`, `list_sites`. Each status command returns `[{ kind, state }]`; `list_sites` returns `[{ name, root, hostname }]`.
 
 - [ ] **Step 1: Replace `dist/index.html`**
@@ -627,34 +640,34 @@ git commit -m "feat(desktop): add system-tray icon and menu"
 ```html
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Laralux</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <header>
-      <h1>Laralux</h1>
-      <div class="actions">
-        <button id="start-all">Start All</button>
-        <button id="stop-all">Stop All</button>
-      </div>
-    </header>
-    <main>
-      <section>
-        <h2>Services</h2>
-        <table>
-          <tbody id="services"></tbody>
-        </table>
-      </section>
-      <section>
-        <h2>Sites</h2>
-        <ul id="sites"></ul>
-      </section>
-    </main>
-    <script src="main.js"></script>
-  </body>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Laralux</title>
+        <link rel="stylesheet" href="styles.css" />
+    </head>
+    <body>
+        <header>
+            <h1>Laralux</h1>
+            <div class="actions">
+                <button id="start-all">Start All</button>
+                <button id="stop-all">Stop All</button>
+            </div>
+        </header>
+        <main>
+            <section>
+                <h2>Services</h2>
+                <table>
+                    <tbody id="services"></tbody>
+                </table>
+            </section>
+            <section>
+                <h2>Sites</h2>
+                <ul id="sites"></ul>
+            </section>
+        </main>
+        <script src="main.js"></script>
+    </body>
 </html>
 ```
 
@@ -667,82 +680,86 @@ const servicesEl = document.querySelector("#services");
 const sitesEl = document.querySelector("#sites");
 
 function stateClass(state) {
-  return state === "Running" ? "running" : state === "Crashed" ? "crashed" : "stopped";
+    return state === "Running"
+        ? "running"
+        : state === "Crashed"
+          ? "crashed"
+          : "stopped";
 }
 
 function renderServices(list) {
-  servicesEl.innerHTML = "";
-  for (const { kind, state } of list) {
-    const tr = document.createElement("tr");
+    servicesEl.innerHTML = "";
+    for (const { kind, state } of list) {
+        const tr = document.createElement("tr");
 
-    const nameTd = document.createElement("td");
-    nameTd.textContent = kind;
+        const nameTd = document.createElement("td");
+        nameTd.textContent = kind;
 
-    const stateTd = document.createElement("td");
-    stateTd.textContent = state;
-    stateTd.className = stateClass(state);
+        const stateTd = document.createElement("td");
+        stateTd.textContent = state;
+        stateTd.className = stateClass(state);
 
-    const actionTd = document.createElement("td");
-    const btn = document.createElement("button");
-    const running = state === "Running";
-    btn.textContent = running ? "Stop" : "Start";
-    btn.addEventListener("click", async () => {
-      const cmd = running ? "service_stop" : "service_start";
-      try {
-        renderServices(await invoke(cmd, { kind }));
-      } catch (e) {
-        alert(`${cmd} failed: ${e}`);
-      }
-    });
-    actionTd.appendChild(btn);
+        const actionTd = document.createElement("td");
+        const btn = document.createElement("button");
+        const running = state === "Running";
+        btn.textContent = running ? "Stop" : "Start";
+        btn.addEventListener("click", async () => {
+            const cmd = running ? "service_stop" : "service_start";
+            try {
+                renderServices(await invoke(cmd, { kind }));
+            } catch (e) {
+                alert(`${cmd} failed: ${e}`);
+            }
+        });
+        actionTd.appendChild(btn);
 
-    tr.append(nameTd, stateTd, actionTd);
-    servicesEl.appendChild(tr);
-  }
+        tr.append(nameTd, stateTd, actionTd);
+        servicesEl.appendChild(tr);
+    }
 }
 
 function renderSites(list) {
-  sitesEl.innerHTML = "";
-  if (list.length === 0) {
-    const li = document.createElement("li");
-    li.textContent = "No sites in www/";
-    sitesEl.appendChild(li);
-    return;
-  }
-  for (const site of list) {
-    const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.href = `https://${site.hostname}`;
-    a.target = "_blank";
-    a.textContent = `${site.name} — https://${site.hostname}`;
-    li.appendChild(a);
-    sitesEl.appendChild(li);
-  }
+    sitesEl.innerHTML = "";
+    if (list.length === 0) {
+        const li = document.createElement("li");
+        li.textContent = "No sites in www/";
+        sitesEl.appendChild(li);
+        return;
+    }
+    for (const site of list) {
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.href = `https://${site.hostname}`;
+        a.target = "_blank";
+        a.textContent = `${site.name} — https://${site.hostname}`;
+        li.appendChild(a);
+        sitesEl.appendChild(li);
+    }
 }
 
 async function refresh() {
-  try {
-    renderServices(await invoke("stack_status"));
-    renderSites(await invoke("list_sites"));
-  } catch (e) {
-    console.error(e);
-  }
+    try {
+        renderServices(await invoke("stack_status"));
+        renderSites(await invoke("list_sites"));
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 document.querySelector("#start-all").addEventListener("click", async () => {
-  try {
-    renderServices(await invoke("stack_start_all"));
-  } catch (e) {
-    alert(`start failed: ${e}`);
-  }
+    try {
+        renderServices(await invoke("stack_start_all"));
+    } catch (e) {
+        alert(`start failed: ${e}`);
+    }
 });
 
 document.querySelector("#stop-all").addEventListener("click", async () => {
-  try {
-    renderServices(await invoke("stack_stop_all"));
-  } catch (e) {
-    alert(`stop failed: ${e}`);
-  }
+    try {
+        renderServices(await invoke("stack_stop_all"));
+    } catch (e) {
+        alert(`stop failed: ${e}`);
+    }
 });
 
 refresh();
@@ -752,43 +769,85 @@ setInterval(refresh, 2000);
 - [ ] **Step 3: Create `dist/styles.css`**
 
 ```css
-* { box-sizing: border-box; }
+* {
+    box-sizing: border-box;
+}
 body {
-  font-family: system-ui, sans-serif;
-  margin: 0;
-  color: #1c1e26;
-  background: #f6f7f9;
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    color: #1c1e26;
+    background: #f6f7f9;
 }
 header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.5rem;
-  background: #fff;
-  border-bottom: 1px solid #e3e6ea;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    background: #fff;
+    border-bottom: 1px solid #e3e6ea;
 }
-h1 { font-size: 1.25rem; margin: 0; }
-.actions button, td button {
-  cursor: pointer;
-  border: 1px solid #c4c9d0;
-  background: #fff;
-  border-radius: 6px;
-  padding: 0.35rem 0.8rem;
-  margin-left: 0.5rem;
+h1 {
+    font-size: 1.25rem;
+    margin: 0;
 }
-.actions button:hover, td button:hover { background: #eef1f5; }
-main { padding: 1.5rem; display: grid; gap: 2rem; }
-h2 { font-size: 1rem; color: #5b6472; }
-table { width: 100%; border-collapse: collapse; }
-td { padding: 0.5rem; border-bottom: 1px solid #e3e6ea; }
-td:first-child { font-weight: 600; }
-.running { color: #1a8a4b; font-weight: 600; }
-.stopped { color: #8a8f98; }
-.crashed { color: #c0392b; font-weight: 600; }
-#sites { list-style: none; padding: 0; }
-#sites li { padding: 0.4rem 0; }
-#sites a { color: #2a6df5; text-decoration: none; }
-#sites a:hover { text-decoration: underline; }
+.actions button,
+td button {
+    cursor: pointer;
+    border: 1px solid #c4c9d0;
+    background: #fff;
+    border-radius: 6px;
+    padding: 0.35rem 0.8rem;
+    margin-left: 0.5rem;
+}
+.actions button:hover,
+td button:hover {
+    background: #eef1f5;
+}
+main {
+    padding: 1.5rem;
+    display: grid;
+    gap: 2rem;
+}
+h2 {
+    font-size: 1rem;
+    color: #5b6472;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+td {
+    padding: 0.5rem;
+    border-bottom: 1px solid #e3e6ea;
+}
+td:first-child {
+    font-weight: 600;
+}
+.running {
+    color: #1a8a4b;
+    font-weight: 600;
+}
+.stopped {
+    color: #8a8f98;
+}
+.crashed {
+    color: #c0392b;
+    font-weight: 600;
+}
+#sites {
+    list-style: none;
+    padding: 0;
+}
+#sites li {
+    padding: 0.4rem 0;
+}
+#sites a {
+    color: #2a6df5;
+    text-decoration: none;
+}
+#sites a:hover {
+    text-decoration: underline;
+}
 ```
 
 - [ ] **Step 4: Build (frontend is static; verify the app still compiles)**
@@ -812,6 +871,7 @@ git commit -m "feat(desktop): add dashboard frontend (services + sites)"
 ## Self-Review
 
 **1. Spec coverage (Plan 3a scope = GUI shell + tray + dashboard):**
+
 - GUI desktop + tray (spec §2 framework Tauri, §7 Phase-1 tray + main window) → Tasks 2, 4 ✓
 - Start/Stop All + per-service + status display (spec §7 Phase-1 "Start/Stop All, trạng thái từng service") → Tasks 3, 5 ✓
 - Long-lived orchestrator owning processes, stop-on-exit / no orphans (spec §4) → Tasks 3, 4 ✓ (resolves the Plan-1/2 stateless-`status` limitation since the GUI process persists state)

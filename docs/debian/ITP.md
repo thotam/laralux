@@ -12,7 +12,7 @@ Package: wnpp
 Severity: wishlist
 
 * Package name    : laralux
-  Version         : 0.4.3
+  Version         : 0.5.0
   Upstream Author : thotam <thanhtamtotaa@gmail.com>
 * URL             : https://github.com/thotam/laralux
 * License         : MIT

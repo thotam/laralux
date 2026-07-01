@@ -9,7 +9,7 @@ the foundation + paperwork to pursue inclusion in the **official Debian/Ubuntu a
 
 **Honest deliverable boundary (read first).** Acceptance into the official archives is an
 **external, multi-month, gated process** (a Debian Developer must sponsor/upload; it then migrates
-to testing and syncs into a *future* Ubuntu release). This project therefore delivers what is
+to testing and syncs into a _future_ Ubuntu release). This project therefore delivers what is
 buildable now — clean package metadata, a CI-built `.deb` on public Releases, a Debian source-package
 skeleton, and the ITP/RFS submission drafts — and **documents** the remainder (sponsor review, full
 offline/vendored buildd compliance) as work that happens outside this repo. Existing Ubuntu users
@@ -20,7 +20,7 @@ install via the Release `.deb` until/unless official acceptance lands.
 ## 1. Context & current state
 
 - **App:** Tauri 2 desktop app. `src-tauri/tauri.conf.json` has `productName: "Laralux"`,
-  `identifier: "com.laralux.linux"`, `version: "0.1.0"`, and already bundles `"targets": ["deb"]`
+  `identifier: "com.laralux"`, `version: "0.1.0"`, and already bundles `"targets": ["deb"]`
   but with **no Linux/deb metadata** (no maintainer, depends, section, description, homepage).
 - **License:** workspace `Cargo.toml` declares `license = "MIT"`, but there is **no `LICENSE` file**
   in the repo (so the published code is effectively all-rights-reserved until one is added). MIT is
@@ -32,9 +32,9 @@ install via the Release `.deb` until/unless official acceptance lands.
 - **Repo:** the GitHub repository is being renamed to `laralux`. All URLs in this work use
   `github.com/thotam/laralux`; because GitHub auto-redirects and CI/Release use repo-relative paths,
   the rename is non-breaking (the user runs `git remote set-url origin
-  https://github.com/thotam/laralux.git` afterward).
+https://github.com/thotam/laralux.git` afterward).
 - **Build deps (from Tauri/webkit):** `libwebkit2gtk-4.1-dev libgtk-3-dev
-  libayatana-appindicator3-dev librsvg2-dev libssl-dev pkg-config` + Rust + Node/npm.
+libayatana-appindicator3-dev librsvg2-dev libssl-dev pkg-config` + Rust + Node/npm.
 - **Runtime deps:** the webkit2gtk/gtk shared libs (auto via shlibs) plus
   `libayatana-appindicator3-1` (Tauri **dlopens** the tray lib, so it is NOT picked up by shlibs and
   must be declared explicitly).
@@ -80,16 +80,16 @@ A debhelper-based source package so Laralux can be built with `dpkg-buildpackage
 
 - **`debian/control`:** `Source: laralux`, `Section: web`, `Priority: optional`,
   `Maintainer: thotam <thanhtamtotaa@gmail.com>`, `Build-Depends: debhelper-compat (= 13), cargo,
-  rustc, nodejs, npm, libwebkit2gtk-4.1-dev, libgtk-3-dev, libayatana-appindicator3-dev,
-  librsvg2-dev, libssl-dev, pkg-config`, `Standards-Version` (current), `Homepage`,
+rustc, nodejs, npm, libwebkit2gtk-4.1-dev, libgtk-3-dev, libayatana-appindicator3-dev,
+librsvg2-dev, libssl-dev, pkg-config`, `Standards-Version` (current), `Homepage`,
   `Rules-Requires-Root: no`. Binary stanza: `Package: laralux`, `Architecture: any`,
   `Depends: ${shlibs:Depends}, ${misc:Depends}, libayatana-appindicator3-1`, plus the long
   Description.
 - **`debian/rules`:** debhelper `dh $@` with overrides — `override_dh_auto_build` runs `npm ci &&
-  npm run build` then `cargo build --release -p laralux-desktop`; `override_dh_auto_install` installs
+npm run build` then `cargo build --release -p laralux-desktop`; `override_dh_auto_install` installs
   the binary to `/usr/bin/laralux`, the `.desktop` file to `/usr/share/applications/`, and the icon
   to `/usr/share/icons/hicolor/…`. `override_dh_auto_test` is a no-op (or runs `cargo test -p
-  laralux-core`). A `.desktop` file (`debian/laralux.desktop` or generated) and an `install` file map
+laralux-core`). A `.desktop` file (`debian/laralux.desktop` or generated) and an `install` file map
   artifacts.
 - **`debian/copyright`:** machine-readable **DEP-5** — upstream MIT for the project's own code, with
   a clear note that the binary downloads (not packaged) third-party software at runtime; bundled
@@ -119,6 +119,7 @@ A debhelper-based source package so Laralux can be built with `dpkg-buildpackage
   testing → next Ubuntu. Plus the note that current Ubuntu users use the Release `.deb` meanwhile.
 
 ## 6. Data / release flow
+
 1. Developer tags a release: `git tag v0.1.0 && git push origin v0.1.0`.
 2. CI (`release.yml`) builds the `.deb` and publishes a **public GitHub Release** with the artifact +
    `apt install ./…` instructions.
@@ -129,6 +130,7 @@ A debhelper-based source package so Laralux can be built with `dpkg-buildpackage
    Acceptance and the eventual bare `apt install laralux` are external and time-gated.
 
 ## 7. Error handling / risks
+
 - **CI build failure** (missing system dep, Tauri/webkit version drift): the workflow pins the runner
   image and the dep list; a failed build fails the tag job visibly and uploads nothing (no broken
   Release). The plan includes a manual `workflow_dispatch` trigger to dry-run before tagging.
@@ -142,6 +144,7 @@ A debhelper-based source package so Laralux can be built with `dpkg-buildpackage
   rename to resolve.
 
 ## 8. Testing / verification
+
 - `.deb` builds in CI for a test tag (use `workflow_dispatch` or a `v0.0.0-test` tag) and attaches to
   a (pre-)release.
 - Local verification: `sudo apt install ./laralux_*.deb` on a clean Ubuntu → app launches from the
@@ -152,6 +155,7 @@ A debhelper-based source package so Laralux can be built with `dpkg-buildpackage
   disclosure paragraph present).
 
 ## 9. Out of scope / backlog
+
 - arm64 (`aarch64`) build leg — documented follow-up in the CI matrix.
 - AppImage / rpm / Flatpak / Snap targets.
 - A self-hosted signed APT repo (GitHub Pages + GPG) — explicitly **not** chosen; the user targets

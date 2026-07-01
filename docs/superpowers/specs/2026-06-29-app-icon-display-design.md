@@ -15,12 +15,12 @@ logo** to use that same "L" mark (replacing the current green cube glyph).
 - **Why it doesn't show at runtime.** The user runs GNOME/**Wayland**. On Wayland the dock/taskbar
   and title-bar icon are resolved by matching the window's **app_id** to a `.desktop` file (by
   filename `<app_id>.desktop` or by `StartupWMClass=<app_id>`), then reading that entry's `Icon=`.
-  Tauri sets the GTK/Wayland app_id from the bundle **`identifier`** = `com.laralux.linux`. There is
+  Tauri sets the GTK/Wayland app_id from the bundle **`identifier`** = `com.laralux`. There is
   **no installed `.desktop`** matching that app_id (verified: nothing in
   `~/.local/share/applications`), so the compositor falls back to a generic icon. `bundle.icon` /
   embedded window icons are NOT used by most Wayland compositors for the taskbar.
 - **Latent packaging bug.** The `debian/` source package installs `laralux.desktop` (filename
-  `laralux`, `Icon=`/`Exec=laralux`), but the window app_id is `com.laralux.linux` — they don't
+  `laralux`, `Icon=`/`Exec=laralux`), but the window app_id is `com.laralux` — they don't
   match, so even the **installed** package would show a generic icon. The fix must align the
   installed entry to the app_id.
 - **Branding inconsistency.** The OS app icon is the blue "L" (`icon.png`), but the in-app sidebar
@@ -51,56 +51,62 @@ binary, `laralux` for the packaged `/usr/bin/laralux`), because the app sets no 
 GNOME associates a running window with a `.desktop` by matching that app_id to the entry's
 **`StartupWMClass`** (or the `.desktop` filename). So `StartupWMClass` MUST equal the executable
 basename — **`laralux-desktop`** in the dev entry, **`laralux`** in the packaged entry. (The
-reverse-DNS `.desktop` filename `com.laralux.linux.desktop` is kept for the app-grid identity;
+reverse-DNS `.desktop` filename `com.laralux.desktop` is kept for the app-grid identity;
 `StartupWMClass` is what bridges the running window to it.)
 
 ### 3a. Dev — `scripts/install-dev-desktop.sh` (+ uninstall)
+
 A POSIX shell script (committed, executable) that installs a dev desktop entry so the icon shows
 under `cargo run`:
+
 - Resolve the repo root from the script's own location; pick the built binary
   (`target/release/laralux-desktop` if present, else `target/debug/laralux-desktop`) and the icon
   (`<repo>/src-tauri/icons/icon.png`) as **absolute** paths.
-- Write `~/.local/share/applications/com.laralux.linux.desktop`:
-  ```
-  [Desktop Entry]
-  Type=Application
-  Name=Laralux
-  Exec=<abs binary>
-  Icon=<abs icon path>
-  Terminal=false
-  StartupWMClass=com.laralux.linux
-  Categories=Development;WebDevelopment;
-  ```
-  (an absolute `Icon=` path avoids needing an icon-theme install in dev).
+- Write `~/.local/share/applications/com.laralux.desktop`:
+    ```
+    [Desktop Entry]
+    Type=Application
+    Name=Laralux
+    Exec=<abs binary>
+    Icon=<abs icon path>
+    Terminal=false
+    StartupWMClass=com.laralux
+    Categories=Development;WebDevelopment;
+    ```
+    (an absolute `Icon=` path avoids needing an icon-theme install in dev).
 - `update-desktop-database ~/.local/share/applications` (best-effort; ignore if absent).
 - An `uninstall` mode (e.g. `install-dev-desktop.sh uninstall`) removes the entry + refreshes.
 - Print a one-line note: rebuild/relaunch the app for the icon to appear; error clearly if the
   binary isn't built yet.
 
 ### 3b. Packaged — fix `debian/`
-- Rename `debian/laralux.desktop` → `debian/com.laralux.linux.desktop`; add
-  `StartupWMClass=com.laralux.linux` and set `Icon=com.laralux.linux` (keep `Exec=laralux`,
+
+- Rename `debian/laralux.desktop` → `debian/com.laralux.desktop`; add
+  `StartupWMClass=com.laralux` and set `Icon=com.laralux` (keep `Exec=laralux`,
   `Name=Laralux`, the existing categories).
 - `debian/rules` `override_dh_auto_install`: install the desktop as
-  `usr/share/applications/com.laralux.linux.desktop` and the icon as
-  `usr/share/icons/hicolor/512x512/apps/com.laralux.linux.png` (so `Icon=com.laralux.linux`
+  `usr/share/applications/com.laralux.desktop` and the icon as
+  `usr/share/icons/hicolor/512x512/apps/com.laralux.png` (so `Icon=com.laralux`
   resolves). Update the two install paths accordingly.
 
 ### 3c. Autostart entry — `core/src/autostart.rs`
-- Change `Icon=laralux` → `Icon=com.laralux.linux` in `entry_contents` for naming consistency with
+
+- Change `Icon=laralux` → `Icon=com.laralux` in `entry_contents` for naming consistency with
   the installed icon. (Functionally minor — the autostart entry only launches the app; its icon shows
   in "Startup Applications" lists.)
 
 ## 4. Data / resolution flow
+
 1. Dev: developer runs `scripts/install-dev-desktop.sh` once → a matching `.desktop` with the brand
    `Icon=` lands in `~/.local/share/applications` → on next launch the compositor matches the window
-   app_id `com.laralux.linux` to it and shows the brand icon in the dock/taskbar (and the title bar
+   app_id `com.laralux` to it and shows the brand icon in the dock/taskbar (and the title bar
    where the DE draws one).
-2. Packaged: `apt install` lays down `com.laralux.linux.desktop` + the hicolor icon → same match,
+2. Packaged: `apt install` lays down `com.laralux.desktop` + the hicolor icon → same match,
    automatically, no script.
 3. Sidebar: the app renders `<img src="/laralux.png">` as the brand mark — consistent "L" everywhere.
 
 ## 5. Error handling
+
 - The dev script: if the binary isn't built, print a clear error and exit non-zero (do not write a
   broken entry). `update-desktop-database` missing → ignored (best-effort). Re-running is idempotent
   (overwrites the entry).
@@ -109,8 +115,9 @@ under `cargo run`:
   in `dpkg-buildpackage`/`lintian` (the user's packaging smoke).
 
 ## 6. Testing
+
 - `core/src/autostart.rs`: update/extend the existing test to assert the entry contains
-  `Icon=com.laralux.linux` (the write/remove test already checks `Name`/`Exec`/`Type`).
+  `Icon=com.laralux` (the write/remove test already checks `Name`/`Exec`/`Type`).
 - `cargo test -p laralux-core` green; `npm run build` green (sidebar `<img>` + CSS compile).
 - Desktop entry validity: `desktop-file-validate` on the dev-generated and `debian/` entries if the
   tool is present (else structural review).
@@ -120,8 +127,9 @@ under `cargo run`:
   dev entry.
 
 ## 7. Out of scope / backlog
+
 - Regenerating a multi-resolution icon set (the single 671×671 PNG is sufficient; a future `tauri
-  icon` pass can add sizes).
+icon` pass can add sizes).
 - The Release `.deb` built by `tauri-apps/tauri-action` (Tauri auto-generates its Linux `.desktop`
   from the `identifier`, so it already matches the app_id) — only the hand-authored `debian/` source
   package is corrected here.

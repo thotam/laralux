@@ -4,7 +4,7 @@
 # Usage: scripts/install-dev-desktop.sh [install|uninstall]
 set -eu
 
-APP_ID="com.laralux.linux"
+APP_ID="com.laralux"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DEST_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 DEST="$DEST_DIR/$APP_ID.desktop"
