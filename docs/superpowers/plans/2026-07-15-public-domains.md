@@ -8,6 +8,24 @@
 
 **Tech Stack:** Rust (core lib + Tauri commands, `cargo test`), TypeScript/Vite frontend (không có test harness — verify bằng `npm run build`).
 
+## ⚠️ Cập nhật thiết kế (443) — đọc trước Task 3–6
+
+Bản plan gốc giả định upstream proxy **HTTP:80** xuống device (public block
+HTTP-only, không cert, cần map `$http_x_forwarded_proto`). Người dùng làm rõ
+upstream proxy **HTTPS:443** (Let's Encrypt terminate ở upstream). Thiết kế đã
+pivot — phần code Task 3–6 ĐÃ được cập nhật trong commit
+`refactor(sites): serve public domains on 80+443 …`:
+
+- **Task 3/4 (vhost):** public block `listen 80; listen 443 ssl;` dùng cert của
+  site, KHÔNG redirect, `fastcgi_param HTTPS on;` (PHP) / `X-Forwarded-Proto
+  https` (proxy). `public_vhost_block` nhận thêm `cert`, `key`.
+- **Task 5 (map):** ĐÃ REVERT — không cần `$http_x_forwarded_proto` map.
+- **Task 6 (sync):** cert SAN giờ GỒM public domains (`ensure_cert` nhận
+  `domains + public_domains`); public domains VẪN loại khỏi `/etc/hosts`.
+
+Chi tiết đầy đủ ở spec `docs/superpowers/specs/2026-07-15-public-domains-design.md`.
+Task 1, 2, 7, 8, 9, 10 không đổi.
+
 ## Global Constraints
 
 - KHÔNG thêm dòng `Co-Authored-By` hay chữ ký "Generated with Claude"/🤖 vào commit.

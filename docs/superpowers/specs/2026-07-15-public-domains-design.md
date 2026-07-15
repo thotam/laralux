@@ -27,16 +27,29 @@ behaviour that breaks the upstream-proxy flow:
 
 ## Chosen approach
 
-**Server terminates TLS, proxies HTTP** to the device (confirmed with user).
+**Upstream terminates public TLS (Let's Encrypt) and reverse-proxies to the
+device on HTTPS:443 (and optionally :80)** — confirmed with user, screenshot
+shows `thanhtam.work` → `https://192.168.0.18:443`.
 
 Each site gets a **separate `public_domains` list**, distinct from its local
-domains. A public domain is served over **HTTP-only on port 80, with no 301
-redirect, no `/etc/hosts` entry, and no mkcert certificate**. TLS is handled
-entirely by the upstream public server, which forwards `Host` and
-`X-Forwarded-Proto: https`.
+domains. A public domain is served on **both port 80 and port 443, with no 301
+redirect and no `/etc/hosts` entry**. The device terminates TLS on 443 using
+the **site's mkcert certificate** (which now covers the public domain in its
+SAN); the upstream sets `proxy_ssl_verify off`. Because the original client
+scheme is always https (the upstream fronts it with a real cert), the public
+vhost hardcodes `fastcgi_param HTTPS on;` (PHP) / `X-Forwarded-Proto https`
+(proxy) — no `X-Forwarded-Proto` map is needed.
+
+Serving on both 80 and 443 lets the upstream reverse-proxy to whichever port
+it prefers without further changes on the device.
 
 Local `.dev` domains keep their existing behaviour (HTTPS + mkcert + hosts)
 completely unchanged.
+
+> **Design note:** an earlier draft assumed the upstream proxies plain HTTP to
+> the device on :80 (HTTP-only public block, no cert, `X-Forwarded-Proto` map).
+> The user clarified the upstream proxies HTTPS:443, so the design pivoted to
+> the 80+443 model above. Sections below reflect the final design.
 
 ## Components
 
@@ -67,11 +80,21 @@ completely unchanged.
 ### 3. Nginx vhost — `core/src/sites.rs::vhost_config`
 
 - Local-domain output is unchanged (`80→301` + `443 ssl` block).
-- When `public_domains` is non-empty, append **one additional HTTP server block**:
+- When `public_domains` is non-empty, append **one additional server block that
+  listens on both 80 and 443** (private helper `public_vhost_block`, which now
+  receives the site's `cert`/`key`):
   ```nginx
   server {
     listen 80;
+    listen 443 ssl;
+    http2 on;
     server_name <public domains joined by space>;
+    ssl_certificate <cert>;         # site's mkcert cert (covers public domains)
+    ssl_certificate_key <key>;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
     # PHP site:
     root <document_root>;
     index index.php index.html;
@@ -83,7 +106,7 @@ completely unchanged.
       fastcgi_index index.php;
       include <nginx_etc>/fastcgi_params;
       fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-      fastcgi_param HTTPS $lara_fwd_https;   # derived from X-Forwarded-Proto
+      fastcgi_param HTTPS on;          # original scheme is always https (upstream)
     }
     access_log <name>-public-access.log;
     error_log  <name>-public-error.log;
@@ -91,23 +114,20 @@ completely unchanged.
   ```
 - **Proxy-site** (upstream Node/Vite): the public block mirrors the proxy routes
   with `proxy_pass http://<upstream>`, same `proxy_set_header` set (including
-  websocket upgrade headers when enabled), but over plain HTTP with no redirect.
-- No TLS directives, no `return 301` in the public block.
+  websocket upgrade headers when enabled), on both 80 and 443, and sets
+  `proxy_set_header X-Forwarded-Proto https;`.
+- No `return 301` in the public block (serves directly on both ports).
 
 ### 4. `nginx.conf` http{} — `core/src/service/nginx.rs`
 
-- Add one map alongside the existing `$connection_upgrade` map:
-  ```nginx
-  map $http_x_forwarded_proto $lara_fwd_https { default ''; https on; }
-  ```
-  So a request the upstream marked `X-Forwarded-Proto: https` sets
-  `fastcgi_param HTTPS on`, letting Laravel generate correct `https://` URLs and
-  treat the request as secure. Direct HTTP hits (no header) leave it empty.
+- No change needed. The device terminates real TLS on 443, so `HTTPS on` is
+  correct without deriving it from a header. (An earlier draft added a
+  `$http_x_forwarded_proto` map; it was removed once the design settled on 443.)
 
 ### 5. Sync — `core/src/sync.rs`
 
-- Certs: `ensure_cert` is still called with **only the site's local `domains`**;
-  `public_domains` are never passed to mkcert.
+- Certs: `ensure_cert` is called with **local `domains` + `public_domains`**, so
+  the site's mkcert cert covers the public domains it serves on 443.
 - Hosts: the `explicit` list that feeds `/etc/hosts` is built from local
   `domains` only. `public_domains` are excluded entirely (no `127.0.0.1` pin).
 
@@ -131,16 +151,26 @@ completely unchanged.
 ### 8. Docs
 
 - A short guide (README or `docs/`) covering the upstream side:
-  - Sample public-server nginx snippet:
+  - Sample public-server nginx snippet (upstream terminates Let's Encrypt,
+    proxies HTTPS to the device — `proxy_ssl_verify off` because the device
+    serves a locally-trusted mkcert cert):
     ```nginx
-    location / {
-      proxy_pass http://<device-ip>:80;
-      proxy_set_header Host $host;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-      proxy_set_header X-Forwarded-Proto https;
+    server {
+      listen 443 ssl;
+      server_name app.example.com;
+      # ssl_certificate ... (Let's Encrypt on the upstream)
+      location / {
+        proxy_pass https://<device-ip>:443;
+        proxy_ssl_verify off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+      }
     }
     ```
+    (Proxying to `http://<device-ip>:80` also works — the device serves the
+    public domain on both ports.)
   - Note that the Laravel app must configure `TrustProxies` (trust the upstream)
     so `X-Forwarded-*` are honoured.
 
@@ -170,14 +200,13 @@ completely unchanged.
 - `site_registry.rs`: set/get/remove public domains; normalization + dedupe;
   `validate_domain` rejection; cross-list uniqueness (local vs public) both
   directions; old `sites.toml` without `public_domains` still loads.
-- `sites.rs`: `Site.public_domains` populated; `vhost_config` emits an HTTP
-  public block with `server_name`, no `return 301`, no `listen 443`, and
-  `fastcgi_param HTTPS $lara_fwd_https`; proxy-site public block emits
-  `proxy_pass` over HTTP; a site with no public domains emits no extra block.
-- `sync.rs`: a public domain is absent from the `/etc/hosts` write and absent
-  from the names passed to the cert issuer, while local domains still appear.
-- `service/nginx.rs`: generated `nginx.conf` contains the
-  `$http_x_forwarded_proto` map.
+- `sites.rs`: `Site.public_domains` populated; `vhost_config` emits a public
+  block with `server_name`, `listen 80` + `listen 443 ssl`, no `return 301`,
+  the site's `ssl_certificate`, and `fastcgi_param HTTPS on`; proxy-site public
+  block emits `proxy_pass` + `X-Forwarded-Proto https` on both ports; a site
+  with no public domains emits no extra block.
+- `sync.rs`: a public domain IS present in the names passed to the cert issuer
+  (alongside local domains) but absent from the `/etc/hosts` write.
 
 ## Out of scope (YAGNI)
 
