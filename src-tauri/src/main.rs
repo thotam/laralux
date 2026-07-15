@@ -81,6 +81,7 @@ fn main() {
             commands::open_terminal,
             commands::open_folder,
             commands::set_site_domains,
+            commands::set_site_public_domains,
             commands::open_db_client,
             commands::hide_site,
             commands::delete_site_folder,

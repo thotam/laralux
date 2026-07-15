@@ -793,6 +793,40 @@ pub async fn set_site_domains(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn set_site_public_domains(
+    app: tauri::AppHandle,
+    name: String,
+    domains: Vec<String>,
+) -> Result<SetDomainsResult, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<SetDomainsResult, String> {
+        let state = app.state::<AppState>();
+        let config = Config::load(&state.paths.config_file()).unwrap_or_default();
+
+        let mut registry = SiteRegistry::load(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+        registry.set_public_domains(&name, &domains).map_err(|e| e.to_string())?;
+        registry.save(&state.paths.sites_file()).map_err(|e| e.to_string())?;
+
+        let php_socket = PhpFpmService::new(config.php_version.clone()).socket_path(&state.paths);
+        let issuer = MkcertIssuer::resolved(&state.paths);
+        let privileged = PkexecPrivileged;
+        let outcome = sync_sites(
+            &state.paths, &config.tld, &php_socket,
+            std::path::Path::new("/etc/hosts"), &issuer, &privileged,
+        );
+        let bases = outcome.as_ref().map(|o| o.wildcard_bases.clone()).unwrap_or_default();
+        let warnings = apply_wildcard_dns(&state, &bases);
+        {
+            let mut orch = state.orch.lock().map_err(lock_err)?;
+            let _ = orch.reload(ServiceKind::Nginx);
+        }
+        let (sites, _w) = list_all_sites(&state.paths, &config.tld).map_err(|e| e.to_string())?;
+        Ok(SetDomainsResult { sites, warnings })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// View-model for the Processes modal: the site's declared procs (merged with
 /// live state) plus its autostart flag.
 #[derive(serde::Serialize)]
