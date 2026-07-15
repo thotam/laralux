@@ -1,3 +1,14 @@
+laralux (0.6.0-1) UNRELEASED; urgency=medium
+
+  * public domains: each site can serve real domains reverse-proxied from an
+    upstream server that terminates public TLS (e.g. Let's Encrypt). Served on
+    both port 80 and 443 with no redirect, using the site's mkcert cert on 443
+    (SAN extended to cover the public domains; upstream sets proxy_ssl_verify
+    off). Public domains are excluded from the managed /etc/hosts block. Added
+    via the site row menu -> Public domains, with a badge on the site card.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Wed, 15 Jul 2026 19:00:00 +0700
+
 laralux (0.5.0-1) UNRELEASED; urgency=medium
 
   * packaging: debian/rules is the single source of truth; the release

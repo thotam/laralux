@@ -4,6 +4,22 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-07-15
+
+### Added
+- Public domains — each site can now serve one or more real domains for when an
+  upstream server terminates public TLS (e.g. Let's Encrypt) and reverse-proxies
+  down to the device running laralux. Add them via the site's row menu →
+  **Public domains** (a new modal), with a **public** badge on the site card.
+- laralux serves each public domain on **both port 80 and 443** with no
+  HTTP→HTTPS redirect. On 443 it uses the site's mkcert certificate, whose SAN
+  now covers the public domains, so the upstream can proxy over HTTPS with
+  `proxy_ssl_verify off`. Public domains are excluded from the managed
+  `/etc/hosts` block. See the README "Public domains" section for the upstream
+  nginx snippet and the note about configuring Laravel `TrustProxies`.
+- A domain may belong to at most one place across every site's local and public
+  lists (enforced in both directions, including within a single site).
+
 ## [0.5.0] - 2026-07-01
 
 ### Changed

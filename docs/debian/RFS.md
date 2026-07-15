@@ -10,7 +10,7 @@ Dear mentors,
 I am looking for a sponsor for my package **laralux**.
 
 * Package name : laralux
-* Version      : 0.5.0-1
+* Version      : 0.6.0-1
 * Upstream URL : https://github.com/thotam/laralux
 * License      : MIT
 * Section      : web
