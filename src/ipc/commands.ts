@@ -135,6 +135,19 @@ export const setSiteDomains = (
 ): Promise<SetDomainsResult> =>
   invoke<SetDomainsResult>("set_site_domains", { name, domains });
 
+/**
+ * Set public (real) domains for a site — reverse-proxied from an upstream
+ * server that terminates public TLS (e.g. Let's Encrypt). Served locally on
+ * both ports 80 and 443 (with the site's mkcert cert), not added to
+ * /etc/hosts. Arg keys: `name`, `domains`.
+ * Returns { sites, warnings }.
+ */
+export const setSitePublicDomains = (
+  name: string,
+  domains: string[],
+): Promise<SetDomainsResult> =>
+  invoke<SetDomainsResult>("set_site_public_domains", { name, domains });
+
 // ---- terminal ---------------------------------------------------------------
 
 /**

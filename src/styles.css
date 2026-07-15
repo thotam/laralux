@@ -381,6 +381,7 @@ button:disabled { cursor:not-allowed; }
 .ls-row { display: flex; gap: 8px; align-items: center; }
 .ls-row .grow { flex: 1 1 auto; }
 .site-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--chip-bg, #eef); color: var(--chip-fg, #446); align-self: center; }
+.badge-public { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 11px; background: var(--accent-soft, #e8f0ff); color: var(--accent, #2563eb); }
 .btn-sm.danger { color: #b42318; border-color: #f3c9c4; }
 .btn-newsite.ghost { background: transparent; border: 1px solid var(--border, #d7d7e0); color: inherit; }
 .pr-row { display:flex; gap:8px; align-items:center; margin-bottom:6px; }

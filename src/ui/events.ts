@@ -10,6 +10,7 @@ import {
   openLinkSite, closeLinkSite, browseFolder, submitLinkSite,
   openProxy, closeProxy, addProxyRoute, delProxyRoute, submitProxy,
   openDomains, closeDomains, addDomainRow, delDomainRow, submitDomains,
+  openPublicDomains, closePublicDomains, addPublicDomainRow, delPublicDomainRow, submitPublicDomains,
   openDeleteSite, closeDeleteSite, runDeleteAction, copySite, openTerminal, openFolder, openExternal,
 } from "./views/sites";
 import { runSetup } from "./views/setup";
@@ -118,6 +119,12 @@ export function bindEvents(): void {
     else if (a === "dm-add") addDomainRow();
     else if (a === "dm-del") delDomainRow(parseInt(el.getAttribute("data-idx")!, 10));
     else if (a === "dm-overlay-click") { if (e.target === el) closeDomains(); }
+    else if (a === "edit-public-domains") { const s = state.sites.find((s) => s.name === el.getAttribute("data-name")); if (s) openPublicDomains(s); }
+    else if (a === "pd-close") closePublicDomains();
+    else if (a === "pd-submit") submitPublicDomains();
+    else if (a === "pd-add") addPublicDomainRow();
+    else if (a === "pd-del") delPublicDomainRow(parseInt(el.getAttribute("data-idx")!, 10));
+    else if (a === "pd-overlay-click") { if (e.target === el) closePublicDomains(); }
     else if (a === "open-procs") openProcs(el.getAttribute("data-name")!, el.getAttribute("data-root")!);
     else if (a === "close-procs") closeProcs();
     else if (a === "procs-overlay-click") { if (e.target === el) closeProcs(); }
@@ -186,6 +193,7 @@ export function bindEvents(): void {
     if (el.dataset.action === "pr-path") { state.proxy.routes[parseInt(el.dataset.idx!, 10)].path = el.value; }
     if (el.dataset.action === "pr-upstream") { state.proxy.routes[parseInt(el.dataset.idx!, 10)].upstream = el.value; }
     if (el.dataset.action === "dm-input") { state.siteDomains.domains[parseInt(el.dataset.idx!, 10)] = el.value; }
+    if (el.dataset.action === "pd-input") { state.sitePublicDomains.domains[parseInt(el.dataset.idx!, 10)] = el.value; }
     if (el.dataset.action === "php-ini-input") {
       const m = state.modal;
       if (isToolModal(m) && m.phpIni) {
@@ -212,6 +220,7 @@ export function bindEvents(): void {
     else if (e.key === "Escape" && state.modal === "linksite") closeLinkSite();
     else if (e.key === "Escape" && state.modal === "proxy") closeProxy();
     else if (e.key === "Escape" && state.modal === "domains") closeDomains();
+    else if (e.key === "Escape" && state.modal === "publicdomains") closePublicDomains();
     else if (e.key === "Escape" && isToolModal(state.modal)) closeTool();
     else if (e.key === "Escape" && state.modal === "deletesite") closeDeleteSite();
     else if (e.key === "Escape" && state.modal === "procs") closeProcs();
@@ -220,7 +229,7 @@ export function bindEvents(): void {
 
   // ---- focus-trap inside modal ----
   app.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite" && state.modal !== "proxy" && state.modal !== "domains" && state.modal !== "deletesite")) return;
+    if (e.key !== "Tab" || (state.modal !== "newsite" && state.modal !== "linksite" && state.modal !== "proxy" && state.modal !== "domains" && state.modal !== "publicdomains" && state.modal !== "deletesite")) return;
     const card = document.querySelector(".ns-card");
     if (!card) return;
     const focusable = Array.from(card.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'));

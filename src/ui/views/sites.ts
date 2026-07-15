@@ -5,7 +5,7 @@ import { I } from "../icons";
 import { toast } from "../toast";
 import {
   createSite, listSites, linkSite,
-  addProxy, updateProxy, setSiteDomains, openTerminalAt, openFolderAt,
+  addProxy, updateProxy, setSiteDomains, setSitePublicDomains, openTerminalAt, openFolderAt,
 } from "../../ipc/commands";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -63,6 +63,7 @@ export function sitesView(): string {
           const menuItems =
             '<button class="row-menu-item" data-action="copy-site" data-name="' + esc(s.name) + '">' + I.copy + "Copy URL</button>" +
             '<button class="row-menu-item" data-action="edit-domains" data-name="' + esc(s.name) + '">Domains</button>' +
+            '<button class="row-menu-item" data-action="edit-public-domains" data-name="' + esc(s.name) + '">Public domains</button>' +
             (isProxy ? '<button class="row-menu-item" data-action="edit-proxy" data-name="' + esc(s.name) + '">Edit proxy</button>' : "") +
             (state.procCounts[s.name] ? '<button class="row-menu-item" data-action="open-procs" data-name="' + esc(s.name) + '" data-root="' + esc(s.root) + '">' + I.terminal + "Processes</button>" : "") +
             '<button class="row-menu-item danger" data-action="delete-site" data-name="' + esc(s.name) + '">Delete</button>';
@@ -78,7 +79,11 @@ export function sitesView(): string {
 
           return (
             '<div class="card site-row" data-key="site-' + esc(s.name) + '"><div class="site-tile">' + I.folder18 + "</div>" +
-            '<div class="site-info"><div class="site-name">' + esc(s.name) + "</div>" +
+            '<div class="site-info"><div class="site-name">' + esc(s.name) +
+            (s.public_domains && s.public_domains.length
+              ? '<span class="badge badge-public" title="' + esc(s.public_domains.join(", ")) + '">public</span>'
+              : "") +
+            "</div>" +
             '<div class="site-sub"><a class="site-url" href="' + esc(url) + '" data-action="open-url" data-url="' + esc(url) + '" rel="noreferrer">' + esc(url) + "</a>" +
             (state.procCounts[s.name] ? '<span class="proc-chip" title="' + state.procCounts[s.name] + ' process(es) in Procfile">⚙ ' + state.procCounts[s.name] + "</span>" : "") +
             subRight + "</div></div>" +
@@ -265,6 +270,44 @@ export async function submitDomains(): Promise<void> {
     const res = await setSiteDomains(sd.name, domains);
     state.sites = Array.isArray(res && res.sites) ? res.sites : [];
     toast({ type: "success", title: "Domains updated", msg: domains.join(", ") });
+    if (res && Array.isArray(res.warnings)) {
+      for (const w of res.warnings) toast({ type: "error", title: "Wildcard DNS", msg: String(w) });
+    }
+    state.modal = null; render();
+  } catch (e) {
+    sd.error = String(e); sd.busy = false;
+    toast({ type: "error", title: "Update failed", msg: String(e) });
+    render();
+  } finally {
+    if (sd.busy) { sd.busy = false; render(); }
+  }
+}
+
+export function openPublicDomains(site: Site): void {
+  const ds = (site.public_domains && site.public_domains.length) ? site.public_domains.slice() : [""];
+  state.sitePublicDomains = { name: site.name, domains: ds, busy: false, error: "" };
+  state.modal = "publicdomains";
+  state.rowMenu = null;
+  render();
+}
+export function closePublicDomains(): void { if (state.sitePublicDomains.busy) return; state.modal = null; render(); }
+export function addPublicDomainRow(): void { state.sitePublicDomains.domains.push(""); render(); }
+export function delPublicDomainRow(i: number): void {
+  state.sitePublicDomains.domains.splice(i, 1);
+  if (!state.sitePublicDomains.domains.length) state.sitePublicDomains.domains.push("");
+  render();
+}
+
+export async function submitPublicDomains(): Promise<void> {
+  const sd = state.sitePublicDomains;
+  const domains = sd.domains.map((d: string) => d.trim()).filter((d: string) => d.length);
+  if (!domains.length) { sd.error = "Add at least one domain"; render(); return; }
+  for (const d of domains) { if (!validDomain(d)) { sd.error = "Invalid domain: " + d; render(); return; } }
+  sd.busy = true; sd.error = ""; render();
+  try {
+    const res = await setSitePublicDomains(sd.name, domains);
+    state.sites = Array.isArray(res && res.sites) ? res.sites : [];
+    toast({ type: "success", title: "Public domains updated", msg: domains.join(", ") });
     if (res && Array.isArray(res.warnings)) {
       for (const w of res.warnings) toast({ type: "error", title: "Wildcard DNS", msg: String(w) });
     }

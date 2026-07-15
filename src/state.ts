@@ -95,9 +95,10 @@ export interface AppState {
    * "linksite"   — Link Site modal
    * "proxy"      — Reverse Proxy modal
    * "domains"    — Edit Domains modal
+   * "publicdomains" — Public Domains modal
    * ToolModalState — Tool detail modal (open: true)
    */
-  modal: null | "newsite" | "linksite" | "proxy" | "domains" | "deletesite" | "procs" | ToolModalState;
+  modal: null | "newsite" | "linksite" | "proxy" | "domains" | "publicdomains" | "deletesite" | "procs" | ToolModalState;
   procCounts: Record<string, number>;
   procModal: { name: string; root: string } | null;
   siteProcs: SiteProcsView | null;
@@ -115,6 +116,7 @@ export interface AppState {
   rowMenu: string | null;
   proxy: ProxyState;
   siteDomains: SiteDomainsState;
+  sitePublicDomains: SiteDomainsState;
   download: DownloadState;
   dbClientBusy: boolean;
 }
@@ -150,6 +152,7 @@ export const state: AppState = {
   rowMenu: null,
   proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
   siteDomains: { name: "", domains: [""], busy: false, error: "" },
+  sitePublicDomains: { name: "", domains: [""], busy: false, error: "" },
   download: { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 },
   dbClientBusy: false,
 };

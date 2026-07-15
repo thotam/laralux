@@ -17,6 +17,7 @@ import { newSiteModal } from "./modals/newsite";
 import { linkSiteModal } from "./modals/linksite";
 import { proxyModal } from "./modals/proxy";
 import { domainsModal } from "./modals/domains";
+import { publicDomainsModal } from "./modals/publicdomains";
 import { deleteSiteModal } from "./modals/deletesite";
 import { procsModal } from "./modals/procs";
 import { stackStatus, listSites, setupStatus, serviceFlags, launchConfig } from "../ipc/commands";
@@ -185,6 +186,7 @@ export function render(): void {
     : state.modal === "linksite" ? linkSiteModal()
     : state.modal === "proxy" ? proxyModal()
     : state.modal === "domains" ? domainsModal()
+    : state.modal === "publicdomains" ? publicDomainsModal()
     : state.modal === "deletesite" ? deleteSiteModal()
     : state.modal === "procs" ? procsModal()
     : "";

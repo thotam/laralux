@@ -143,13 +143,17 @@ export interface ProxySpec {
  *   s.name, s.hostname, s.root (sitesView, dashboard preview),
  *   s.source ("Proxy" | "Linked" | "Scanned"),
  *   s.proxy (ProxySpec | null),
- *   s.domains (openDomains, set_site_domains).
+ *   s.domains (openDomains, set_site_domains),
+ *   s.public_domains (openPublicDomains, set_site_public_domains — real
+ *     domains reverse-proxied from an upstream server that terminates public
+ *     TLS; served locally on ports 80 and 443, not added to /etc/hosts).
  */
 export interface Site {
   name: string;
   root: string;
   hostname: string;
   domains: string[];
+  public_domains: string[];
   source: "Scanned" | "Linked" | "Proxy";
   proxy: ProxySpec | null;
 }
