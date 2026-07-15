@@ -62,6 +62,12 @@ pub struct SiteDomains {
     pub domains: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePublicDomains {
+    pub name: String,
+    pub domains: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SiteRegistry {
     #[serde(default)]
@@ -70,6 +76,8 @@ pub struct SiteRegistry {
     proxies: Vec<ProxySite>,
     #[serde(default)]
     domains: Vec<SiteDomains>,
+    #[serde(default)]
+    public_domains: Vec<SitePublicDomains>,
 }
 
 /// Normalize a user-typed target into `host:port` (default host 127.0.0.1).
@@ -209,6 +217,16 @@ impl SiteRegistry {
         self.domains.iter().find(|d| d.name == name).map(|d| d.domains.as_slice())
     }
 
+    /// True nếu `domain` đang được một site có tên khác `skip` sử dụng,
+    /// xét cả local domains lẫn public domains.
+    fn domain_taken_by_other(&self, skip: &str, domain: &str) -> bool {
+        self.domains.iter().any(|d| d.name != skip && d.domains.iter().any(|x| x == domain))
+            || self
+                .public_domains
+                .iter()
+                .any(|d| d.name != skip && d.domains.iter().any(|x| x == domain))
+    }
+
     pub fn set_domains(&mut self, name: &str, domains: &[String]) -> Result<(), RegistryError> {
         // Normalize (trim + lowercase) and de-duplicate, preserving first-seen order
         // so domains[0] stays the leftmost the user intended.
@@ -223,15 +241,17 @@ impl SiteRegistry {
         if norm.is_empty() {
             return Err(RegistryError::NoDomains);
         }
-        // reject a domain claimed by a *different* site
-        for other in &self.domains {
-            if other.name == name {
-                continue;
+        // reject a domain claimed by a *different* site (local hoặc public)
+        for d in &norm {
+            if self.domain_taken_by_other(name, d) {
+                return Err(RegistryError::DomainTaken(d.clone()));
             }
-            for d in &norm {
-                if other.domains.iter().any(|x| x == d) {
-                    return Err(RegistryError::DomainTaken(d.clone()));
-                }
+        }
+        // reject a domain that this same site already serves as a public domain
+        // (else sync emits two blocks with an identical server_name → nginx conflict)
+        if let Some(pd) = self.public_domains_for(name) {
+            if let Some(dup) = norm.iter().find(|d| pd.iter().any(|x| &x == d)) {
+                return Err(RegistryError::DomainTaken(dup.clone()));
             }
         }
         self.domains.retain(|d| d.name != name);
@@ -239,12 +259,46 @@ impl SiteRegistry {
         Ok(())
     }
 
+    pub fn public_domains_for(&self, name: &str) -> Option<&[String]> {
+        self.public_domains.iter().find(|d| d.name == name).map(|d| d.domains.as_slice())
+    }
+
+    pub fn set_public_domains(&mut self, name: &str, domains: &[String]) -> Result<(), RegistryError> {
+        let mut norm: Vec<String> = Vec::new();
+        for d in domains {
+            let d = d.trim().to_ascii_lowercase();
+            validate_domain(&d)?;
+            if !norm.iter().any(|x| x == &d) {
+                norm.push(d);
+            }
+        }
+        if norm.is_empty() {
+            return Err(RegistryError::NoDomains);
+        }
+        for d in &norm {
+            if self.domain_taken_by_other(name, d) {
+                return Err(RegistryError::DomainTaken(d.clone()));
+            }
+        }
+        // reject a domain that this same site already serves as a local domain
+        // (else sync emits two blocks with an identical server_name → nginx conflict)
+        if let Some(ld) = self.domains_for(name) {
+            if let Some(dup) = norm.iter().find(|d| ld.iter().any(|x| &x == d)) {
+                return Err(RegistryError::DomainTaken(dup.clone()));
+            }
+        }
+        self.public_domains.retain(|d| d.name != name);
+        self.public_domains.push(SitePublicDomains { name: name.to_string(), domains: norm });
+        Ok(())
+    }
+
     pub fn remove(&mut self, name: &str) -> bool {
-        let before = self.sites.len() + self.proxies.len() + self.domains.len();
+        let before = self.sites.len() + self.proxies.len() + self.domains.len() + self.public_domains.len();
         self.sites.retain(|s| s.name != name);
         self.proxies.retain(|p| p.name != name);
         self.domains.retain(|d| d.name != name);
-        self.sites.len() + self.proxies.len() + self.domains.len() != before
+        self.public_domains.retain(|d| d.name != name);
+        self.sites.len() + self.proxies.len() + self.domains.len() + self.public_domains.len() != before
     }
 }
 
@@ -403,6 +457,66 @@ mod tests {
         let mut reg = SiteRegistry::default();
         reg.set_domains("a", &["  Demo.DEV ".to_string(), "demo.dev".to_string(), "*.Demo.dev".to_string()]).unwrap();
         assert_eq!(reg.domains_for("a").unwrap(), &["demo.dev".to_string(), "*.demo.dev".to_string()]);
+    }
+
+    #[test]
+    fn public_domains_set_get_remove_and_cross_uniqueness() {
+        let mut reg = SiteRegistry::default();
+        // empty bị từ chối
+        assert!(matches!(reg.set_public_domains("a", &[]), Err(RegistryError::NoDomains)));
+        // invalid bị từ chối
+        assert!(matches!(
+            reg.set_public_domains("a", &["Bad".to_string()]),
+            Err(RegistryError::InvalidDomain(_))
+        ));
+        // set + get, có normalize/dedupe
+        reg.set_public_domains("a", &["  App.Example.COM ".to_string(), "app.example.com".to_string()]).unwrap();
+        assert_eq!(reg.public_domains_for("a").unwrap(), &["app.example.com".to_string()]);
+
+        // local domain của site khác không được trùng public domain đã dùng
+        assert!(matches!(
+            reg.set_domains("b", &["app.example.com".to_string()]),
+            Err(RegistryError::DomainTaken(_))
+        ));
+        // và ngược lại: public domain không được trùng local domain đã dùng
+        reg.set_domains("c", &["c.dev".to_string()]).unwrap();
+        assert!(matches!(
+            reg.set_public_domains("d", &["c.dev".to_string()]),
+            Err(RegistryError::DomainTaken(_))
+        ));
+
+        // remove xoá cả public domains
+        assert!(reg.remove("a"));
+        assert!(reg.public_domains_for("a").is_none());
+    }
+
+    #[test]
+    fn same_site_cannot_reuse_domain_across_local_and_public() {
+        // local trước, rồi public trùng -> bị từ chối
+        let mut reg = SiteRegistry::default();
+        reg.set_domains("a", &["a.dev".to_string()]).unwrap();
+        assert!(matches!(
+            reg.set_public_domains("a", &["a.dev".to_string()]),
+            Err(RegistryError::DomainTaken(_))
+        ));
+        // public trước, rồi local trùng -> cũng bị từ chối
+        let mut reg = SiteRegistry::default();
+        reg.set_public_domains("b", &["app.example.com".to_string()]).unwrap();
+        assert!(matches!(
+            reg.set_domains("b", &["app.example.com".to_string()]),
+            Err(RegistryError::DomainTaken(_))
+        ));
+    }
+
+    #[test]
+    fn old_sites_toml_without_public_domains_loads() {
+        let r = root();
+        std::fs::create_dir_all(&r).unwrap();
+        let file = r.join("sites.toml");
+        std::fs::write(&file, "[[sites]]\nname = \"blog\"\nroot = \"/tmp/blog\"\n").unwrap();
+        let reg = SiteRegistry::load(&file).unwrap();
+        assert!(reg.public_domains_for("blog").is_none());
+        std::fs::remove_dir_all(&r).ok();
     }
 
     #[test]
