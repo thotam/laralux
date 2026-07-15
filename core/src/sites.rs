@@ -80,6 +80,7 @@ pub struct Site {
     pub domains: Vec<String>,
     pub source: SiteSource,
     pub proxy: Option<ProxySpec>,
+    pub public_domains: Vec<String>,
 }
 
 impl Site {
@@ -134,7 +135,7 @@ impl Site {
                 }
                 locations.push_str("\x20 }\n");
             }
-            return format!(
+            let local = format!(
                 "server {{\n\
                  \x20 listen 80;\n\
                  \x20 server_name {names};\n\
@@ -161,8 +162,9 @@ impl Site {
                 elog = paths.log().join(format!("{}-error.log", self.name)).display(),
                 locations = locations,
             );
+            return format!("{local}{}", self.public_vhost_block(paths, php_socket, cert, key));
         }
-        format!(
+        let local = format!(
             "server {{\n\
              \x20 listen 80;\n\
              \x20 server_name {names};\n\
@@ -202,6 +204,116 @@ impl Site {
             sock = php_socket.display(),
             nginx_etc = paths.etc_for("nginx").display(),
             build_cache = build_cache,
+        );
+        format!("{local}{}", self.public_vhost_block(paths, php_socket, cert, key))
+    }
+
+    /// Nếu có public domains, sinh một server block phục vụ chúng trên CẢ `80`
+    /// lẫn `443 ssl` (upstream có thể reverse-proxy vào cổng nào cũng được),
+    /// KHÔNG redirect — upstream đã terminate TLS công khai (Let's Encrypt).
+    /// Cert mkcert của site (upstream đặt `proxy_ssl_verify off`) dùng cho 443.
+    /// Luồng gốc luôn là https nên `HTTPS` được set cứng `on`.
+    fn public_vhost_block(
+        &self,
+        paths: &LaraluxPaths,
+        php_socket: &std::path::Path,
+        cert: &std::path::Path,
+        key: &std::path::Path,
+    ) -> String {
+        if self.public_domains.is_empty() {
+            return String::new();
+        }
+        let names = self.public_domains.join(" ");
+        let alog = paths.log().join(format!("{}-public-access.log", self.name)).display().to_string();
+        let elog = paths.log().join(format!("{}-public-error.log", self.name)).display().to_string();
+
+        // Proxy-site: mirror routes. Served on both 80 and 443, no redirect.
+        if let Some(spec) = &self.proxy {
+            let mut locations = String::new();
+            for r in &spec.routes {
+                locations.push_str(&format!(
+                    "\x20 location {path} {{\n\
+                     \x20   proxy_pass http://{up};\n\
+                     \x20   proxy_http_version 1.1;\n\
+                     \x20   proxy_set_header Host $host;\n\
+                     \x20   proxy_set_header X-Real-IP $remote_addr;\n\
+                     \x20   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+                     \x20   proxy_set_header X-Forwarded-Proto https;\n",
+                    path = r.path,
+                    up = r.upstream,
+                ));
+                if spec.websocket {
+                    locations.push_str(
+                        "\x20   proxy_set_header Upgrade $http_upgrade;\n\
+                         \x20   proxy_set_header Connection $connection_upgrade;\n",
+                    );
+                }
+                locations.push_str("\x20 }\n");
+            }
+            return format!(
+                "server {{\n\
+                 \x20 listen 80;\n\
+                 \x20 listen 443 ssl;\n\
+                 \x20 http2 on;\n\
+                 \x20 server_name {names};\n\
+                 \x20 ssl_certificate {cert};\n\
+                 \x20 ssl_certificate_key {key};\n\
+                 \x20 ssl_protocols TLSv1.2 TLSv1.3;\n\
+                 \x20 ssl_ciphers HIGH:!aNULL:!MD5;\n\
+                 \x20 ssl_session_cache shared:SSL:10m;\n\
+                 \x20 ssl_session_timeout 10m;\n\
+                 \x20 access_log {alog};\n\
+                 \x20 error_log {elog};\n\
+                 {locations}\
+                 }}\n",
+                cert = cert.display(),
+                key = key.display(),
+            );
+        }
+
+        // PHP site.
+        let is_laravel = self.root.join("artisan").is_file();
+        let build_cache = if is_laravel {
+            "\x20 location ^~ /build/ {\n\
+             \x20   expires 1y;\n\
+             \x20   add_header Cache-Control \"public, immutable\";\n\
+             \x20   try_files $uri =404;\n\
+             \x20 }\n"
+        } else {
+            ""
+        };
+        format!(
+            "server {{\n\
+             \x20 listen 80;\n\
+             \x20 listen 443 ssl;\n\
+             \x20 http2 on;\n\
+             \x20 server_name {names};\n\
+             \x20 ssl_certificate {cert};\n\
+             \x20 ssl_certificate_key {key};\n\
+             \x20 ssl_protocols TLSv1.2 TLSv1.3;\n\
+             \x20 ssl_ciphers HIGH:!aNULL:!MD5;\n\
+             \x20 ssl_session_cache shared:SSL:10m;\n\
+             \x20 ssl_session_timeout 10m;\n\
+             \x20 root {docroot};\n\
+             \x20 index index.php index.html;\n\
+             \x20 access_log {alog};\n\
+             \x20 error_log {elog};\n\
+             \x20 location ~ /\\.(?!well-known).* {{ deny all; }}\n\
+             {build_cache}\
+             \x20 location / {{ try_files $uri $uri/ /index.php?$query_string; }}\n\
+             \x20 location ~ \\.php$ {{\n\
+             \x20   fastcgi_pass unix:{sock};\n\
+             \x20   fastcgi_index index.php;\n\
+             \x20   include {nginx_etc}/fastcgi_params;\n\
+             \x20   fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n\
+             \x20   fastcgi_param HTTPS on;\n\
+             \x20 }}\n\
+             }}\n",
+            cert = cert.display(),
+            key = key.display(),
+            docroot = self.document_root().display(),
+            sock = php_socket.display(),
+            nginx_etc = paths.etc_for("nginx").display(),
         )
     }
 }
@@ -233,6 +345,7 @@ pub fn scan_sites(paths: &LaraluxPaths, tld: &str) -> std::io::Result<Vec<Site>>
             name,
             source: SiteSource::Scanned,
             proxy: None,
+            public_domains: Vec::new(),
         });
     }
     sites.sort_by(|a, b| a.name.cmp(&b.name));
@@ -281,6 +394,7 @@ pub fn list_all_sites(
             name: entry.name.clone(),
             source: SiteSource::Linked,
             proxy: None,
+            public_domains: Vec::new(),
         });
     }
 
@@ -297,6 +411,7 @@ pub fn list_all_sites(
             name: p.name.clone(),
             source: SiteSource::Proxy,
             proxy: Some(ProxySpec { routes: p.routes.clone(), websocket: p.websocket }),
+            public_domains: Vec::new(),
         });
     }
 
@@ -306,6 +421,12 @@ pub fn list_all_sites(
                 s.domains = over.to_vec();
                 s.hostname = first.clone();
             }
+        }
+    }
+
+    for s in sites.iter_mut() {
+        if let Some(pd) = registry.public_domains_for(&s.name) {
+            s.public_domains = pd.to_vec();
         }
     }
 
@@ -436,6 +557,50 @@ mod tests {
     }
 
     #[test]
+    fn vhost_php_public_block_serves_80_and_443_no_redirect() {
+        let root = temp_root();
+        let www = root.join("www");
+        std::fs::create_dir_all(www.join("app").join("public")).unwrap();
+        let paths = LaraluxPaths::new(root.clone());
+        let mut site = scan_sites(&paths, "dev").unwrap().into_iter().find(|s| s.name == "app").unwrap();
+        site.public_domains = vec!["app.example.com".to_string()];
+
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("app.dev.pem");
+        let key = paths.ssl().join("app.dev-key.pem");
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+
+        // block local cũ vẫn còn (server_name riêng cho domain local)
+        assert!(conf.contains("server_name app.dev;"));
+        // block public: server_name domain thật, phục vụ cả 80 lẫn 443 ssl
+        assert!(conf.contains("server_name app.example.com;"));
+        assert!(conf.contains("\x20 listen 80;\n\x20 listen 443 ssl;"));
+        // luồng gốc là https (upstream terminate TLS) -> HTTPS set cứng on
+        assert!(conf.contains("fastcgi_param HTTPS on;"));
+        assert!(!conf.contains("$lara_fwd_https"));
+        // public block dùng cert của site cho 443
+        assert!(conf.contains(&format!("ssl_certificate {};", cert.display())));
+        // local và public là hai server_name tách biệt (không gộp chung)
+        assert!(!conf.contains("server_name app.example.com app.dev;"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vhost_no_public_block_when_public_domains_empty() {
+        let root = temp_root();
+        let www = root.join("www");
+        std::fs::create_dir_all(www.join("app").join("public")).unwrap();
+        let paths = LaraluxPaths::new(root.clone());
+        let site = scan_sites(&paths, "dev").unwrap().into_iter().find(|s| s.name == "app").unwrap();
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("app.dev.pem");
+        let key = paths.ssl().join("app.dev-key.pem");
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+        assert!(!conf.contains("example.com"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn scan_marks_sites_as_scanned() {
         let root = temp_root();
         std::fs::create_dir_all(root.join("www").join("a")).unwrap();
@@ -555,6 +720,7 @@ mod tests {
             domains: vec![format!("{name}.dev")],
             source: SiteSource::Proxy,
             proxy: Some(ProxySpec { routes, websocket }),
+            public_domains: Vec::new(),
         }
     }
 
@@ -638,6 +804,25 @@ mod tests {
     }
 
     #[test]
+    fn list_all_populates_public_domains_from_registry() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www").join("demo")).unwrap();
+        let paths = LaraluxPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        reg.set_public_domains("demo", &["app.example.com".to_string()]).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
+        let demo = sites.iter().find(|s| s.name == "demo").unwrap();
+        // local domain giữ nguyên
+        assert_eq!(demo.domains, vec!["demo.dev".to_string()]);
+        // public domain điền từ registry
+        assert_eq!(demo.public_domains, vec!["app.example.com".to_string()]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn vhost_server_name_lists_all_domains() {
         let site = Site {
             name: "demo".into(),
@@ -646,6 +831,7 @@ mod tests {
             source: SiteSource::Scanned,
             proxy: None,
             domains: vec!["demo.dev".into(), "*.demo.dev".into()],
+            public_domains: Vec::new(),
         };
         let paths = LaraluxPaths::new(temp_root());
         let conf = site.vhost_config(&paths, std::path::Path::new("/x/php.sock"),
@@ -700,5 +886,29 @@ mod tests {
         assert!(matches!(delete_scanned_site(&paths, ".."), Err(SiteFsError::InvalidName(_))));
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn proxy_site_public_block_uses_http_proxy_pass() {
+        let root = temp_root();
+        let paths = LaraluxPaths::new(root.clone());
+        let route = crate::site_registry::ProxyRoute { path: "/".into(), upstream: "127.0.0.1:3000".into() };
+        let mut site = proxy_site("api", vec![route], true);
+        site.public_domains = vec!["api.example.com".to_string()];
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("x.pem");
+        let key = paths.ssl().join("x-key.pem");
+
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+        // block public cho proxy-site: server_name domain thật, cả 80 lẫn 443 ssl
+        assert!(conf.contains("server_name api.example.com;"));
+        assert!(conf.contains("\x20 listen 80;\n\x20 listen 443 ssl;"));
+        assert!(conf.contains("proxy_pass http://127.0.0.1:3000;"));
+        // upstream đã terminate TLS -> báo app scheme gốc là https
+        assert!(conf.contains("proxy_set_header X-Forwarded-Proto https;"));
+        // ws headers vẫn có (websocket = true)
+        assert!(conf.contains("proxy_set_header Upgrade $http_upgrade;"));
+        // public block không có fastcgi
+        assert!(!conf.contains("fastcgi_pass"));
     }
 }

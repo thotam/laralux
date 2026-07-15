@@ -36,7 +36,12 @@ pub fn sync_sites(
     std::fs::create_dir_all(&sites_dir)?;
 
     for site in &sites {
-        let certs = issuer.ensure_cert(&site.name, &site.domains)?;
+        // Cert phủ cả local domains lẫn public domains — public domain phục vụ
+        // trên 443 nên phải nằm trong SAN của cert mkcert (upstream đặt
+        // proxy_ssl_verify off). Public domains vẫn KHÔNG lên /etc/hosts.
+        let mut cert_names = site.domains.clone();
+        cert_names.extend(site.public_domains.iter().cloned());
+        let certs = issuer.ensure_cert(&site.name, &cert_names)?;
         let conf = site.vhost_config(paths, php_socket, &certs.cert, &certs.key);
         std::fs::write(sites_dir.join(format!("{}.conf", site.name)), conf)?;
     }
@@ -164,6 +169,38 @@ mod tests {
         assert!(w[0].contains("127.0.0.1 demo.dev"));
         assert!(w[0].contains("127.0.0.1 api.demo.dev"));
         assert!(!w[0].contains("*.demo.dev")); // wildcard not in hosts
+        std::fs::remove_dir_all(&r).ok();
+    }
+
+    #[test]
+    fn public_domains_in_cert_but_not_hosts() {
+        let r = root();
+        std::fs::create_dir_all(r.join("www").join("demo")).unwrap();
+        let paths = LaraluxPaths::new(r.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        reg.set_public_domains("demo", &["app.example.com".into()]).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let sock = paths.tmp().join("php-fpm.sock");
+        let hosts_path = r.join("hosts");
+        std::fs::write(&hosts_path, "127.0.0.1 localhost\n").unwrap();
+        let issuer = FakeCertIssuer::new(paths.ssl());
+        let priv_ = FakePrivileged::new();
+        let writes = priv_.hosts_writes();
+
+        sync_sites(&paths, "dev", &sock, &hosts_path, &issuer, &priv_).unwrap();
+
+        // cert phủ CẢ local domain lẫn public domain (public phục vụ trên 443)
+        let req = issuer.requested();
+        let req = req.lock().unwrap();
+        let demo = req.iter().find(|(name, _)| name == "demo").expect("cert issued for demo");
+        assert!(demo.1.iter().any(|n| n == "demo.dev"));
+        assert!(demo.1.iter().any(|n| n == "app.example.com"));
+
+        // nhưng /etc/hosts KHÔNG chứa domain public
+        let w = writes.lock().unwrap();
+        assert!(w.iter().all(|h| !h.contains("app.example.com")));
         std::fs::remove_dir_all(&r).ok();
     }
 
