@@ -1,3 +1,18 @@
+laralux (0.8.0-1) UNRELEASED; urgency=medium
+
+  * security: files under a site's .well-known are no longer executed or served
+    as source, at any path depth, while ACME and OAuth/OIDC discovery still
+    reach the app.
+  * services report Running only after a health check passes, so a site's
+    Procfile worker no longer starts before the database is accepting
+    connections (queue:work Connection refused on boot).
+  * Procfile processes are supervised: crashed processes restart with a
+    1s/5s/15s/30s backoff, give up after 5 consecutive failures, and reset
+    after 30s of uptime; a process stopped by hand is never restarted.
+  * fix: starting the stack from the tray no longer blocks the UI thread.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Tue, 21 Jul 2026 12:00:00 +0700
+
 laralux (0.7.0-1) UNRELEASED; urgency=medium
 
   * proxy sites: an optional project folder can now be attached to a

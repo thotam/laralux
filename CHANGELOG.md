@@ -4,6 +4,33 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-07-21
+
+### Security
+- Files placed under a site's `.well-known` directory are no longer executed or
+  served as source. The vhost let `.well-known` fall through to the PHP handler,
+  so a `.php` dropped there ran. Every site's `.well-known` is now served static
+  only, at any path depth (including nested `…/.well-known/…`), while ACME
+  challenges and OAuth/OIDC discovery still reach the app. Dotfiles under
+  `.well-known` (e.g. `.env`) remain blocked.
+
+### Added
+- Services now report `Running` only after their health check passes. Starting
+  the stack previously marked a service up the moment its process spawned, so a
+  site's `Procfile` worker could start before the database accepted connections
+  (the symptom was `queue:work` dying with `Connection refused` on MariaDB).
+  Start now waits for readiness (up to 15s, or 60s on a first-run data-dir init)
+  and marks a service `Crashed` on timeout instead of falsely reporting it up.
+- `Procfile` processes are supervised: a crashed process is restarted with a
+  1s/5s/15s/30s backoff and given up on after 5 consecutive failures. Staying up
+  30s resets the counter. Restarts ignore the exit code (`queue:work` exits 0 on
+  `queue:restart`). A process stopped by hand is never restarted; the site's ⋯ →
+  Processes view shows whether a crashed process is still being retried.
+
+### Fixed
+- Starting the stack from the tray menu no longer blocks the UI thread while it
+  waits for services.
+
 ## [0.7.0] - 2026-07-21
 
 ### Added
