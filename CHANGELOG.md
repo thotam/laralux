@@ -24,6 +24,10 @@ All notable changes to Laralux are documented here. The format is based on
 - The delete dialog now shows a proxy's project folder and states that it is
   kept. Removing a proxy has never deleted files and still doesn't — only a
   scanned `www/` site offers delete-from-disk.
+- The released `.deb` is now built on Ubuntu 22.04 instead of 24.04. Because
+  `${shlibs:Depends}` pins the package to the build host's glibc, the 24.04
+  build (glibc 2.39) could not be installed on Ubuntu 22.04 (2.35) or Debian 12
+  bookworm (2.36); the 22.04 build covers those too.
 
 ### Fixed
 - `read_procfile` no longer reads a stray `Procfile` from the process's working

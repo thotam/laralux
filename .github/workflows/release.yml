@@ -10,7 +10,13 @@ jobs:
   release:
     permissions:
       contents: write
-    runs-on: ubuntu-24.04
+    # Built on the oldest supported runner on purpose: `Depends: ${shlibs:Depends}`
+    # pins the .deb to the build host's glibc, and glibc is backward- but not
+    # forward-compatible. Building on 24.04 (glibc 2.39) would lock out Ubuntu
+    # 22.04 (2.35) and Debian 12 bookworm (2.36); 22.04 (glibc 2.35) covers all
+    # of them. Rust and Node come from the toolchain actions below, not the
+    # runner image, so the older image costs us nothing.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 

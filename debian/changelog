@@ -8,6 +8,10 @@ laralux (0.7.0-1) UNRELEASED; urgency=medium
     being skipped, so routing and HTTPS never depend on the folder.
   * fix: read_procfile no longer picks up a stray Procfile from the process
     working directory when a site root is empty.
+  * packaging: the released .deb is now built on Ubuntu 22.04 rather than
+    24.04. ${shlibs:Depends} pins the package to the build host's glibc, so
+    the 24.04 build (glibc 2.39) could not be installed on Ubuntu 22.04
+    (2.35) or Debian 12 bookworm (2.36); the 22.04 build covers those too.
 
  -- thotam <thanhtamtotaa@gmail.com>  Tue, 21 Jul 2026 09:50:00 +0700
 
