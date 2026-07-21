@@ -437,6 +437,7 @@ pub async fn add_proxy(
     name: String,
     routes: Vec<ProxyRoute>,
     websocket: bool,
+    root: Option<String>,
 ) -> Result<Site, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Site, String> {
         let state = app.state::<AppState>();
@@ -444,7 +445,10 @@ pub async fn add_proxy(
 
         let mut registry =
             SiteRegistry::load(&state.paths.sites_file()).map_err(|e| e.to_string())?;
-        registry.add_proxy(&name, &routes, websocket).map_err(|e| e.to_string())?;
+        let root_path = root.as_deref().filter(|s| !s.is_empty()).map(Path::new);
+        registry
+            .add_proxy(&name, &routes, websocket, root_path)
+            .map_err(|e| e.to_string())?;
         registry.save(&state.paths.sites_file()).map_err(|e| e.to_string())?;
 
         sync_and_reload(&state, &config);
@@ -465,6 +469,7 @@ pub async fn update_proxy(
     name: String,
     routes: Vec<ProxyRoute>,
     websocket: bool,
+    root: Option<String>,
 ) -> Result<Site, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Site, String> {
         let state = app.state::<AppState>();
@@ -472,7 +477,10 @@ pub async fn update_proxy(
 
         let mut registry =
             SiteRegistry::load(&state.paths.sites_file()).map_err(|e| e.to_string())?;
-        registry.update_proxy(&name, &routes, websocket).map_err(|e| e.to_string())?;
+        let root_path = root.as_deref().filter(|s| !s.is_empty()).map(Path::new);
+        registry
+            .update_proxy(&name, &routes, websocket, root_path)
+            .map_err(|e| e.to_string())?;
         registry.save(&state.paths.sites_file()).map_err(|e| e.to_string())?;
 
         sync_and_reload(&state, &config);
