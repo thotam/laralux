@@ -1,3 +1,16 @@
+laralux (0.7.0-1) UNRELEASED; urgency=medium
+
+  * proxy sites: an optional project folder can now be attached to a
+    reverse-proxy site, which lets its Procfile processes run (e.g. the
+    upstream dev server) and unhides Open folder / Open terminal / the project
+    path for it. The folder never becomes a document root.
+  * a proxy whose folder has gone missing is kept with a warning instead of
+    being skipped, so routing and HTTPS never depend on the folder.
+  * fix: read_procfile no longer picks up a stray Procfile from the process
+    working directory when a site root is empty.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Tue, 21 Jul 2026 09:50:00 +0700
+
 laralux (0.6.0-1) UNRELEASED; urgency=medium
 
   * public domains: each site can serve real domains reverse-proxied from an

@@ -4,6 +4,33 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-07-21
+
+### Added
+- Reverse-proxy sites can now carry an optional **project folder**, picked in the
+  Reverse proxy modal. That folder is what the per-site `Procfile` machinery keys
+  on, so a proxy site can finally run its own upstream — declare
+  `dev: npm run dev` in the folder's `Procfile` and start/stop it from the site's
+  ⋯ menu → **Processes**, exactly like a folder-backed site. The folder never
+  becomes a document root; the proxy's nginx vhost is unchanged.
+- **Open folder**, **Open terminal** and the project path are now shown for any
+  site that has a folder — including a proxy — instead of being hidden for
+  proxies outright.
+
+### Changed
+- A proxy whose project folder has gone missing is kept in the site list with a
+  warning rather than skipped, so a proxy's routing and HTTPS never depend on the
+  folder being present. (A linked site still gets skipped, as before.)
+- The delete dialog now shows a proxy's project folder and states that it is
+  kept. Removing a proxy has never deleted files and still doesn't — only a
+  scanned `www/` site offers delete-from-disk.
+
+### Fixed
+- `read_procfile` no longer reads a stray `Procfile` from the process's working
+  directory when a site's root is empty (`Path::new("").join("Procfile")` is the
+  relative path `Procfile`). Proxy sites without a folder carry exactly that
+  empty root.
+
 ## [0.6.0] - 2026-07-15
 
 ### Added
