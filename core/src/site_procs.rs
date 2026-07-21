@@ -5,7 +5,8 @@ use crate::procfile::read_procfile;
 use crate::service::{ServiceState, SpawnSpec};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 type Key = (String, String); // (site name, proc name)
 
@@ -17,6 +18,36 @@ pub struct ProcStatus {
     pub command: String,
     pub state: ServiceState,
     pub pid: Option<u32>,
+    /// Consecutive restart failures; 0 when healthy. Lets the UI tell "still
+    /// retrying" apart from "gave up".
+    pub failures: u32,
+}
+
+/// Consecutive deaths before we stop resurrecting a process.
+pub const MAX_RESTARTS: u32 = 5;
+/// Staying up this long means the earlier deaths were a blip, not a crash loop.
+const STABLE_AFTER: Duration = Duration::from_secs(30);
+
+/// How long to wait before retry number `failures` (1-indexed). The 5th never
+/// happens — `MAX_RESTARTS` gives up first.
+fn backoff_for(failures: u32) -> Duration {
+    match failures {
+        1 => Duration::from_secs(1),
+        2 => Duration::from_secs(5),
+        3 => Duration::from_secs(15),
+        _ => Duration::from_secs(30),
+    }
+}
+
+/// Everything needed to resurrect a process, plus its backoff state.
+struct Supervised {
+    root: PathBuf,
+    command: String,
+    failures: u32,
+    started_at: Instant,
+    next_attempt_at: Option<Instant>,
+    /// false once the user stopped it by hand, or once we gave up.
+    supervised: bool,
 }
 
 /// Supervises per-site Procfile processes. Independent of the ServiceKind-keyed
@@ -26,11 +57,18 @@ pub struct SiteProcs {
     spawner: Box<dyn ProcessSpawner>,
     handles: HashMap<Key, Box<dyn Process>>,
     states: HashMap<Key, ServiceState>,
+    supervision: HashMap<Key, Supervised>,
 }
 
 impl SiteProcs {
     pub fn new(paths: LaraluxPaths, spawner: Box<dyn ProcessSpawner>) -> Self {
-        Self { paths, spawner, handles: HashMap::new(), states: HashMap::new() }
+        Self {
+            paths,
+            spawner,
+            handles: HashMap::new(),
+            states: HashMap::new(),
+            supervision: HashMap::new(),
+        }
     }
 
     /// PATH that prepends the managed tool bins + /usr/local/bin so `php`,
@@ -71,7 +109,21 @@ impl SiteProcs {
         match self.spawner.spawn(&spec) {
             Ok(handle) => {
                 self.handles.insert(key.clone(), handle);
-                self.states.insert(key, ServiceState::Running);
+                self.states.insert(key.clone(), ServiceState::Running);
+                // Starting by hand wipes the slate: a fresh set of retries. This is
+                // also the only place root/command are retained — without them a
+                // dead process could not be respawned at all.
+                self.supervision.insert(
+                    key,
+                    Supervised {
+                        root: root.to_path_buf(),
+                        command: command.to_string(),
+                        failures: 0,
+                        started_at: Instant::now(),
+                        next_attempt_at: None,
+                        supervised: true,
+                    },
+                );
                 Ok(())
             }
             Err(e) => {
@@ -85,6 +137,12 @@ impl SiteProcs {
         let key = (site.to_string(), name.to_string());
         if let Some(mut h) = self.handles.remove(&key) {
             let _ = h.stop();
+        }
+        // A deliberate stop must never be undone by the supervisor.
+        if let Some(s) = self.supervision.get_mut(&key) {
+            s.supervised = false;
+            s.next_attempt_at = None;
+            s.failures = 0;
         }
         self.states.insert(key, ServiceState::Stopped);
     }
@@ -112,9 +170,14 @@ impl SiteProcs {
         }
     }
 
-    /// Poll liveness: a handle that died unexpectedly becomes `Crashed` (handle
-    /// dropped). Mirrors `Orchestrator::refresh`. No auto-restart.
+    /// Poll liveness and resurrect what died. Called from the app's monitor loop.
     pub fn refresh(&mut self) {
+        self.tick_at(Instant::now());
+    }
+
+    /// The supervision tick, split out from `refresh()` so tests can feed
+    /// synthetic instants instead of sleeping through real backoff windows.
+    pub fn tick_at(&mut self, now: Instant) {
         let mut running: Vec<Key> = Vec::new();
         let mut dead: Vec<Key> = Vec::new();
         for (key, h) in self.handles.iter_mut() {
@@ -124,13 +187,88 @@ impl SiteProcs {
                 dead.push(key.clone());
             }
         }
+
         for key in running {
+            // Up long enough → the earlier deaths were a blip, not a crash loop,
+            // so a later failure gets a full set of retries again.
+            if let Some(s) = self.supervision.get_mut(&key) {
+                if s.failures > 0 && now.duration_since(s.started_at) >= STABLE_AFTER {
+                    s.failures = 0;
+                }
+            }
             self.states.insert(key, ServiceState::Running);
         }
+
         for key in dead {
             self.handles.remove(&key);
+            if let Some(s) = self.supervision.get_mut(&key) {
+                if s.supervised {
+                    s.failures += 1;
+                    if s.failures >= MAX_RESTARTS {
+                        s.supervised = false;
+                        s.next_attempt_at = None;
+                    } else {
+                        s.next_attempt_at = Some(now + backoff_for(s.failures));
+                    }
+                }
+            }
             self.states.insert(key, ServiceState::Crashed);
         }
+
+        // Respawn whatever is due. Deliberately regardless of exit code: a
+        // `queue:work` exits 0 on `queue:restart` and must come back.
+        let due: Vec<Key> = self
+            .supervision
+            .iter()
+            .filter(|(k, s)| {
+                s.supervised
+                    && !self.handles.contains_key(*k)
+                    && s.next_attempt_at.map(|t| now >= t).unwrap_or(false)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for key in due {
+            let Some((root, command)) = self
+                .supervision
+                .get(&key)
+                .map(|s| (s.root.clone(), s.command.clone()))
+            else {
+                continue;
+            };
+            let spec = self.spawn_spec(&root, &key.0, &key.1, &command);
+            match self.spawner.spawn(&spec) {
+                Ok(handle) => {
+                    self.handles.insert(key.clone(), handle);
+                    self.states.insert(key.clone(), ServiceState::Running);
+                    if let Some(s) = self.supervision.get_mut(&key) {
+                        s.started_at = now;
+                        s.next_attempt_at = None;
+                    }
+                }
+                Err(_) => {
+                    // A failed respawn counts like any other death.
+                    if let Some(s) = self.supervision.get_mut(&key) {
+                        s.failures += 1;
+                        if s.failures >= MAX_RESTARTS {
+                            s.supervised = false;
+                            s.next_attempt_at = None;
+                        } else {
+                            s.next_attempt_at = Some(now + backoff_for(s.failures));
+                        }
+                    }
+                    self.states.insert(key, ServiceState::Crashed);
+                }
+            }
+        }
+    }
+
+    /// Consecutive failures for a process; 0 when healthy or never started.
+    pub fn failures_of(&self, site: &str, name: &str) -> u32 {
+        self.supervision
+            .get(&(site.to_string(), name.to_string()))
+            .map(|s| s.failures)
+            .unwrap_or(0)
     }
 
     pub fn state_of(&self, site: &str, name: &str) -> ServiceState {
@@ -243,5 +381,135 @@ mod tests {
     fn state_of_defaults_stopped() {
         let sp = SiteProcs::new(paths(), Box::new(FakeSpawner::new()));
         assert_eq!(sp.state_of("nope", "nope"), ServiceState::Stopped);
+    }
+
+    // ---- supervision -------------------------------------------------------
+
+    use crate::process::{Process, ProcessSpawner};
+    use crate::service::SpawnSpec;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct ControlledProc {
+        alive: Arc<AtomicBool>,
+    }
+    impl Process for ControlledProc {
+        fn is_alive(&mut self) -> bool {
+            self.alive.load(Ordering::SeqCst)
+        }
+        fn stop(&mut self) -> std::io::Result<()> {
+            self.alive.store(false, Ordering::SeqCst);
+            Ok(())
+        }
+        fn reload(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn pid(&self) -> u32 {
+            7
+        }
+    }
+
+    /// Spawns processes whose liveness the test drives, and counts spawns so a
+    /// test can tell a respawn from a no-op tick.
+    struct ControlledSpawner {
+        alive: Arc<AtomicBool>,
+        spawns: Arc<AtomicUsize>,
+    }
+    impl ProcessSpawner for ControlledSpawner {
+        fn spawn(&self, _spec: &SpawnSpec) -> std::io::Result<Box<dyn Process>> {
+            self.spawns.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(ControlledProc { alive: self.alive.clone() }))
+        }
+    }
+
+    fn supervised() -> (SiteProcs, Arc<AtomicBool>, Arc<AtomicUsize>) {
+        let alive = Arc::new(AtomicBool::new(false)); // dead on arrival by default
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let sp = SiteProcs::new(
+            paths(),
+            Box::new(ControlledSpawner { alive: alive.clone(), spawns: spawns.clone() }),
+        );
+        (sp, alive, spawns)
+    }
+
+    #[test]
+    fn dead_proc_is_retried_with_backoff_then_given_up() {
+        let (mut sp, _alive, spawns) = supervised();
+        sp.start("site", Path::new("/tmp"), "web", "true").unwrap();
+        assert_eq!(spawns.load(Ordering::SeqCst), 1);
+
+        let mut at = Instant::now();
+        for (i, wait) in [1u64, 5, 15, 30].iter().enumerate() {
+            sp.tick_at(at); // notice the death
+            assert_eq!(sp.failures_of("site", "web"), i as u32 + 1);
+
+            sp.tick_at(at + Duration::from_secs(*wait) - Duration::from_millis(1));
+            assert_eq!(spawns.load(Ordering::SeqCst), i + 1, "chưa tới hạn thì chưa respawn");
+
+            at += Duration::from_secs(*wait);
+            sp.tick_at(at); // due → respawn
+            assert_eq!(spawns.load(Ordering::SeqCst), i + 2, "tới hạn thì phải respawn");
+            at += Duration::from_millis(1);
+        }
+
+        // Lần chết thứ 5 → bỏ cuộc.
+        sp.tick_at(at);
+        assert_eq!(sp.failures_of("site", "web"), 5);
+        assert_eq!(sp.state_of("site", "web"), ServiceState::Crashed);
+        let after_giveup = spawns.load(Ordering::SeqCst);
+        sp.tick_at(at + Duration::from_secs(3600));
+        assert_eq!(
+            spawns.load(Ordering::SeqCst),
+            after_giveup,
+            "đã bỏ cuộc thì không bao giờ respawn nữa"
+        );
+    }
+
+    #[test]
+    fn staying_alive_long_enough_resets_the_failure_counter() {
+        let (mut sp, alive, _spawns) = supervised();
+        sp.start("site", Path::new("/tmp"), "web", "true").unwrap();
+
+        let t = Instant::now();
+        sp.tick_at(t); // chết lần 1
+        assert_eq!(sp.failures_of("site", "web"), 1);
+
+        alive.store(true, Ordering::SeqCst); // lần respawn tới sẽ sống
+        let respawned = t + Duration::from_secs(1);
+        sp.tick_at(respawned);
+        assert_eq!(sp.state_of("site", "web"), ServiceState::Running);
+
+        // Chưa đủ 30s thì vẫn giữ bộ đếm.
+        sp.tick_at(respawned + Duration::from_secs(29));
+        assert_eq!(sp.failures_of("site", "web"), 1);
+
+        // Sống đủ 30s → coi như đã ổn định.
+        sp.tick_at(respawned + Duration::from_secs(30));
+        assert_eq!(sp.failures_of("site", "web"), 0);
+    }
+
+    #[test]
+    fn manual_stop_is_never_respawned() {
+        let (mut sp, _alive, spawns) = supervised();
+        sp.start("site", Path::new("/tmp"), "web", "true").unwrap();
+        sp.stop("site", "web");
+        let before = spawns.load(Ordering::SeqCst);
+
+        sp.tick_at(Instant::now() + Duration::from_secs(600));
+
+        assert_eq!(sp.state_of("site", "web"), ServiceState::Stopped);
+        assert_eq!(sp.failures_of("site", "web"), 0);
+        assert_eq!(spawns.load(Ordering::SeqCst), before, "stop tay không được hồi sinh");
+    }
+
+    #[test]
+    fn manual_start_resets_the_failure_counter() {
+        let (mut sp, _alive, _spawns) = supervised();
+        sp.start("site", Path::new("/tmp"), "web", "true").unwrap();
+        sp.tick_at(Instant::now());
+        assert!(sp.failures_of("site", "web") > 0);
+
+        sp.start("site", Path::new("/tmp"), "web", "true").unwrap();
+        assert_eq!(sp.failures_of("site", "web"), 0);
     }
 }

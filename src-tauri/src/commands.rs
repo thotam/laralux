@@ -856,6 +856,7 @@ fn site_procs_view(sp: &mut SiteProcs, paths: &LaraluxPaths, name: &str, root: &
             command: e.command,
             state: sp.state_of(name, &e.name),
             pid: sp.pid_of(name, &e.name),
+            failures: sp.failures_of(name, &e.name),
         })
         .collect();
     let autostart = Config::load(&paths.config_file())
