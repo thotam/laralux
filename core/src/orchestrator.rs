@@ -2,6 +2,7 @@ use crate::paths::LaraluxPaths;
 use crate::process::{Process, ProcessSpawner};
 use crate::service::{Service, ServiceError, ServiceKind, ServiceState};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 /// A serializable point-in-time view of one service.
@@ -17,6 +18,10 @@ pub struct Orchestrator {
     spawner: Box<dyn ProcessSpawner>,
     handles: HashMap<ServiceKind, Box<dyn Process>>,
     states: HashMap<ServiceKind, ServiceState>,
+    readiness_timeout: Duration,
+    readiness_init_timeout: Duration,
+    readiness_interval: Duration,
+    readiness_enabled: bool,
 }
 
 impl Orchestrator {
@@ -31,7 +36,30 @@ impl Orchestrator {
             spawner,
             handles: HashMap::new(),
             states: HashMap::new(),
+            readiness_timeout: Duration::from_secs(15),
+            readiness_init_timeout: Duration::from_secs(60),
+            readiness_interval: Duration::from_millis(100),
+            // On in production. Off inside this crate's own unit tests: many of
+            // them drive a REAL Service through a fake spawner, so nothing ever
+            // opens the port/socket its health check waits for. The readiness
+            // tests below opt back in via `with_readiness`.
+            readiness_enabled: !cfg!(test),
         }
+    }
+
+    /// Override the readiness poll parameters. Tests use tiny values so they
+    /// never sleep for real.
+    pub fn with_readiness(
+        mut self,
+        timeout: Duration,
+        init_timeout: Duration,
+        interval: Duration,
+    ) -> Self {
+        self.readiness_timeout = timeout;
+        self.readiness_init_timeout = init_timeout;
+        self.readiness_interval = interval;
+        self.readiness_enabled = true;
+        self
     }
 
     fn find(&self, kind: ServiceKind) -> Option<&dyn Service> {
@@ -79,8 +107,44 @@ impl Orchestrator {
             return Err(e);
         }
 
-        self.states.insert(kind, ServiceState::Running);
-        Ok(())
+        // Spawning only means the process exists. Wait until the service actually
+        // answers before calling it Running — otherwise whatever starts next (a
+        // site's Procfile worker dialling MariaDB) races the port opening.
+        if !self.readiness_enabled {
+            self.states.insert(kind, ServiceState::Running);
+            return Ok(());
+        }
+        let timeout = if needs_init { self.readiness_init_timeout } else { self.readiness_timeout };
+        match self.await_ready(kind, timeout) {
+            Ok(()) => {
+                self.states.insert(kind, ServiceState::Running);
+                Ok(())
+            }
+            Err(e) => {
+                self.states.insert(kind, ServiceState::Crashed);
+                Err(e)
+            }
+        }
+    }
+
+    /// Poll the service's own health check until it passes or `timeout` elapses.
+    fn await_ready(&self, kind: ServiceKind, timeout: Duration) -> Result<(), ServiceError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let svc = self
+                .find(kind)
+                .ok_or_else(|| ServiceError::Config(format!("no such service: {kind:?}")))?;
+            let last = match svc.health_check(&self.paths) {
+                Ok(()) => return Ok(()),
+                Err(e) => e,
+            };
+            if Instant::now() >= deadline {
+                return Err(ServiceError::HealthCheck(format!(
+                    "{kind:?} not ready after {timeout:?}: {last}"
+                )));
+            }
+            std::thread::sleep(self.readiness_interval);
+        }
     }
 
     fn do_start(&mut self, kind: ServiceKind, needs_init: bool) -> Result<(), ServiceError> {
@@ -345,6 +409,63 @@ mod tests {
         let services: Vec<Box<dyn Service>> =
             vec![Box::new(Dummy { kind: ServiceKind::Redis, name: "redis-server" })];
         Orchestrator::new(LaraluxPaths::new("/tmp/lara".into()), services, Box::new(spawner))
+    }
+
+    /// Như `Dummy` nhưng health check fail `fails_left` lần đầu rồi mới pass.
+    struct FlakyHealth {
+        kind: ServiceKind,
+        fails_left: std::sync::atomic::AtomicUsize,
+    }
+    impl Service for FlakyHealth {
+        fn kind(&self) -> ServiceKind {
+            self.kind
+        }
+        fn name(&self) -> &str {
+            "flaky"
+        }
+        fn command(&self, _p: &LaraluxPaths) -> SpawnSpec {
+            SpawnSpec::new("flaky")
+        }
+        fn health_check(&self, _p: &LaraluxPaths) -> Result<(), ServiceError> {
+            use std::sync::atomic::Ordering;
+            if self.fails_left.load(Ordering::SeqCst) == 0 {
+                return Ok(());
+            }
+            self.fails_left.fetch_sub(1, Ordering::SeqCst);
+            Err(ServiceError::HealthCheck("not up yet".into()))
+        }
+    }
+
+    fn flaky_orch(fails: usize, timeout_ms: u64) -> Orchestrator {
+        let services: Vec<Box<dyn Service>> = vec![Box::new(FlakyHealth {
+            kind: ServiceKind::Redis,
+            fails_left: std::sync::atomic::AtomicUsize::new(fails),
+        })];
+        Orchestrator::new(
+            LaraluxPaths::new("/tmp/lara".into()),
+            services,
+            Box::new(FakeSpawner::new()),
+        )
+        .with_readiness(
+            Duration::from_millis(timeout_ms),
+            Duration::from_millis(timeout_ms),
+            Duration::from_millis(1),
+        )
+    }
+
+    #[test]
+    fn start_waits_for_health_then_reports_running() {
+        let mut o = flaky_orch(3, 500);
+        o.start(ServiceKind::Redis).unwrap();
+        assert_eq!(o.state(ServiceKind::Redis), ServiceState::Running);
+    }
+
+    #[test]
+    fn start_times_out_into_crashed_when_never_healthy() {
+        let mut o = flaky_orch(usize::MAX, 20);
+        let err = o.start(ServiceKind::Redis).unwrap_err();
+        assert!(matches!(err, ServiceError::HealthCheck(_)), "expected HealthCheck, got {err:?}");
+        assert_eq!(o.state(ServiceKind::Redis), ServiceState::Crashed);
     }
 
     struct FailingSpawner;
