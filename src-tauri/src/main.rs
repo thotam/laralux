@@ -120,7 +120,14 @@ fn main() {
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "stack_toggle" => {
-                        if let Some(state) = app.try_state::<AppState>() {
+                        // Tauri delivers tray events on the GTK main thread, and starting
+                        // now blocks until every service passes its health check (up to
+                        // 60s on a first-run MariaDB init). Doing that inline would freeze
+                        // the tray and the window, so hand it to a worker thread — the
+                        // same shape the autostart path below already uses.
+                        let handle = app.clone();
+                        std::thread::spawn(move || {
+                            let Some(state) = handle.try_state::<AppState>() else { return };
                             // Decide by current state: all up → Stop All, else Start All.
                             let all_running = match state.orch.lock() {
                                 Ok(mut o) => {
@@ -152,7 +159,7 @@ fn main() {
                                 // needed.
                                 let _ = commands::run_full_start(&state);
                             }
-                        }
+                        });
                     }
                     "dashboard" => {
                         if let Some(win) = app.get_webview_window("main") {
