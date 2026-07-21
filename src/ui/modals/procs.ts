@@ -107,12 +107,20 @@ export function procsModal(): string {
       : view.procs.map((p) => {
           const meta = META[p.state] || META.Stopped;
           const running = p.state === "Running" || p.state === "Starting";
+          // Without this a crashed process just reads "Crashed" and the user
+          // cannot tell whether Laralux is still retrying or has stopped trying.
+          const note =
+            running || p.failures === 0
+              ? ""
+              : p.failures >= 5
+                ? '<span class="proc-note">gave up after 5 restarts</span>'
+                : '<span class="proc-note">retrying (' + p.failures + "/5)…</span>";
           const btn = running
             ? '<button class="btn-sm" data-action="proc-stop" data-proc="' + esc(p.name) + '">Stop</button>'
             : '<button class="btn-sm primary" data-action="proc-start" data-proc="' + esc(p.name) + '">Start</button>';
           return (
             '<div class="proc-row"><div class="proc-info">' +
-            '<div class="proc-name"><span class="dot bgc-' + meta.cls + '"></span>' + esc(p.name) + "</div>" +
+            '<div class="proc-name"><span class="dot bgc-' + meta.cls + '"></span>' + esc(p.name) + note + "</div>" +
             '<code class="proc-cmd">' + esc(p.command) + "</code></div>" +
             '<div class="proc-actions">' + btn +
             '<button class="btn-xs" data-action="proc-logs" data-proc="' + esc(p.name) + '">Logs</button></div></div>'

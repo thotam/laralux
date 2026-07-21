@@ -44,6 +44,8 @@ export interface ProcStatus {
   command: string;
   state: ServiceState;
   pid: number | null;
+  /** Consecutive restart failures; 0 when healthy. */
+  failures: number;
 }
 
 export interface SiteProcsView {
