@@ -403,11 +403,26 @@ pub fn list_all_sites(
             warnings.push(format!("proxy site `{}` is shadowed by another site", p.name));
             continue;
         }
+        // A proxy's folder is optional and only powers Procfile processes. If it
+        // has gone missing, keep serving the route and just warn — unlike a
+        // linked site, a proxy must never disappear because of its folder.
+        let root = match &p.root {
+            Some(r) if r.is_dir() => r.clone(),
+            Some(r) => {
+                warnings.push(format!(
+                    "proxy site `{}`: folder `{}` not found; processes unavailable",
+                    p.name,
+                    r.display()
+                ));
+                std::path::PathBuf::new()
+            }
+            None => std::path::PathBuf::new(),
+        };
         let hostname = format!("{}.{}", p.name, tld);
         sites.push(Site {
             domains: vec![hostname.clone()],
             hostname,
-            root: std::path::PathBuf::new(),
+            root,
             name: p.name.clone(),
             source: SiteSource::Proxy,
             proxy: Some(ProxySpec { routes: p.routes.clone(), websocket: p.websocket }),
@@ -680,7 +695,7 @@ mod tests {
 
         let mut reg = crate::site_registry::SiteRegistry::default();
         let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
-        reg.add_proxy("api", &routes, true).unwrap();
+        reg.add_proxy("api", &routes, true, None).unwrap();
         reg.save(&paths.sites_file()).unwrap();
 
         let (sites, _w) = list_all_sites(&paths, "dev").unwrap();
@@ -694,6 +709,52 @@ mod tests {
     }
 
     #[test]
+    fn proxy_site_gets_root_from_registry() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www")).unwrap();
+        let proj = root.join("nodeapp");
+        std::fs::create_dir_all(&proj).unwrap();
+        let paths = LaraluxPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+        reg.add_proxy("api", &routes, true, Some(&proj)).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+
+        let (sites, warnings) = list_all_sites(&paths, "dev").unwrap();
+        let api = sites.iter().find(|s| s.name == "api").unwrap();
+        assert!(api.root.is_dir(), "proxy root should be populated");
+        assert!(warnings.is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn proxy_with_missing_folder_is_kept_with_warning() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("www")).unwrap();
+        let proj = root.join("gone");
+        std::fs::create_dir_all(&proj).unwrap();
+        let paths = LaraluxPaths::new(root.clone());
+
+        let mut reg = crate::site_registry::SiteRegistry::default();
+        let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+        reg.add_proxy("api", &routes, true, Some(&proj)).unwrap();
+        reg.save(&paths.sites_file()).unwrap();
+        // Folder biến mất SAU khi đã đăng ký.
+        std::fs::remove_dir_all(&proj).unwrap();
+
+        let (sites, warnings) = list_all_sites(&paths, "dev").unwrap();
+        // Routing không được sập: site vẫn còn, chỉ mất khả năng chạy process.
+        let api = sites.iter().find(|s| s.name == "api").expect("proxy must survive a missing folder");
+        assert_eq!(api.source, SiteSource::Proxy);
+        assert_eq!(api.root, std::path::PathBuf::new());
+        assert!(api.proxy.is_some());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("api"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn list_all_scanned_shadows_proxy_of_same_name() {
         let root = temp_root();
         std::fs::create_dir_all(root.join("www").join("api")).unwrap();
@@ -701,7 +762,7 @@ mod tests {
 
         let mut reg = crate::site_registry::SiteRegistry::default();
         let routes = vec![crate::site_registry::ProxyRoute { path: "/".into(), upstream: "3000".into() }];
-        reg.add_proxy("api", &routes, true).unwrap();
+        reg.add_proxy("api", &routes, true, None).unwrap();
         reg.save(&paths.sites_file()).unwrap();
 
         let (sites, warnings) = list_all_sites(&paths, "dev").unwrap();

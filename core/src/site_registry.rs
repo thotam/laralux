@@ -54,6 +54,8 @@ pub struct ProxySite {
     #[serde(default = "default_true")]
     pub websocket: bool,
     pub routes: Vec<ProxyRoute>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +145,21 @@ pub fn validate_domain(d: &str) -> Result<(), RegistryError> {
     }
 }
 
+/// Validate an optional proxy project folder: it must be an existing directory.
+/// Returns the canonicalized path, falling back to the given path if
+/// canonicalize fails (mirrors what `SiteRegistry::add` does for linked sites).
+fn normalize_proxy_root(root: Option<&Path>) -> Result<Option<PathBuf>, RegistryError> {
+    match root {
+        None => Ok(None),
+        Some(p) => {
+            if !p.is_dir() {
+                return Err(RegistryError::RootNotFound(p.display().to_string()));
+            }
+            Ok(Some(std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())))
+        }
+    }
+}
+
 impl SiteRegistry {
     pub fn load(path: &Path) -> Result<SiteRegistry, RegistryError> {
         match std::fs::read_to_string(path) {
@@ -186,13 +203,15 @@ impl SiteRegistry {
         name: &str,
         routes: &[ProxyRoute],
         websocket: bool,
+        root: Option<&Path>,
     ) -> Result<(), RegistryError> {
         validate_site_name(name).map_err(|_| RegistryError::InvalidName(name.to_string()))?;
         if self.sites.iter().any(|s| s.name == name) || self.proxies.iter().any(|p| p.name == name) {
             return Err(RegistryError::Duplicate(name.to_string()));
         }
         let routes = validate_routes(routes)?;
-        self.proxies.push(ProxySite { name: name.to_string(), websocket, routes });
+        let root = normalize_proxy_root(root)?;
+        self.proxies.push(ProxySite { name: name.to_string(), websocket, routes, root });
         Ok(())
     }
 
@@ -201,8 +220,10 @@ impl SiteRegistry {
         name: &str,
         routes: &[ProxyRoute],
         websocket: bool,
+        root: Option<&Path>,
     ) -> Result<(), RegistryError> {
         let routes = validate_routes(routes)?;
+        let root = normalize_proxy_root(root)?;
         let p = self
             .proxies
             .iter_mut()
@@ -210,6 +231,7 @@ impl SiteRegistry {
             .ok_or_else(|| RegistryError::NotFound(name.to_string()))?;
         p.routes = routes;
         p.websocket = websocket;
+        p.root = root;
         Ok(())
     }
 
@@ -400,10 +422,10 @@ mod tests {
         reg.add("folder", &proj).unwrap();
         let routes = vec![ProxyRoute { path: "/".into(), upstream: "3000".into() }];
 
-        assert!(matches!(reg.add_proxy("folder", &routes, true), Err(RegistryError::Duplicate(_))));
-        assert!(matches!(reg.add_proxy("Bad Name", &routes, true), Err(RegistryError::InvalidName(_))));
-        reg.add_proxy("api", &routes, true).unwrap();
-        assert!(matches!(reg.add_proxy("api", &routes, true), Err(RegistryError::Duplicate(_))));
+        assert!(matches!(reg.add_proxy("folder", &routes, true, None), Err(RegistryError::Duplicate(_))));
+        assert!(matches!(reg.add_proxy("Bad Name", &routes, true, None), Err(RegistryError::InvalidName(_))));
+        reg.add_proxy("api", &routes, true, None).unwrap();
+        assert!(matches!(reg.add_proxy("api", &routes, true, None), Err(RegistryError::Duplicate(_))));
         assert_eq!(reg.proxies().len(), 1);
         assert_eq!(reg.proxies()[0].routes[0].upstream, "127.0.0.1:3000");
         std::fs::remove_dir_all(&r).ok();
@@ -413,14 +435,14 @@ mod tests {
     fn update_proxy_replaces_or_errors_not_found() {
         let mut reg = SiteRegistry::default();
         let routes = vec![ProxyRoute { path: "/".into(), upstream: "3000".into() }];
-        reg.add_proxy("api", &routes, true).unwrap();
+        reg.add_proxy("api", &routes, true, None).unwrap();
 
         let new_routes = vec![ProxyRoute { path: "/".into(), upstream: "4000".into() }];
-        reg.update_proxy("api", &new_routes, false).unwrap();
+        reg.update_proxy("api", &new_routes, false, None).unwrap();
         assert_eq!(reg.proxies()[0].routes[0].upstream, "127.0.0.1:4000");
         assert!(!reg.proxies()[0].websocket);
 
-        assert!(matches!(reg.update_proxy("ghost", &new_routes, true), Err(RegistryError::NotFound(_))));
+        assert!(matches!(reg.update_proxy("ghost", &new_routes, true, None), Err(RegistryError::NotFound(_))));
     }
 
     #[test]
@@ -520,11 +542,65 @@ mod tests {
     }
 
     #[test]
+    fn proxy_root_is_optional_validated_and_roundtrips() {
+        let r = root();
+        let proj = r.join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        let routes = vec![ProxyRoute { path: "/".into(), upstream: "3000".into() }];
+
+        let mut reg = SiteRegistry::default();
+        // không có folder -> None
+        reg.add_proxy("plain", &routes, true, None).unwrap();
+        assert_eq!(reg.proxies().iter().find(|p| p.name == "plain").unwrap().root, None);
+
+        // có folder -> lưu lại
+        reg.add_proxy("withdir", &routes, true, Some(&proj)).unwrap();
+        let saved = reg.proxies().iter().find(|p| p.name == "withdir").unwrap().root.clone().unwrap();
+        assert!(saved.is_dir());
+
+        // folder không tồn tại -> RootNotFound
+        assert!(matches!(
+            reg.add_proxy("bad", &routes, true, Some(&r.join("nope"))),
+            Err(RegistryError::RootNotFound(_))
+        ));
+
+        // update_proxy đổi được root (kể cả gỡ về None)
+        reg.update_proxy("plain", &routes, true, Some(&proj)).unwrap();
+        assert!(reg.proxies().iter().find(|p| p.name == "plain").unwrap().root.is_some());
+        reg.update_proxy("plain", &routes, true, None).unwrap();
+        assert_eq!(reg.proxies().iter().find(|p| p.name == "plain").unwrap().root, None);
+
+        // save/load roundtrip
+        let file = r.join("sites.toml");
+        reg.save(&file).unwrap();
+        let back = SiteRegistry::load(&file).unwrap();
+        assert!(back.proxies().iter().find(|p| p.name == "withdir").unwrap().root.is_some());
+        std::fs::remove_dir_all(&r).ok();
+    }
+
+    #[test]
+    fn old_sites_toml_proxy_without_root_loads() {
+        let r = root();
+        std::fs::create_dir_all(&r).unwrap();
+        let file = r.join("sites.toml");
+        std::fs::write(
+            &file,
+            "[[proxies]]\nname = \"next\"\nwebsocket = true\n\n[[proxies.routes]]\npath = \"/\"\nupstream = \"127.0.0.1:3000\"\n",
+        )
+        .unwrap();
+        let reg = SiteRegistry::load(&file).unwrap();
+        let p = reg.proxies().iter().find(|p| p.name == "next").unwrap();
+        assert_eq!(p.root, None);
+        assert!(p.websocket);
+        std::fs::remove_dir_all(&r).ok();
+    }
+
+    #[test]
     fn remove_handles_proxies_and_old_file_loads() {
         // remove a proxy
         let mut reg = SiteRegistry::default();
         let routes = vec![ProxyRoute { path: "/".into(), upstream: "3000".into() }];
-        reg.add_proxy("api", &routes, true).unwrap();
+        reg.add_proxy("api", &routes, true, None).unwrap();
         assert!(reg.remove("api"));
         assert!(!reg.remove("api"));
 
