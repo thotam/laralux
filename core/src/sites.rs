@@ -83,6 +83,25 @@ pub struct Site {
     pub public_domains: Vec<String>,
 }
 
+/// Serve `.well-known`, never execute it. ACME clients and OAuth libraries write
+/// into this directory, and write access there must not imply code execution.
+///
+/// Three parts, all load-bearing:
+/// - `^~` makes nginx skip the regex locations below, so the `\.php$` handler can
+///   never reach anything here — the property is structural, not a matter of
+///   declaration order or of the extension list being exhaustive.
+/// - The nested dotfile deny restores what `^~` would otherwise bypass: without
+///   it `/.well-known/.env` goes from 403 to 200 with its contents.
+/// - The trailing rule is deliberately NOT anchored, because `^~` only matches at
+///   the start: `/{tenant}/.well-known/…` (the shape OIDC discovery uses) would
+///   otherwise still execute.
+const WELL_KNOWN_GUARD: &str = "\x20 location ^~ /.well-known/ {\n\
+     \x20   location ~ ^/\\.well-known/(.*/)?\\. { deny all; }\n\
+     \x20   location ~ \\.(php|phar|phtml)$ { deny all; }\n\
+     \x20   try_files $uri $uri/ /index.php?$query_string;\n\
+     \x20 }\n\
+     \x20 location ~ /\\.well-known/.*\\.(php|phar|phtml)$ { deny all; }\n";
+
 impl Site {
     /// Laravel-style: serve `public/` if present, else the project dir.
     pub fn document_root(&self) -> PathBuf {
@@ -185,6 +204,7 @@ impl Site {
              \x20 access_log {alog};\n\
              \x20 error_log {elog};\n\
              \x20 location ~ /\\.(?!well-known).* {{ deny all; }}\n\
+             {well_known}\
              {build_cache}\
              \x20 location / {{ try_files $uri $uri/ /index.php?$query_string; }}\n\
              \x20 location ~ \\.php$ {{\n\
@@ -204,6 +224,7 @@ impl Site {
             sock = php_socket.display(),
             nginx_etc = paths.etc_for("nginx").display(),
             build_cache = build_cache,
+            well_known = WELL_KNOWN_GUARD,
         );
         format!("{local}{}", self.public_vhost_block(paths, php_socket, cert, key))
     }
@@ -299,6 +320,7 @@ impl Site {
              \x20 access_log {alog};\n\
              \x20 error_log {elog};\n\
              \x20 location ~ /\\.(?!well-known).* {{ deny all; }}\n\
+             {well_known}\
              {build_cache}\
              \x20 location / {{ try_files $uri $uri/ /index.php?$query_string; }}\n\
              \x20 location ~ \\.php$ {{\n\
@@ -314,6 +336,7 @@ impl Site {
             docroot = self.document_root().display(),
             sock = php_socket.display(),
             nginx_etc = paths.etc_for("nginx").display(),
+            well_known = WELL_KNOWN_GUARD,
         )
     }
 }
@@ -598,6 +621,53 @@ mod tests {
         // local và public là hai server_name tách biệt (không gộp chung)
         assert!(!conf.contains("server_name app.example.com app.dev;"));
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn php_vhost_blocks_execution_under_well_known() {
+        let root = temp_root();
+        let www = root.join("www");
+        std::fs::create_dir_all(www.join("app").join("public")).unwrap();
+        let paths = LaraluxPaths::new(root.clone());
+        let mut site = scan_sites(&paths, "dev").unwrap().into_iter().find(|s| s.name == "app").unwrap();
+        site.public_domains = vec!["app.example.com".to_string()];
+
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("app.dev.pem");
+        let key = paths.ssl().join("app.dev-key.pem");
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+
+        // Prefix block: `^~` stops nginx reaching the `\.php$` handler at all.
+        assert_eq!(conf.matches("location ^~ /.well-known/").count(), 2,
+            "cả block local lẫn block public đều phải có guard");
+        // Nested denies: without the dotfile one, `^~` would expose /.well-known/.env.
+        assert_eq!(conf.matches("location ~ ^/\\.well-known/(.*/)?\\. { deny all; }").count(), 2);
+        assert_eq!(conf.matches("location ~ \\.(php|phar|phtml)$ { deny all; }").count(), 2);
+        // `.well-known` nested at any depth — `^~` is anchored and misses these.
+        assert_eq!(conf.matches("location ~ /\\.well-known/.*\\.(php|phar|phtml)$ { deny all; }").count(), 2);
+        // The nested rule must NOT be anchored, or /mcp/.well-known/x.php executes.
+        assert!(!conf.contains("location ~ ^/\\.well-known/.*\\.(php|phar|phtml)$"),
+            "rule cho .well-known lồng không được neo ^");
+        // OAuth/ACME still reach Laravel.
+        assert!(conf.contains("try_files $uri $uri/ /index.php?$query_string;"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn proxy_vhost_has_no_well_known_guard() {
+        let root = temp_root();
+        let paths = LaraluxPaths::new(root.clone());
+        let route = crate::site_registry::ProxyRoute { path: "/".into(), upstream: "127.0.0.1:3000".into() };
+        let mut site = proxy_site("api", vec![route], true);
+        site.public_domains = vec!["api.example.com".to_string()];
+        let sock = paths.tmp().join("php-fpm.sock");
+        let cert = paths.ssl().join("x.pem");
+        let key = paths.ssl().join("x-key.pem");
+
+        let conf = site.vhost_config(&paths, &sock, &cert, &key);
+        // A proxy has no root and no PHP handler — there is nothing to protect,
+        // and a guard here would only add a confusing dead rule.
+        assert!(!conf.contains(".well-known"), "nhánh proxy không được có guard");
     }
 
     #[test]
