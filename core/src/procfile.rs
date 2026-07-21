@@ -39,6 +39,12 @@ pub fn parse_procfile(text: &str) -> Vec<ProcEntry> {
 /// Read `<site_root>/Procfile`. `None` if the file is absent; `Some(entries)`
 /// (possibly empty) otherwise.
 pub fn read_procfile(site_root: &Path) -> Option<Vec<ProcEntry>> {
+    // An empty root means "no folder" (e.g. a proxy site without a project
+    // folder). Without this guard the join yields the relative path `Procfile`,
+    // reading whatever happens to sit in the process's working directory.
+    if site_root.as_os_str().is_empty() {
+        return None;
+    }
     match std::fs::read_to_string(site_root.join("Procfile")) {
         Ok(text) => Some(parse_procfile(&text)),
         Err(_) => None,
@@ -67,6 +73,16 @@ mod tests {
         // only `ok: first` survives (dup `ok` skipped, others malformed/empty)
         assert_eq!(e.len(), 1);
         assert_eq!(e[0], ProcEntry { name: "ok".into(), command: "first".into() });
+    }
+
+    #[test]
+    fn empty_root_reads_no_procfile() {
+        // A proxy site without a project folder carries an empty root. Note that
+        // `Path::new("").join("Procfile")` is the RELATIVE path `Procfile`, so
+        // without a guard this would read whatever file happens to sit in the
+        // process's working directory.
+        assert_eq!(Path::new("").join("Procfile"), Path::new("Procfile"));
+        assert!(read_procfile(Path::new("")).is_none());
     }
 
     #[test]
