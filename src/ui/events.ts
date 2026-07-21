@@ -9,6 +9,7 @@ import {
   openNewSite, closeNewSite, submitNewSite,
   openLinkSite, closeLinkSite, browseFolder, submitLinkSite,
   openProxy, closeProxy, addProxyRoute, delProxyRoute, submitProxy,
+  browseProxyFolder, clearProxyFolder,
   openDomains, closeDomains, addDomainRow, delDomainRow, submitDomains,
   openPublicDomains, closePublicDomains, addPublicDomainRow, delPublicDomainRow, submitPublicDomains,
   openDeleteSite, closeDeleteSite, runDeleteAction, copySite, openTerminal, openFolder, openExternal,
@@ -110,6 +111,8 @@ export function bindEvents(): void {
     else if (a === "edit-proxy") { const s = state.sites.find((s) => s.name === el.getAttribute("data-name")); openProxy(s); }
     else if (a === "px-close") closeProxy();
     else if (a === "px-submit") submitProxy();
+    else if (a === "px-browse") browseProxyFolder();
+    else if (a === "px-root-clear") clearProxyFolder();
     else if (a === "pr-add") addProxyRoute();
     else if (a === "pr-del") delProxyRoute(parseInt(el.getAttribute("data-idx")!, 10));
     else if (a === "px-overlay-click") { if (e.target === el) closeProxy(); }

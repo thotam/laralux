@@ -52,11 +52,13 @@ export function sitesView(): string {
           const badge = isProxy
             ? '<span class="site-badge">proxy → ' + esc(target) + "</span>"
             : (isLinked ? '<span class="site-badge">linked</span>' : "");
-          const subRight = isProxy ? "" : '<span class="site-root" title="' + esc(s.root) + '">' + esc(s.root) + "</span>";
-          const folderBtn = isProxy
+          // Gated on the folder, not the site type: a proxy with a project
+          // folder gets the same affordances as any other site.
+          const subRight = !s.root ? "" : '<span class="site-root" title="' + esc(s.root) + '">' + esc(s.root) + "</span>";
+          const folderBtn = !s.root
             ? ""
             : '<button class="icon-btn sq32" data-action="open-folder" data-path="' + esc(s.root) + '" aria-label="Open folder" title="Open project folder">' + I.folder + "</button>";
-          const termBtn = isProxy
+          const termBtn = !s.root
             ? ""
             : '<button class="icon-btn sq32" data-action="open-terminal" data-path="' + esc(s.root) + '" aria-label="Open terminal" title="Open terminal here">' + I.terminal + "</button>";
 
@@ -172,6 +174,23 @@ export async function browseFolder(): Promise<void> {
   }
 }
 
+export async function browseProxyFolder(): Promise<void> {
+  try {
+    const picked = await openDialog({ directory: true, multiple: false, title: "Choose project folder" });
+    if (!picked) return; // cancelled
+    state.proxy.root = Array.isArray(picked) ? picked[0] : picked;
+    state.proxy.error = "";
+    render();
+  } catch (e) {
+    toast({ type: "error", title: "Folder picker failed", msg: String(e) });
+  }
+}
+
+export function clearProxyFolder(): void {
+  state.proxy.root = "";
+  render();
+}
+
 export async function submitLinkSite(): Promise<void> {
   const { root, name } = state.linkSite;
   if (!root) { state.linkSite.error = "Choose a folder first"; render(); return; }
@@ -202,11 +221,12 @@ export function openProxy(site?: Site): void {
     state.proxy = {
       mode: "edit", name: site.name, websocket: !!site.proxy.websocket,
       routes: (site.proxy.routes || []).map((r) => ({ path: r.path, upstream: r.upstream })),
+      root: site.root || "",
       busy: false, error: "",
     };
     if (!state.proxy.routes.length) state.proxy.routes = [{ path: "/", upstream: "" }];
   } else {
-    state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" };
+    state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], root: "", busy: false, error: "" };
   }
   state.modal = "proxy";
   render();
@@ -234,11 +254,11 @@ export async function submitProxy(): Promise<void> {
   try {
     const routes = p.routes.map((r) => ({ path: r.path, upstream: r.upstream }));
     const site = await (p.mode === "edit"
-      ? updateProxy(p.name, routes, p.websocket)
-      : addProxy(p.name, routes, p.websocket));
+      ? updateProxy(p.name, routes, p.websocket, p.root)
+      : addProxy(p.name, routes, p.websocket, p.root));
     toast({ type: "success", title: (p.mode === "edit" ? "Updated " : "Proxy ") + site.name, msg: "https://" + site.hostname });
     state.modal = null;
-    state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" };
+    state.proxy = { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], root: "", busy: false, error: "" };
     try { const sites = await listSites(); state.sites = Array.isArray(sites) ? sites : []; } catch (_) {}
     render();
   } catch (e) {

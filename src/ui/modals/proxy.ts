@@ -31,6 +31,13 @@ export function proxyModal(): string {
     '<label class="ns-label">Routes</label>' +
     rows +
     '<button class="link-btn" data-action="pr-add"' + d + '>+ Add route</button>' +
+    '<label class="ns-label">Project folder (optional)</label>' +
+    '<div class="pr-row">' +
+    '<input class="ns-input" type="text" placeholder="Not set — used to run a Procfile" value="' + esc(p.root) + '" readonly' + d + ' />' +
+    '<button class="btn btn-outline" data-action="px-browse"' + d + '>Browse</button>' +
+    (p.root ? '<button class="icon-btn sq32" data-action="px-root-clear" aria-label="Clear folder"' + d + '>' + I.close + '</button>' : '') +
+    '</div>' +
+    '<span class="ns-preview muted">Runs the processes declared in the folder\'s <code>Procfile</code>. Leave empty if not needed.</span>' +
     '<label class="ns-check"><input type="checkbox" data-action="px-ws"' + (p.websocket ? ' checked' : '') + d + ' /> WebSocket support</label>' +
     errorHtml +
     '</div>' +

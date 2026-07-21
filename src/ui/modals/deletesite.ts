@@ -12,7 +12,7 @@ export function deleteSiteModal(): string {
   const info =
     '<div class="ns-label">' + esc(d.name) + "</div>" +
     '<div class="ds-url">' + esc(d.url) + "</div>" +
-    (d.source === "Proxy" ? "" : '<div class="ds-root" title="' + esc(d.root) + '">' + esc(d.root) + "</div>");
+    (d.root ? '<div class="ds-root" title="' + esc(d.root) + '">' + esc(d.root) + "</div>" : "");
 
   let body: string;
   let footer: string;
@@ -33,7 +33,12 @@ export function deleteSiteModal(): string {
       '<button class="btn btn-outline" data-action="ds-close"' + dis + ">Cancel</button>" +
       '<button class="btn btn-danger" data-action="ds-remove"' + dis + ">Remove</button>";
   } else {
-    body = "<p>Removes the reverse-proxy <b>" + esc(d.name) + "</b> from Laralux.</p>";
+    // Proxy: never offers a delete-from-disk button — only the registry entry goes.
+    body =
+      "<p>Removes the reverse-proxy <b>" + esc(d.name) + "</b> from Laralux.</p>" +
+      (d.root
+        ? "<p>Your project folder <code>" + esc(d.root) + "</code> is kept.</p>"
+        : "");
     footer =
       '<button class="btn btn-outline" data-action="ds-close"' + dis + ">Cancel</button>" +
       '<button class="btn btn-danger" data-action="ds-remove"' + dis + ">Remove</button>";

@@ -47,6 +47,8 @@ export interface ProxyState {
   name: string;
   websocket: boolean;
   routes: ProxyRoute[];
+  /** Optional project folder; "" means none. Powers the site's Procfile. */
+  root: string;
   busy: boolean;
   error: string;
 }
@@ -150,7 +152,7 @@ export const state: AppState = {
   linkSite: { root: "", name: "", busy: false, error: "" },
   deleteSite: null,
   rowMenu: null,
-  proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], busy: false, error: "" },
+  proxy: { mode: "create", name: "", websocket: true, routes: [{ path: "/", upstream: "" }], root: "", busy: false, error: "" },
   siteDomains: { name: "", domains: [""], busy: false, error: "" },
   sitePublicDomains: { name: "", domains: [""], busy: false, error: "" },
   download: { active: false, label: "", step: { done: 0, total: 0 }, bytes: { current: 0, total: 0 }, overall: 0 },

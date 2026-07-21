@@ -108,20 +108,21 @@ export const addProxy = (
   name: string,
   routes: ProxyRoute[],
   websocket: boolean,
+  root?: string | null,
 ): Promise<Site> =>
-  invoke<Site>("add_proxy", { name, routes, websocket });
+  invoke<Site>("add_proxy", { name, routes, websocket, root: root || null });
 
 /**
  * Update an existing reverse proxy site.
- * Arg keys: `name`, `routes`, `websocket` — same shape as addProxy, verified
- *   against main.ts submitProxy() where cmd is "update_proxy".
+ * Arg keys: `name`, `routes`, `websocket`, `root` — same shape as addProxy.
  */
 export const updateProxy = (
   name: string,
   routes: ProxyRoute[],
   websocket: boolean,
+  root?: string | null,
 ): Promise<Site> =>
-  invoke<Site>("update_proxy", { name, routes, websocket });
+  invoke<Site>("update_proxy", { name, routes, websocket, root: root || null });
 
 /**
  * Set custom domains for a site.
