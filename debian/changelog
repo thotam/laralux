@@ -1,3 +1,12 @@
+laralux (0.8.1-1) UNRELEASED; urgency=medium
+
+  * fix: stopping a site process now kills its whole process group, so commands
+    that fork children (npm run dev, artisan serve, queue job subprocesses) no
+    longer leave orphans running after the UI reports them stopped. Applies to
+    managed services too.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Tue, 21 Jul 2026 14:30:00 +0700
+
 laralux (0.8.0-1) UNRELEASED; urgency=medium
 
   * security: files under a site's .well-known are no longer executed or served

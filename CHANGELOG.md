@@ -4,6 +4,16 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-07-21
+
+### Fixed
+- Stopping a site process now stops the whole process tree, not just the leader.
+  Commands that fork children (`npm run dev`, `php artisan serve`, a queue
+  worker's job subprocesses) left those children running after the UI reported
+  the process stopped. Each managed process now runs in its own process group
+  and is signalled as a group on stop, so no descendants are orphaned. This
+  applies to managed services too.
+
 ## [0.8.0] - 2026-07-21
 
 ### Security
