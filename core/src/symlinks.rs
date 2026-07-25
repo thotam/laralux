@@ -131,7 +131,9 @@ mod tests {
         let p = FakePrivileged::new();
         unlink_tool(ManagedTool::Node, &p).unwrap();
         let removed = p.symlinks_removed();
-        assert_eq!(removed.lock().unwrap().len(), 3);
+        // Tied to the source of truth so expanding Node's CLI set (corepack,
+        // yarn, pnpm, …) never silently breaks this again.
+        assert_eq!(removed.lock().unwrap().len(), info(ManagedTool::Node).cli_binaries.len());
         std::fs::remove_dir_all(std::env::temp_dir().join("nonexistent-noop")).ok();
     }
 
