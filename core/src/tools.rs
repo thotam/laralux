@@ -45,7 +45,7 @@ pub fn info(tool: ManagedTool) -> ToolInfo {
         Mailpit => ToolInfo { key: "mailpit", display: "Mailpit", cli_binaries: &[], service_kind: Some(ServiceKind::Mailpit) },
         Mkcert => ToolInfo { key: "mkcert", display: "mkcert", cli_binaries: &["mkcert"], service_kind: None },
         Composer => ToolInfo { key: "composer", display: "Composer", cli_binaries: &["composer"], service_kind: None },
-        Node => ToolInfo { key: "node", display: "Node.js", cli_binaries: &["node", "npm", "npx"], service_kind: None },
+        Node => ToolInfo { key: "node", display: "Node.js", cli_binaries: &["node", "npm", "npx", "corepack", "yarn", "yarnpkg", "pnpm", "pnpx"], service_kind: None },
     }
 }
 
@@ -207,7 +207,10 @@ mod tests {
         assert_eq!(info(ManagedTool::Nginx).cli_binary(), Some("nginx"));
         assert_eq!(info(ManagedTool::Node).cli_binary(), Some("node"));
         // Node ships three terminal CLIs — all are symlinked together.
-        assert_eq!(info(ManagedTool::Node).cli_binaries, &["node", "npm", "npx"]);
+        assert_eq!(
+            info(ManagedTool::Node).cli_binaries,
+            &["node", "npm", "npx", "corepack", "yarn", "yarnpkg", "pnpm", "pnpx"]
+        );
         assert_eq!(info(ManagedTool::Mailpit).cli_binary(), None);
         assert!(info(ManagedTool::Mailpit).cli_binaries.is_empty());
     }
