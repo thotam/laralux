@@ -38,26 +38,23 @@ pub fn link_tool(paths: &LaraluxPaths, tool: ManagedTool, privileged: &dyn Privi
     if !primary.exists() {
         return Err(SymlinkError::NotInstalled);
     }
-    for (name, src) in cli_paths(tool, paths) {
-        if !src.exists() {
-            continue;
-        }
-        let dst = std::path::Path::new(SYSTEM_BIN_DIR).join(name);
-        privileged.create_symlink(&src, &dst).map_err(|e| SymlinkError::Priv(e.to_string()))?;
-    }
-    Ok(())
+    // Collect every present CLI first, then create all symlinks under ONE
+    // escalation — exposing node (8 CLIs) asks for the password once, not 8×.
+    let pairs: Vec<(PathBuf, PathBuf)> = cli_paths(tool, paths)
+        .into_iter()
+        .filter(|(_, src)| src.exists())
+        .map(|(name, src)| (src, std::path::Path::new(SYSTEM_BIN_DIR).join(name)))
+        .collect();
+    privileged.create_symlinks(&pairs).map_err(|e| SymlinkError::Priv(e.to_string()))
 }
 
-/// Remove every `/usr/local/bin` symlink the tool owns.
+/// Remove every `/usr/local/bin` symlink the tool owns, under ONE escalation.
 pub fn unlink_tool(tool: ManagedTool, privileged: &dyn Privileged) -> Result<(), SymlinkError> {
     let dsts = system_link_paths(tool);
     if dsts.is_empty() {
         return Err(SymlinkError::NoCli);
     }
-    for dst in dsts {
-        privileged.remove_symlink(&dst).map_err(|e| SymlinkError::Priv(e.to_string()))?;
-    }
-    Ok(())
+    privileged.remove_symlinks(&dsts).map_err(|e| SymlinkError::Priv(e.to_string()))
 }
 
 #[cfg(test)]
@@ -108,6 +105,8 @@ mod tests {
         assert!(dsts.contains(&"/usr/local/bin/npm"));
         assert!(dsts.contains(&"/usr/local/bin/npx"));
         assert_eq!(created.len(), 3);
+        // All CLIs are linked under a SINGLE escalation (one password prompt).
+        assert_eq!(p.symlink_batch_count(), 1);
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -134,6 +133,8 @@ mod tests {
         // Tied to the source of truth so expanding Node's CLI set (corepack,
         // yarn, pnpm, …) never silently breaks this again.
         assert_eq!(removed.lock().unwrap().len(), info(ManagedTool::Node).cli_binaries.len());
+        // Removed under a SINGLE escalation (one password prompt).
+        assert_eq!(p.symlink_batch_count(), 1);
         std::fs::remove_dir_all(std::env::temp_dir().join("nonexistent-noop")).ok();
     }
 

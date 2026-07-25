@@ -37,8 +37,10 @@ pub trait Privileged: Send + Sync {
     fn disable_system_services(&self, units: &[String]) -> Result<(), PrivError>;
     fn write_resolved_dropin(&self, contents: &str) -> Result<(), PrivError>;
     fn remove_resolved_dropin(&self) -> Result<(), PrivError>;
-    fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError>;
-    fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError>;
+    /// Create every `(src, dst)` symlink under a SINGLE escalation prompt.
+    fn create_symlinks(&self, pairs: &[(PathBuf, PathBuf)]) -> Result<(), PrivError>;
+    /// Remove every `dst` symlink under a SINGLE escalation prompt.
+    fn remove_symlinks(&self, dsts: &[PathBuf]) -> Result<(), PrivError>;
     fn ensure_php_ini_link(&self, target: &Path) -> Result<(), PrivError>;
     /// Run the setup-time privileged steps (disable distro units, install the
     /// mkcert system CA, setcap nginx) under a single escalation prompt.
@@ -101,8 +103,23 @@ fn remove_resolved_argv() -> Vec<String> {
     ]
 }
 
-fn ln_symlink_argv(src: &Path, dst: &Path) -> Vec<String> {
-    vec!["ln".to_string(), "-sfn".to_string(), src.display().to_string(), dst.display().to_string()]
+/// One escalated `sh -c` that creates EVERY symlink for a tool, so exposing a
+/// multi-CLI tool (node ships 8) asks for the password once instead of once per
+/// CLI. Each `ln -sfn` is chained with `&&` so the first failure stops the batch
+/// and surfaces a non-zero status, matching the old loop's fail-fast behavior.
+fn ln_symlinks_argv(pairs: &[(PathBuf, PathBuf)]) -> Vec<String> {
+    let script = pairs
+        .iter()
+        .map(|(src, dst)| {
+            format!(
+                "ln -sfn {} {}",
+                shell_quote(&src.display().to_string()),
+                shell_quote(&dst.display().to_string())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" && ");
+    vec!["sh".to_string(), "-c".to_string(), script]
 }
 
 fn php_ini_link_argv(target: &Path) -> Vec<String> {
@@ -116,8 +133,13 @@ fn php_ini_link_argv(target: &Path) -> Vec<String> {
     ]
 }
 
-fn rm_argv(dst: &Path) -> Vec<String> {
-    vec!["rm".to_string(), "-f".to_string(), dst.display().to_string()]
+/// One escalated `rm -f` removing EVERY symlink a tool owns in a single call, so
+/// un-exposing a multi-CLI tool asks for the password once. `rm -f` never fails
+/// on paths that are already gone.
+fn rm_symlinks_argv(dsts: &[PathBuf]) -> Vec<String> {
+    let mut argv = vec!["rm".to_string(), "-f".to_string()];
+    argv.extend(dsts.iter().map(|d| d.display().to_string()));
+    argv
 }
 
 fn run_escalated(escalator: &str, argv: &[String]) -> Result<(), PrivError> {
@@ -344,11 +366,17 @@ impl Privileged for SudoPrivileged {
     fn remove_resolved_dropin(&self) -> Result<(), PrivError> {
         run_escalated("sudo", &remove_resolved_argv())
     }
-    fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError> {
-        run_escalated("sudo", &ln_symlink_argv(src, dst))
+    fn create_symlinks(&self, pairs: &[(PathBuf, PathBuf)]) -> Result<(), PrivError> {
+        if pairs.is_empty() {
+            return Ok(());
+        }
+        run_escalated("sudo", &ln_symlinks_argv(pairs))
     }
-    fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
-        run_escalated("sudo", &rm_argv(dst))
+    fn remove_symlinks(&self, dsts: &[PathBuf]) -> Result<(), PrivError> {
+        if dsts.is_empty() {
+            return Ok(());
+        }
+        run_escalated("sudo", &rm_symlinks_argv(dsts))
     }
     fn ensure_php_ini_link(&self, target: &Path) -> Result<(), PrivError> {
         run_escalated("sudo", &php_ini_link_argv(target))
@@ -384,11 +412,17 @@ impl Privileged for PkexecPrivileged {
     fn remove_resolved_dropin(&self) -> Result<(), PrivError> {
         run_escalated("pkexec", &remove_resolved_argv())
     }
-    fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError> {
-        run_escalated("pkexec", &ln_symlink_argv(src, dst))
+    fn create_symlinks(&self, pairs: &[(PathBuf, PathBuf)]) -> Result<(), PrivError> {
+        if pairs.is_empty() {
+            return Ok(());
+        }
+        run_escalated("pkexec", &ln_symlinks_argv(pairs))
     }
-    fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
-        run_escalated("pkexec", &rm_argv(dst))
+    fn remove_symlinks(&self, dsts: &[PathBuf]) -> Result<(), PrivError> {
+        if dsts.is_empty() {
+            return Ok(());
+        }
+        run_escalated("pkexec", &rm_symlinks_argv(dsts))
     }
     fn ensure_php_ini_link(&self, target: &Path) -> Result<(), PrivError> {
         run_escalated("pkexec", &php_ini_link_argv(target))
@@ -410,6 +444,9 @@ pub struct FakePrivileged {
     resolved_removed: Arc<Mutex<bool>>,
     symlinks_created: Arc<Mutex<Vec<(String, String)>>>,
     symlinks_removed: Arc<Mutex<Vec<String>>>,
+    /// One entry per batched escalation call (create or remove); each entry is
+    /// the batch size. `len()` == number of password prompts that would fire.
+    symlink_batches: Arc<Mutex<Vec<usize>>>,
     php_ini_links: Arc<Mutex<Vec<String>>>,
 }
 
@@ -443,6 +480,10 @@ impl FakePrivileged {
     pub fn symlinks_removed(&self) -> Arc<Mutex<Vec<String>>> {
         self.symlinks_removed.clone()
     }
+    /// Number of batched escalation calls made (== password prompts).
+    pub fn symlink_batch_count(&self) -> usize {
+        self.symlink_batches.lock().unwrap().len()
+    }
     pub fn php_ini_links(&self) -> Arc<Mutex<Vec<String>>> {
         self.php_ini_links.clone()
     }
@@ -473,12 +514,20 @@ impl Privileged for FakePrivileged {
         *self.resolved_removed.lock().unwrap() = true;
         Ok(())
     }
-    fn create_symlink(&self, src: &Path, dst: &Path) -> Result<(), PrivError> {
-        self.symlinks_created.lock().unwrap().push((src.display().to_string(), dst.display().to_string()));
+    fn create_symlinks(&self, pairs: &[(PathBuf, PathBuf)]) -> Result<(), PrivError> {
+        self.symlink_batches.lock().unwrap().push(pairs.len());
+        let mut log = self.symlinks_created.lock().unwrap();
+        for (src, dst) in pairs {
+            log.push((src.display().to_string(), dst.display().to_string()));
+        }
         Ok(())
     }
-    fn remove_symlink(&self, dst: &Path) -> Result<(), PrivError> {
-        self.symlinks_removed.lock().unwrap().push(dst.display().to_string());
+    fn remove_symlinks(&self, dsts: &[PathBuf]) -> Result<(), PrivError> {
+        self.symlink_batches.lock().unwrap().push(dsts.len());
+        let mut log = self.symlinks_removed.lock().unwrap();
+        for dst in dsts {
+            log.push(dst.display().to_string());
+        }
         Ok(())
     }
     fn ensure_php_ini_link(&self, target: &Path) -> Result<(), PrivError> {
@@ -622,27 +671,43 @@ mod tests {
     }
 
     #[test]
-    fn symlink_argv_builders_are_correct() {
+    fn symlink_argv_builders_batch_into_one_call() {
+        // Create: one `sh -c` chaining every `ln -sfn` with `&&`.
+        let argv = ln_symlinks_argv(&[
+            (PathBuf::from("/home/u/laralux/bin/node/current/node"), PathBuf::from("/usr/local/bin/node")),
+            (PathBuf::from("/home/u/laralux/bin/node/current/npm"), PathBuf::from("/usr/local/bin/npm")),
+        ]);
+        assert_eq!(argv[0], "sh");
+        assert_eq!(argv[1], "-c");
         assert_eq!(
-            ln_symlink_argv(Path::new("/home/u/laralux/bin/php/current/php"), Path::new("/usr/local/bin/php")),
-            vec!["ln".to_string(), "-sfn".to_string(),
-                 "/home/u/laralux/bin/php/current/php".to_string(), "/usr/local/bin/php".to_string()]
+            argv[2],
+            "ln -sfn '/home/u/laralux/bin/node/current/node' '/usr/local/bin/node' && \
+             ln -sfn '/home/u/laralux/bin/node/current/npm' '/usr/local/bin/npm'"
         );
+        // Remove: a single `rm -f` with every dst as an argument.
         assert_eq!(
-            rm_argv(Path::new("/usr/local/bin/php")),
-            vec!["rm".to_string(), "-f".to_string(), "/usr/local/bin/php".to_string()]
+            rm_symlinks_argv(&[PathBuf::from("/usr/local/bin/node"), PathBuf::from("/usr/local/bin/npm")]),
+            vec!["rm".to_string(), "-f".to_string(),
+                 "/usr/local/bin/node".to_string(), "/usr/local/bin/npm".to_string()]
         );
     }
 
     #[test]
-    fn fake_records_symlink_create_and_remove() {
+    fn fake_records_batched_symlink_create_and_remove_as_one_prompt_each() {
         let p = FakePrivileged::new();
-        p.create_symlink(Path::new("/src/php"), Path::new("/usr/local/bin/php")).unwrap();
-        p.remove_symlink(Path::new("/usr/local/bin/php")).unwrap();
+        p.create_symlinks(&[
+            (PathBuf::from("/src/node"), PathBuf::from("/usr/local/bin/node")),
+            (PathBuf::from("/src/npm"), PathBuf::from("/usr/local/bin/npm")),
+        ]).unwrap();
+        p.remove_symlinks(&[PathBuf::from("/usr/local/bin/node"), PathBuf::from("/usr/local/bin/npm")]).unwrap();
+        // Every dst is still recorded for content assertions...
         assert_eq!(p.symlinks_created().lock().unwrap().as_slice(),
-            &[("/src/php".to_string(), "/usr/local/bin/php".to_string())]);
+            &[("/src/node".to_string(), "/usr/local/bin/node".to_string()),
+              ("/src/npm".to_string(), "/usr/local/bin/npm".to_string())]);
         assert_eq!(p.symlinks_removed().lock().unwrap().as_slice(),
-            &["/usr/local/bin/php".to_string()]);
+            &["/usr/local/bin/node".to_string(), "/usr/local/bin/npm".to_string()]);
+        // ...but the whole create and the whole remove are one escalation each.
+        assert_eq!(p.symlink_batch_count(), 2);
     }
 
     #[test]
