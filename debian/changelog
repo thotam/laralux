@@ -1,3 +1,13 @@
+laralux (0.8.2-1) UNRELEASED; urgency=medium
+
+  * node: expose corepack and auto-enable yarn/pnpm on the managed PATH.
+    Installing Node runs `corepack enable` (offline, once) and exposes
+    node/npm/npx/corepack/yarn/yarnpkg/pnpm/pnpx at the version root and into
+    /usr/local/bin; also retrofits already-installed Node. Best-effort — Node
+    25+ (no bundled corepack) degrades to node/npm/npx.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Fri, 25 Jul 2026 11:00:00 +0700
+
 laralux (0.8.1-1) UNRELEASED; urgency=medium
 
   * fix: stopping a site process now kills its whole process group, so commands

@@ -4,6 +4,17 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.2] - 2026-07-25
+
+### Added
+- Node.js now exposes `corepack` and auto-enables `yarn`/`pnpm`. Node static
+  builds (up to Node 24) ship corepack, but only `node`/`npm`/`npx` were reaching
+  the managed PATH — yarn/pnpm sat off-PATH. Installing Node now runs `corepack
+  enable` (offline, once) and exposes `node/npm/npx/corepack/yarn/yarnpkg/pnpm/
+  pnpx` at the version root and, when linking is enabled, into `/usr/local/bin`.
+  Applies to already-installed Node too (retrofit on next setup). Best-effort:
+  Node 25+ (which no longer bundles corepack) degrades cleanly to node/npm/npx.
+
 ## [0.8.1] - 2026-07-21
 
 ### Fixed
