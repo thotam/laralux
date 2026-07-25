@@ -1,3 +1,13 @@
+laralux (0.8.3-1) UNRELEASED; urgency=medium
+
+  * fix: exposing a tool's CLIs to the terminal now asks for the password once
+    instead of once per binary. Toggling Node, which ships 8 CLIs
+    (node/npm/npx/corepack/yarn/yarnpkg/pnpm/pnpx), prompted up to 8 times;
+    all of a tool's symlinks are now created or removed under a single
+    escalation (Node 8->1, PostgreSQL 5->1, MongoDB/MariaDB 2->1).
+
+ -- thotam <thanhtamtotaa@gmail.com>  Sat, 25 Jul 2026 16:00:00 +0700
+
 laralux (0.8.2-1) UNRELEASED; urgency=medium
 
   * node: expose corepack and auto-enable yarn/pnpm on the managed PATH.

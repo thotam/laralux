@@ -4,6 +4,16 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.3] - 2026-07-25
+
+### Fixed
+- Exposing a tool's CLIs to the terminal now asks for the password once instead
+  of once per binary. `link_tool`/`unlink_tool` escalated separately for every
+  CLI, so toggling Node — which ships 8 (`node/npm/npx/corepack/yarn/yarnpkg/
+  pnpm/pnpx`) — prompted up to 8 times. All of a tool's symlinks are now created
+  or removed under a single escalation (Node 8→1, PostgreSQL 5→1,
+  MongoDB/MariaDB 2→1).
+
 ## [0.8.2] - 2026-07-25
 
 ### Added
