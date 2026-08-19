@@ -32,7 +32,9 @@ pub fn build_services(config: &Config, paths: &LaraluxPaths) -> Vec<Box<dyn Serv
         services.push(Box::new(php));
     }
     if config.services.nginx {
-        services.push(Box::new(NginxService::new(php_socket)));
+        services.push(Box::new(
+            NginxService::new(php_socket).with_client_max_body_size(config.php_ini.post_max_size.clone()),
+        ));
     }
     if config.services.mailpit {
         services.push(Box::new(MailpitService::new()));

@@ -73,11 +73,21 @@ fastcgi_param  HTTP_PROXY         "";
 pub struct NginxService {
     http_port: u16,
     php_socket: PathBuf,
+    /// http-block `client_max_body_size`, synced to PHP `post_max_size` (nginx's 1MB default 413s larger uploads).
+    client_max_body_size: String,
 }
 
 impl NginxService {
     pub fn new(php_socket: PathBuf) -> Self {
-        Self { http_port: 80, php_socket }
+        Self {
+            http_port: 80,
+            php_socket,
+            client_max_body_size: crate::php_ini::PhpIniSettings::default().post_max_size,
+        }
+    }
+    pub fn with_client_max_body_size(mut self, size: impl Into<String>) -> Self {
+        self.client_max_body_size = size.into();
+        self
     }
     fn conf_path(&self, paths: &LaraluxPaths) -> PathBuf {
         paths.etc_for("nginx").join("nginx.conf")
@@ -107,6 +117,7 @@ impl Service for NginxService {
              http {{\n\
              \x20 include {nginx_etc}/mime.types;\n\
              \x20 default_type application/octet-stream;\n\
+             \x20 client_max_body_size {cmbs};\n\
              \x20 charset utf-8;\n\
              \x20 sendfile on;\n\
              \x20 tcp_nopush on;\n\
@@ -144,6 +155,7 @@ impl Service for NginxService {
             acclog = paths.log().join("nginx-access.log").display(),
             tmp = paths.tmp().display(),
             port = self.http_port,
+            cmbs = self.client_max_body_size,
             www = paths.www().display(),
             sock = self.php_socket.display(),
             nginx_etc = paths.etc_for("nginx").display(),
@@ -232,6 +244,27 @@ mod tests {
         assert!(mime.contains("application/javascript"));
         assert!(mime.contains("js mjs;"));
         assert!(mime.contains("font/woff2"));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn client_max_body_size_defaults_to_php_default_and_follows_builder() {
+        let tmp = std::env::temp_dir().join(format!("lara-nginx-cmbs-{}", std::process::id()));
+        let p = LaraluxPaths::new(tmp.clone());
+        let sock = p.tmp().join("php-fpm.sock");
+
+        // Default: PHP's default post_max_size (well above nginx's 1MB default).
+        NginxService::new(sock.clone()).write_config(&p).unwrap();
+        let conf = std::fs::read_to_string(p.etc_for("nginx").join("nginx.conf")).unwrap();
+        assert!(conf.contains(&format!(
+            "client_max_body_size {};",
+            crate::php_ini::PhpIniSettings::default().post_max_size
+        )));
+
+        // Builder wins (mirrors build_services wiring PHP's post_max_size).
+        NginxService::new(sock).with_client_max_body_size("2048M").write_config(&p).unwrap();
+        let conf = std::fs::read_to_string(p.etc_for("nginx").join("nginx.conf")).unwrap();
+        assert!(conf.contains("client_max_body_size 2048M;"));
         std::fs::remove_dir_all(&tmp).ok();
     }
 
