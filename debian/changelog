@@ -1,3 +1,14 @@
+laralux (0.8.4-1) UNRELEASED; urgency=medium
+
+  * fix: uploads larger than 1MB no longer fail with 413 Request Entity Too
+    Large. The generated nginx config never set client_max_body_size, so it
+    used nginx's 1MB default and rejected larger uploads before they reached
+    PHP, even though PHP's post_max_size allowed more. nginx now sets
+    client_max_body_size in the http block, synced to the configured PHP
+    post_max_size, inherited by every site and proxy vhost.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Wed, 19 Aug 2026 12:00:00 +0700
+
 laralux (0.8.3-1) UNRELEASED; urgency=medium
 
   * fix: exposing a tool's CLIs to the terminal now asks for the password once

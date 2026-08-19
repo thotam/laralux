@@ -4,6 +4,16 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.4] - 2026-08-19
+
+### Fixed
+- Uploads larger than 1MB no longer fail with `413 Request Entity Too Large`.
+  The generated nginx config never set `client_max_body_size`, so it fell back
+  to nginx's 1MB default and rejected any larger upload before it reached PHP —
+  even though PHP's `post_max_size` allowed far more. nginx now sets
+  `client_max_body_size` in the http block, kept in sync with the configured PHP
+  `post_max_size`, so every site and proxy vhost accepts what the app accepts.
+
 ## [0.8.3] - 2026-07-25
 
 ### Fixed
