@@ -148,7 +148,7 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             &cfg.versions.get("mkcert").cloned().unwrap_or_default(),
         ),
         ManagedTool::Composer => known_catalog(
-            &crate::php_cli::KNOWN_COMPOSER_VERSIONS,
+            &crate::php_cli::composer_catalog_versions(paths).iter().map(String::as_str).collect::<Vec<_>>(),
             crate::layout::installed_versions(paths, "composer"),
             &cfg.versions.get("composer").cloned().unwrap_or_default(),
         ),
@@ -247,11 +247,11 @@ mod tests {
     fn composer_available_versions_includes_known_set_newest_first() {
         let root = std::env::temp_dir().join(format!("lara-tools-cmp-{}", std::process::id()));
         let paths = LaraluxPaths::new(root.clone());
-        std::fs::create_dir_all(paths.version_dir("composer", "2.6.6")).unwrap();
+        std::fs::create_dir_all(paths.version_dir("composer", "2.8.12")).unwrap();
         let vs = available_versions(ManagedTool::Composer, &paths);
         assert_eq!(vs.len(), crate::php_cli::KNOWN_COMPOSER_VERSIONS.len());
-        assert!(vs.iter().find(|v| v.version == "2.6.6").unwrap().installed);
-        assert_eq!(vs[0].version, "2.8.9"); // newest first
+        assert!(vs.iter().find(|v| v.version == "2.8.12").unwrap().installed);
+        assert_eq!(vs[0].version, "2.10.3"); // newest first
         std::fs::remove_dir_all(&root).ok();
     }
 

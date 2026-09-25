@@ -3,12 +3,68 @@ use crate::php_static::{install_php_cli, PhpStaticError};
 use crate::scaffold::CommandRunner;
 use crate::setup::Downloader;
 
-pub const COMPOSER_URL: &str = "https://getcomposer.org/composer.phar";
-pub const COMPOSER_FALLBACK_VERSION: &str = "2.8.9";
+/// Latest stable release. The bare `getcomposer.org/composer.phar` is the dev
+/// snapshot, which nags "development build is over 60 days old".
+pub const COMPOSER_URL: &str = "https://getcomposer.org/download/latest-stable/composer.phar";
+pub const COMPOSER_FALLBACK_VERSION: &str = "2.10.3";
 
-/// Curated Composer versions offered in the Setup modal (recent 2.x + 2.2 LTS).
-/// All verified present as `getcomposer.org/download/<ver>/composer.phar`.
-pub const KNOWN_COMPOSER_VERSIONS: [&str; 4] = ["2.8.9", "2.7.9", "2.6.6", "2.2.24"];
+/// Official release feed: `stable` lists the latest stable plus the LTS line.
+pub const COMPOSER_VERSIONS_URL: &str = "https://getcomposer.org/versions";
+const COMPOSER_VERSIONS_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Offline fallback for the Setup modal (recent 2.x + 2.2 LTS); the release
+/// feed adds newer ones. All verified present as `getcomposer.org/download/<ver>/composer.phar`.
+pub const KNOWN_COMPOSER_VERSIONS: [&str; 4] = ["2.10.3", "2.9.7", "2.8.12", "2.2.30"];
+
+fn composer_versions_cache(paths: &LaraluxPaths) -> std::path::PathBuf {
+    paths.tmp().join("composer-versions.json")
+}
+
+/// Stable version strings from the `getcomposer.org/versions` JSON.
+pub fn parse_composer_versions(json: &str) -> Vec<String> {
+    let root: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    root.get("stable")
+        .and_then(|s| s.as_array())
+        .map(|arr| arr.iter().filter_map(|e| e.get("version")?.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// Refresh the cached release feed when missing or older than the TTL.
+/// Best effort: on failure the previous cache (or the known list) is used.
+pub fn refresh_composer_versions(paths: &LaraluxPaths, downloader: &dyn Downloader) {
+    let cache = composer_versions_cache(paths);
+    let fresh = std::fs::metadata(&cache)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < COMPOSER_VERSIONS_TTL);
+    if fresh || std::fs::create_dir_all(paths.tmp()).is_err() {
+        return;
+    }
+    let tmp = paths.tmp().join("composer-versions.json.part");
+    let ok = downloader.fetch(COMPOSER_VERSIONS_URL, &tmp).is_ok()
+        && std::fs::read_to_string(&tmp).is_ok_and(|s| !parse_composer_versions(&s).is_empty());
+    if ok {
+        let _ = std::fs::rename(&tmp, &cache);
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// Versions offered in the catalog: the known list unioned with the cached feed.
+pub fn composer_catalog_versions(paths: &LaraluxPaths) -> Vec<String> {
+    let mut versions: Vec<String> = KNOWN_COMPOSER_VERSIONS.iter().map(|s| s.to_string()).collect();
+    let cached = std::fs::read_to_string(composer_versions_cache(paths)).unwrap_or_default();
+    for v in parse_composer_versions(&cached) {
+        if !versions.contains(&v) {
+            versions.push(v);
+        }
+    }
+    versions
+}
 
 /// Versioned composer.phar download URL.
 pub fn composer_versioned_url(version: &str) -> String {
@@ -149,6 +205,55 @@ mod tests {
         let link = paths.current_link("php");
         assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("8.4.10"));
         assert!(dl.requested().lock().unwrap().is_empty(), "no download when cli present");
+        std::fs::remove_dir_all(paths.root()).ok();
+    }
+
+    const VERSIONS_JSON: &str = r#"{
+        "stable": [{"path": "/download/2.11.0/composer.phar", "version": "2.11.0"},
+                   {"path": "/download/2.2.31/composer.phar", "version": "2.2.31"}],
+        "preview": [{"path": "/download/2.12.0-RC1/composer.phar", "version": "2.12.0-RC1"}],
+        "snapshot": [{"path": "/composer.phar", "version": "abc123"}]
+    }"#;
+
+    struct JsonDownloader(&'static str);
+    impl Downloader for JsonDownloader {
+        fn fetch(&self, _url: &str, dest: &Path) -> Result<(), crate::setup::SetupError> {
+            std::fs::write(dest, self.0)?;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn composer_url_is_stable_channel_not_snapshot() {
+        assert!(COMPOSER_URL.contains("latest-stable"));
+    }
+
+    #[test]
+    fn parse_composer_versions_keeps_only_stable() {
+        assert_eq!(parse_composer_versions(VERSIONS_JSON), vec!["2.11.0", "2.2.31"]);
+        assert!(parse_composer_versions("not json").is_empty());
+    }
+
+    #[test]
+    fn catalog_merges_cached_feed_with_known_list() {
+        let paths = root();
+        assert_eq!(composer_catalog_versions(&paths).len(), KNOWN_COMPOSER_VERSIONS.len());
+        refresh_composer_versions(&paths, &JsonDownloader(VERSIONS_JSON));
+        let vs = composer_catalog_versions(&paths);
+        assert!(vs.contains(&"2.11.0".to_string()) && vs.contains(&"2.2.31".to_string()));
+        assert!(!vs.iter().any(|v| v.contains("RC") || v == "abc123"));
+        std::fs::remove_dir_all(paths.root()).ok();
+    }
+
+    #[test]
+    fn refresh_skips_download_while_cache_is_fresh_and_ignores_bad_feed() {
+        let paths = root();
+        refresh_composer_versions(&paths, &JsonDownloader("garbage"));
+        assert!(!composer_versions_cache(&paths).exists(), "invalid feed must not be cached");
+        refresh_composer_versions(&paths, &JsonDownloader(VERSIONS_JSON));
+        let dl = FakeDownloader::new();
+        refresh_composer_versions(&paths, &dl);
+        assert!(dl.requested().lock().unwrap().is_empty(), "fresh cache must not refetch");
         std::fs::remove_dir_all(paths.root()).ok();
     }
 

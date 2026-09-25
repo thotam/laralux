@@ -497,12 +497,21 @@ pub async fn update_proxy(
 
 
 #[tauri::command]
-pub fn tool_versions(
-    state: tauri::State<AppState>,
+pub async fn tool_versions(
+    app: tauri::AppHandle,
     tool: String,
 ) -> Result<Vec<laralux_core::tools::ToolVersion>, String> {
-    let t = laralux_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
-    Ok(laralux_core::tools::available_versions(t, &state.paths))
+    // Off the main thread: the composer catalog may hit the network.
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<laralux_core::tools::ToolVersion>, String> {
+        let state = app.state::<AppState>();
+        let t = laralux_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
+        if t == laralux_core::tools::ManagedTool::Composer {
+            laralux_core::php_cli::refresh_composer_versions(&state.paths, &CurlDownloader);
+        }
+        Ok(laralux_core::tools::available_versions(t, &state.paths))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
