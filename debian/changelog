@@ -1,3 +1,13 @@
+laralux (0.8.5-1) UNRELEASED; urgency=medium
+
+  * fix: Composer no longer warns that its development build is over 60 days
+    old. Setup downloaded getcomposer.org/composer.phar, the dev snapshot, and
+    now installs the latest stable release. The Composer version list combines
+    a built-in offline list with the stable releases from
+    getcomposer.org/versions, refreshed at most once a day.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Fri, 25 Sep 2026 12:00:00 +0700
+
 laralux (0.8.4-1) UNRELEASED; urgency=medium
 
   * fix: uploads larger than 1MB no longer fail with 413 Request Entity Too

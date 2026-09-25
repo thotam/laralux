@@ -4,6 +4,16 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.5] - 2026-09-25
+
+### Fixed
+- Composer no longer warns "This development build of Composer is over 60 days
+  old". Setup downloaded `getcomposer.org/composer.phar`, which is the dev
+  snapshot, not the stable release. It now installs the latest stable release.
+- The Composer version list stays current: it combines a built-in offline list
+  (2.10.3, 2.9.7, 2.8.12, 2.2.30 LTS) with the stable releases published at
+  `getcomposer.org/versions`, refreshed at most once a day.
+
 ## [0.8.4] - 2026-08-19
 
 ### Fixed
