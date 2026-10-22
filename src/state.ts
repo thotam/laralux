@@ -20,6 +20,8 @@ export interface ToolModalState {
   display: string;
   cliBinary: string | null;
   versions: ToolVersion[];
+  /** True until the first `tool_versions` reply (it may wait on the network). */
+  loading?: boolean;
   linked: boolean;
   busy: boolean;
   busyVersion: string | null;

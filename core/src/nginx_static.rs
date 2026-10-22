@@ -118,9 +118,39 @@ pub fn install_nginx_version(
     place_nginx(paths, version, &url, downloader, sink)
 }
 
+/// nginx versions in the binaries index built for linux/`arch`.
+pub fn parse_nginx_feed(json: &str, arch: &str) -> crate::version_feed::Feed {
+    let root: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let arr = root.as_array().or_else(|| root.get("contents").and_then(|c| c.as_array()));
+    let field = |e: &serde_json::Value, k: &str| e.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let versions = arr
+        .into_iter()
+        .flatten()
+        .filter(|e| field(e, "name") == "nginx" && field(e, "os") == "linux" && field(e, "arch") == arch)
+        .map(|e| field(e, "version"))
+        .filter(|v| !v.is_empty())
+        .collect();
+    crate::version_feed::Feed { versions, allowed_lines: None }
+}
+
+pub fn nginx_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    let arch = nginx_arch()?;
+    Some(parse_nginx_feed(&crate::version_feed::fetch_text(dl, NGINX_INDEX_URL, scratch)?, arch))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nginx_feed_filters_arch_and_os() {
+        let json = r#"{"contents":[
+          {"name":"nginx","os":"linux","arch":"x86_64","version":"1.31.6"},
+          {"name":"nginx","os":"linux","arch":"aarch64","version":"1.31.7"},
+          {"name":"nginx","os":"darwin","arch":"x86_64","version":"1.31.8"},
+          {"name":"njs","os":"linux","arch":"x86_64","version":"0.9.1"}]}"#;
+        assert_eq!(parse_nginx_feed(json, "x86_64").versions, vec!["1.31.6".to_string()]);
+    }
     const IDX: &str = r#"[
       {"name":"nginx","version":"1.24.0","arch":"x86_64","os":"linux","filename":"nginx-1.24.0-x86_64-linux"},
       {"name":"nginx","version":"1.31.2","arch":"x86_64","os":"linux","filename":"nginx-1.31.2-x86_64-linux"},

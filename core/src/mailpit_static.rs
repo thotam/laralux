@@ -113,6 +113,12 @@ pub fn install_mailpit_version(
     place_mailpit(paths, version, &extracted)
 }
 
+pub fn mailpit_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    let arch = mailpit_arch()?;
+    let asset = |_: &str| format!("mailpit-linux-{arch}.tar.gz");
+    crate::version_feed::github_feed(dl, scratch, "axllent/mailpit", Some(&asset))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

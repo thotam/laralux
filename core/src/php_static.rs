@@ -141,9 +141,39 @@ pub fn install_php_cli(
     Ok(full)
 }
 
+/// PHP minors (`8.4`) that have a cli build for `arch` in the bulk index.
+pub fn parse_php_minors(json: &str, arch: &str) -> crate::version_feed::Feed {
+    let entries: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
+    let suffix = format!("-cli-linux-{arch}.tar.gz");
+    let mut versions: Vec<String> = Vec::new();
+    for name in entries.iter().filter_map(|e| e.get("name").and_then(|n| n.as_str())) {
+        let Some(full) = name.strip_prefix("php-").and_then(|n| n.strip_suffix(&suffix)) else { continue };
+        let minor = crate::version_feed::line_minor(full);
+        if crate::version_feed::is_stable(full) && !versions.contains(&minor) {
+            versions.push(minor);
+        }
+    }
+    versions.sort_by_key(|v| std::cmp::Reverse(crate::version_feed::version_key(v)));
+    crate::version_feed::Feed { versions, allowed_lines: None }
+}
+
+pub fn php_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    let arch = arch_tag()?;
+    let json = crate::version_feed::fetch_text(dl, &format!("{STATIC_PHP_BASE}/?format=json"), scratch)?;
+    Some(parse_php_minors(&json, arch))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn php_minors_from_index_for_arch() {
+        let j = r#"[{"name":"php-8.5.1-cli-linux-x86_64.tar.gz"},{"name":"php-8.4.22-cli-linux-x86_64.tar.gz"},
+                    {"name":"php-8.4.21-cli-linux-x86_64.tar.gz"},{"name":"php-8.3.30-cli-linux-aarch64.tar.gz"},
+                    {"name":"php-8.2.30-fpm-linux-x86_64.tar.gz"}]"#;
+        assert_eq!(parse_php_minors(j, "x86_64").versions, vec!["8.5".to_string(), "8.4".to_string()]);
+    }
     use crate::scaffold::ScaffoldError;
     use crate::setup::{Downloader, SetupError};
     use std::path::Path;

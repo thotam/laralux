@@ -116,9 +116,49 @@ pub fn install_mongodb_version(
     Ok(version.to_string())
 }
 
+pub const MONGODB_CURRENT_URL: &str = "https://downloads.mongodb.org/current.json";
+
+/// Latest release of each maintained line from `current.json`, keeping only
+/// those with an `ubuntu2204` build for `arch` (the tarball laralux installs).
+pub fn parse_mongodb_feed(json: &str, arch: &str) -> crate::version_feed::Feed {
+    let root: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let field = |e: &serde_json::Value, k: &str| e.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let versions: Vec<String> = root
+        .get("versions")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|e| {
+            e.get("downloads").and_then(|d| d.as_array()).into_iter().flatten()
+                .any(|d| field(d, "target") == "ubuntu2204" && field(d, "arch") == arch)
+        })
+        .map(|e| field(e, "version"))
+        .filter(|v| !v.is_empty())
+        .collect();
+    let lines: Vec<String> = versions.iter().map(|v| crate::version_feed::line_minor(v)).collect();
+    crate::version_feed::Feed { allowed_lines: if lines.is_empty() { None } else { Some(lines) }, versions }
+}
+
+pub fn mongodb_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    let arch = mongodb_arch()?;
+    Some(parse_mongodb_feed(&crate::version_feed::fetch_text(dl, MONGODB_CURRENT_URL, scratch)?, arch))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mongodb_feed_reads_current_json() {
+        let j = r#"{"versions":[
+            {"version":"9.0.4","downloads":[{"target":"ubuntu2204","arch":"x86_64"}]},
+            {"version":"8.0.34","downloads":[{"target":"ubuntu2404","arch":"x86_64"},{"target":"ubuntu2204","arch":"x86_64"}]},
+            {"version":"7.0.45","downloads":[{"target":"ubuntu2204","arch":"aarch64"}]},
+            {"version":"5.0.34","downloads":[{"target":"ubuntu2004","arch":"x86_64"}]}]}"#;
+        let f = parse_mongodb_feed(j, "x86_64");
+        assert_eq!(f.versions, vec!["9.0.4".to_string(), "8.0.34".to_string()]);
+        assert_eq!(f.allowed_lines, Some(vec!["9.0".to_string(), "8.0".to_string()]));
+    }
 
     #[test]
     fn urls_and_arch() {

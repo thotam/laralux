@@ -140,9 +140,78 @@ pub fn install_node_version(
     Ok(version.to_string())
 }
 
+pub const NODE_INDEX_URL: &str = "https://nodejs.org/dist/index.json";
+
+pub const NODE_SCHEDULE_URL: &str = "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json";
+
+/// Release versions from `dist/index.json` (nightlies and RCs dropped).
+pub fn parse_node_feed(json: &str) -> crate::version_feed::Feed {
+    let entries: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
+    let versions = entries
+        .iter()
+        .filter_map(|e| e.get("version").and_then(|v| v.as_str()))
+        .map(|v| v.trim_start_matches('v').to_string())
+        .filter(|v| crate::version_feed::is_stable(v))
+        .collect();
+    crate::version_feed::Feed { versions, allowed_lines: None }
+}
+
+/// Majors whose support window covers `today` (`YYYY-MM-DD`), newest first.
+/// `index.json` only says a line was once LTS, not whether it is still supported.
+pub fn parse_node_schedule(json: &str, today: &str) -> Vec<String> {
+    let root: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let date = |e: &serde_json::Value, k: &str| e.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let mut lines: Vec<String> = root
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, e)| {
+            let (start, end) = (date(e, "start"), date(e, "end"));
+            !start.is_empty() && start.as_str() <= today && today < end.as_str()
+        })
+        .map(|(k, _)| k.trim_start_matches('v').to_string())
+        .collect();
+    lines.sort_by_key(|l| std::cmp::Reverse(crate::version_feed::version_key(l)));
+    lines
+}
+
+/// Both the release index and the support schedule are required; without the
+/// schedule every line ever marked LTS (back to Node 4) would be offered.
+pub fn node_feed(dl: &dyn Downloader, scratch: &Path) -> Option<crate::version_feed::Feed> {
+    use crate::version_feed::fetch_text;
+    let mut feed = parse_node_feed(&fetch_text(dl, NODE_INDEX_URL, scratch)?);
+    let lines = parse_node_schedule(&fetch_text(dl, NODE_SCHEDULE_URL, scratch)?, &crate::version_feed::today());
+    if lines.is_empty() {
+        return None;
+    }
+    feed.allowed_lines = Some(lines);
+    Some(feed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_feed_strips_v_and_drops_nightlies() {
+        let json = r#"[{"version":"v26.12.1"},{"version":"v25.0.0-nightly2025"},{"version":"v24.18.0"}]"#;
+        assert_eq!(parse_node_feed(json).versions, vec!["26.12.1".to_string(), "24.18.0".to_string()]);
+    }
+
+    #[test]
+    fn node_schedule_keeps_lines_supported_today() {
+        let json = r#"{"v20":{"start":"2023-04-18","end":"2026-04-30"},
+                       "v22":{"start":"2024-04-24","end":"2027-04-30"},
+                       "v25":{"start":"2025-10-15","end":"2026-06-01"},
+                       "v26":{"start":"2026-05-05","end":"2029-04-30"},
+                       "v27":{"start":"2027-04-22","end":"2030-04-30"}}"#;
+        assert_eq!(parse_node_schedule(json, "2026-10-22"), vec!["26".to_string(), "22".to_string()]);
+    }
+
+    #[test]
+    fn node_feed_bad_json_is_empty() {
+        assert!(parse_node_feed("<html>").versions.is_empty());
+    }
 
     #[test]
     fn url_and_arch() {

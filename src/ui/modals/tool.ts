@@ -37,7 +37,8 @@ export function toolModal(): string {
       else right = '<button class="btn-sm" data-action="install-tool-version" data-version="' + esc(v.version) + '"' + (m.busy ? " disabled" : "") + ">Install</button>";
       return '<div class="set-row" data-key="ver-' + esc(v.version) + '"><div class="grow"><div class="t">' + esc(m.display) + " " + esc(v.version) + '</div><div class="h">' + (v.installed ? "Installed" : "Not installed") + "</div></div>" + right + "</div>";
     })
-    .join("") || '<div class="set-row"><div class="h">No versions — run "Install missing" first.</div></div>';
+    .join("") || '<div class="set-row"><div class="h">' +
+      (m.loading ? "Loading versions…" : 'No versions — run "Install missing" first.') + "</div></div>";
 
   const anyInstalled = m.versions.some((v) => v.installed);
   const symlinkRow = m.cliBinary
@@ -79,7 +80,7 @@ export async function openTool(toolKey: string): Promise<void> {
   const comp = Object.keys(TOOL_KEY).find((k) => TOOL_KEY[k] === toolKey);
   state.modal = {
     open: true, toolKey, display: DISP_COMP[comp as string] || toolKey, cliBinary: TOOL_CLI[toolKey] ?? null,
-    versions: [], linked: false, busy: false, busyVersion: null,
+    versions: [], loading: true, linked: false, busy: false, busyVersion: null,
   };
   render();
   // Narrow to ToolModalState after assignment — safe because we just set it above.
@@ -95,6 +96,7 @@ export async function openTool(toolKey: string): Promise<void> {
   } catch (e) {
     toast({ type: "error", title: "Load failed", msg: String(e) });
   }
+  m.loading = false;
   if (toolKey === "php") {
     try { m.phpIni = await phpIniSettings(); }
     catch (_) { m.phpIni = null; }

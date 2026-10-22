@@ -101,9 +101,33 @@ pub fn install_postgres_version(
     Ok(version.to_string())
 }
 
+/// Versions listed in a Maven `maven-metadata.xml`.
+pub fn parse_postgres_feed(xml: &str) -> crate::version_feed::Feed {
+    let versions = xml
+        .split("<version>")
+        .skip(1)
+        .filter_map(|chunk| chunk.split_once("</version>").map(|(v, _)| v.trim().to_string()))
+        .collect();
+    crate::version_feed::Feed { versions, allowed_lines: None }
+}
+
+pub fn postgres_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    let arch = postgres_arch()?;
+    let url = format!(
+        "https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-{arch}/maven-metadata.xml"
+    );
+    Some(parse_postgres_feed(&crate::version_feed::fetch_text(dl, &url, scratch)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn postgres_feed_reads_maven_versions() {
+        let xml = "<metadata><versioning><versions><version>17.11.0</version><version>18.6.0</version></versions></versioning></metadata>";
+        assert_eq!(parse_postgres_feed(xml).versions, vec!["17.11.0".to_string(), "18.6.0".to_string()]);
+    }
 
     #[test]
     fn url_and_arch() {

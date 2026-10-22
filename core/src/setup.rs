@@ -114,6 +114,10 @@ pub trait Downloader: Send + Sync {
         let _ = sink;
         self.fetch(url, dest)
     }
+    /// Fetch a small version feed; implementations should bound the wait.
+    fn fetch_feed(&self, url: &str, dest: &Path) -> Result<(), SetupError> {
+        self.fetch(url, dest)
+    }
 }
 
 /// Last `content-length` header value (case-insensitive) in a raw HTTP header
@@ -135,6 +139,19 @@ pub fn parse_content_length(headers: &str) -> u64 {
 pub struct CurlDownloader;
 
 impl Downloader for CurlDownloader {
+    fn fetch_feed(&self, url: &str, dest: &Path) -> Result<(), SetupError> {
+        let status = std::process::Command::new("curl")
+            .args(["-fsSL", "--max-time", "20", url, "-o"])
+            .arg(dest)
+            .status()
+            .map_err(|e| SetupError::Download(format!("spawn curl: {e}")))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(SetupError::Download(format!("curl failed for {url}")))
+        }
+    }
+
     fn fetch(&self, url: &str, dest: &Path) -> Result<(), SetupError> {
         let status = std::process::Command::new("curl")
             .arg("-fL")
@@ -504,6 +521,15 @@ mod tests {
     }
 
 
+
+    #[test]
+    fn fetch_feed_defaults_to_fetch() {
+        let dest = std::env::temp_dir().join(format!("lara-feed-{}", std::process::id()));
+        let dl = FakeDownloader::new();
+        dl.fetch_feed("https://example.test/feed.json", &dest).unwrap();
+        assert_eq!(*dl.requested().lock().unwrap(), vec!["https://example.test/feed.json".to_string()]);
+        std::fs::remove_file(&dest).ok();
+    }
 
     #[test]
     fn composer_is_a_component_with_no_apt_package() {

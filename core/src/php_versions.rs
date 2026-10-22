@@ -20,9 +20,9 @@ fn vkey(v: &str) -> (u32, u32) {
     (maj, min)
 }
 
-/// Build the version catalog from a known list unioned with installed versions.
-pub fn php_versions_from(installed: &[String], active: &str) -> Vec<PhpVersionInfo> {
-    let mut versions: Vec<String> = KNOWN_PHP_VERSIONS.iter().map(|s| s.to_string()).collect();
+/// Build the version catalog from the offered minors unioned with installed ones.
+pub fn php_versions_from(known: &[String], installed: &[String], active: &str) -> Vec<PhpVersionInfo> {
+    let mut versions: Vec<String> = known.to_vec();
     for v in installed {
         if !versions.contains(v) {
             versions.push(v.clone());
@@ -63,7 +63,8 @@ pub fn php_versions(paths: &LaraluxPaths, active: &str) -> Vec<PhpVersionInfo> {
     // `active` may be a full version ("8.3.31") or a minor ("8.3"); compare on minor.
     let active_minor = installed_minors(std::slice::from_ref(&active.to_string()))
         .into_iter().next().unwrap_or_else(|| active.to_string());
-    php_versions_from(&installed, &active_minor)
+    let known = crate::version_feed::catalog_versions(paths, crate::tools::ManagedTool::Php);
+    php_versions_from(&known, &installed, &active_minor)
 }
 
 #[cfg(test)]
@@ -72,7 +73,8 @@ mod tests {
 
     #[test]
     fn php_versions_marks_installed_and_active() {
-        let infos = php_versions_from(&["8.2".to_string(), "8.4".to_string()], "8.4");
+        let known: Vec<String> = KNOWN_PHP_VERSIONS.iter().map(|v| v.to_string()).collect();
+        let infos = php_versions_from(&known, &["8.2".to_string(), "8.4".to_string()], "8.4");
         // every known version present
         for v in KNOWN_PHP_VERSIONS {
             assert!(infos.iter().any(|i| i.version == v), "missing {v}");
@@ -95,7 +97,7 @@ mod tests {
 
     #[test]
     fn php_versions_includes_unknown_installed() {
-        let infos = php_versions_from(&["8.9".to_string()], "8.4");
+        let infos = php_versions_from(&["8.4".to_string()], &["8.9".to_string()], "8.4");
         assert!(infos.iter().any(|i| i.version == "8.9" && i.installed));
     }
 
