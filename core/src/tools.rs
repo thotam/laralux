@@ -112,7 +112,7 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             .map(|p| ToolVersion { version: p.version, installed: p.installed, active: p.active })
             .collect(),
         ManagedTool::Nginx => known_catalog(
-            crate::nginx_static::KNOWN_NGINX_VERSIONS.iter().map(|v| v.to_string()).collect(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "nginx"),
             &cfg.versions.get("nginx").cloned().unwrap_or_default(),
         ),
@@ -122,7 +122,7 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             &cfg.versions.get("mariadb").cloned().unwrap_or_default(),
         ),
         ManagedTool::Postgres => known_catalog(
-            crate::postgres_static::KNOWN_POSTGRES_VERSIONS.iter().map(|v| v.to_string()).collect(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "postgres"),
             &cfg.versions.get("postgres").cloned().unwrap_or_default(),
         ),
@@ -271,9 +271,9 @@ mod tests {
         // Seed one installed nginx version; the catalog should still list the full known set.
         std::fs::create_dir_all(paths.version_dir("nginx", "1.30.3")).unwrap();
         let vs = available_versions(ManagedTool::Nginx, &paths);
-        assert_eq!(vs.len(), crate::nginx_static::KNOWN_NGINX_VERSIONS.len());
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Nginx).len());
         assert!(vs.iter().find(|v| v.version == "1.30.3").unwrap().installed);
-        assert!(!vs.iter().find(|v| v.version == "1.26.3").unwrap().installed);
+        assert!(!vs.iter().find(|v| v.version == "1.28.3").unwrap().installed);
         // Newest first.
         assert_eq!(vs[0].version, "1.31.2");
         std::fs::remove_dir_all(&root).ok();
@@ -334,7 +334,7 @@ mod tests {
         assert_eq!(info(ManagedTool::Postgres).service_kind, Some(ServiceKind::Postgres));
         let paths = LaraluxPaths::new(std::env::temp_dir().join(format!("lara-pgtool-{}", std::process::id())));
         let vs = available_versions(ManagedTool::Postgres, &paths);
-        assert_eq!(vs.len(), crate::postgres_static::KNOWN_POSTGRES_VERSIONS.len());
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Postgres).len());
     }
 
     #[test]

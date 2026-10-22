@@ -86,6 +86,16 @@ pub fn source(tool: ManagedTool) -> Option<Source> {
             line_of: line_major,
             fetch: crate::node_static::node_feed,
         }),
+        ManagedTool::Nginx => Some(Source {
+            fallback: &crate::nginx_static::KNOWN_NGINX_VERSIONS,
+            line_of: line_minor,
+            fetch: crate::nginx_static::nginx_feed,
+        }),
+        ManagedTool::Postgres => Some(Source {
+            fallback: &crate::postgres_static::KNOWN_POSTGRES_VERSIONS,
+            line_of: line_major,
+            fetch: crate::postgres_static::postgres_feed,
+        }),
         _ => None,
     }
 }
