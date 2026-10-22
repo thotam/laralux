@@ -64,6 +64,9 @@ pub fn select(versions: &[String], line_of: fn(&str) -> String, lines: &Lines, p
 }
 
 const FEED_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+/// After a failed refresh, wait this long before trying the network again so a
+/// dead network does not stall every modal open.
+const FAILURE_BACKOFF: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 /// Where a tool's versions come from.
 pub struct Source {
@@ -167,16 +170,19 @@ pub fn github_feed(dl: &dyn Downloader, scratch: &Path, repo: &str) -> Option<Fe
 pub fn refresh(paths: &LaraluxPaths, dl: &dyn Downloader, tool: ManagedTool) {
     let src = source(tool);
     let cache = cache_path(paths, tool);
-    let fresh = std::fs::metadata(&cache)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.elapsed().ok())
-        .is_some_and(|age| age < FEED_TTL);
+    let failed = cache.with_extension("failed");
+    let younger_than = |p: &Path, ttl| {
+        std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < ttl)
+    };
     let dir = cache.parent().unwrap_or(Path::new("."));
-    if fresh || std::fs::create_dir_all(dir).is_err() {
+    if younger_than(&cache, FEED_TTL) || younger_than(&failed, FAILURE_BACKOFF) || std::fs::create_dir_all(dir).is_err() {
         return;
     }
-    let Some(feed) = (src.fetch)(dl, dir).filter(|f| !f.versions.is_empty()) else { return };
+    let Some(feed) = (src.fetch)(dl, dir).filter(|f| !f.versions.is_empty()) else {
+        let _ = std::fs::write(&failed, b"");
+        return;
+    };
+    let _ = std::fs::remove_file(&failed);
     let Ok(json) = serde_json::to_string(&feed) else { return };
     let part = cache.with_extension("json.part");
     if std::fs::write(&part, json).is_ok() && std::fs::rename(&part, &cache).is_err() {
@@ -260,6 +266,16 @@ mod tests {
         age_cache(&paths, ManagedTool::Composer);
         refresh(&paths, &StubDownloader("garbage"), ManagedTool::Composer);
         assert!(cached_feed(&paths, ManagedTool::Composer).unwrap().versions.contains(&"2.11.0".to_string()));
+        std::fs::remove_dir_all(paths.root()).ok();
+    }
+
+    #[test]
+    fn refresh_backs_off_after_failure() {
+        let paths = root();
+        refresh(&paths, &StubDownloader("garbage"), ManagedTool::Composer);
+        let dl = crate::setup::FakeDownloader::new();
+        refresh(&paths, &dl, ManagedTool::Composer);
+        assert!(dl.requested().lock().unwrap().is_empty(), "a recent failure must not refetch");
         std::fs::remove_dir_all(paths.root()).ok();
     }
 
