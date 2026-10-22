@@ -152,7 +152,7 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             &cfg.versions.get("composer").cloned().unwrap_or_default(),
         ),
         ManagedTool::Node => known_catalog(
-            crate::node_static::KNOWN_NODE_VERSIONS.iter().map(|v| v.to_string()).collect(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "node"),
             &cfg.versions.get("node").cloned().unwrap_or_default(),
         ),
@@ -321,7 +321,7 @@ mod tests {
         let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("node", "22.23.1")).unwrap();
         let vs = available_versions(ManagedTool::Node, &paths);
-        assert_eq!(vs.len(), crate::node_static::KNOWN_NODE_VERSIONS.len());
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Node).len());
         assert!(vs.iter().find(|v| v.version == "22.23.1").unwrap().installed);
         assert!(!vs.iter().find(|v| v.version == "18.20.8").unwrap().installed);
         assert_eq!(vs[0].version, "24.18.0"); // newest first

@@ -81,6 +81,11 @@ pub fn source(tool: ManagedTool) -> Option<Source> {
             line_of: line_minor,
             fetch: crate::php_cli::composer_feed,
         }),
+        ManagedTool::Node => Some(Source {
+            fallback: &crate::node_static::KNOWN_NODE_VERSIONS,
+            line_of: line_major,
+            fetch: crate::node_static::node_feed,
+        }),
         _ => None,
     }
 }

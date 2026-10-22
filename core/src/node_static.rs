@@ -140,9 +140,56 @@ pub fn install_node_version(
     Ok(version.to_string())
 }
 
+pub const NODE_INDEX_URL: &str = "https://nodejs.org/dist/index.json";
+
+/// Versions from `dist/index.json`; supported lines are the LTS majors plus
+/// the newest (Current) major, so stale odd releases like 25 drop out.
+pub fn parse_node_feed(json: &str) -> crate::version_feed::Feed {
+    use crate::version_feed::{is_stable, line_major, version_key, Feed};
+    let entries: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
+    let mut versions = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
+    for e in &entries {
+        let Some(v) = e.get("version").and_then(|v| v.as_str()).map(|v| v.trim_start_matches('v')) else { continue };
+        if !is_stable(v) {
+            continue;
+        }
+        let is_lts = e.get("lts").is_some_and(|l| l.as_bool() != Some(false) && !l.is_null());
+        if is_lts && !lines.contains(&line_major(v)) {
+            lines.push(line_major(v));
+        }
+        versions.push(v.to_string());
+    }
+    if let Some(newest) = versions.iter().max_by_key(|v| version_key(v)).map(|v| line_major(v)) {
+        if !lines.contains(&newest) {
+            lines.push(newest);
+        }
+    }
+    lines.sort_by_key(|l| std::cmp::Reverse(version_key(l)));
+    Feed { versions, allowed_lines: if lines.is_empty() { None } else { Some(lines) } }
+}
+
+pub fn node_feed(dl: &dyn Downloader, scratch: &Path) -> Option<crate::version_feed::Feed> {
+    Some(parse_node_feed(&crate::version_feed::fetch_text(dl, NODE_INDEX_URL, scratch)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_feed_allows_lts_and_newest_current() {
+        let json = r#"[{"version":"v26.12.1","lts":false},{"version":"v25.9.0","lts":false},
+                       {"version":"v24.18.0","lts":"Krypton"},{"version":"v22.23.1","lts":"Jod"}]"#;
+        let f = parse_node_feed(json);
+        assert_eq!(f.allowed_lines, Some(vec!["26".to_string(), "24".to_string(), "22".to_string()]));
+        assert!(f.versions.contains(&"26.12.1".to_string()));
+    }
+
+    #[test]
+    fn node_feed_bad_json_is_empty() {
+        assert!(parse_node_feed("<html>").versions.is_empty());
+    }
 
     #[test]
     fn url_and_arch() {
