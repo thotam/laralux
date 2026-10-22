@@ -175,28 +175,12 @@ pub fn parse_node_schedule(json: &str, today: &str) -> Vec<String> {
     lines
 }
 
-/// Current UTC date as `YYYY-MM-DD`.
-pub fn today() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    // Days-to-civil conversion (Howard Hinnant's algorithm).
-    let z = (secs / 86_400) as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02}")
-}
-
 /// Both the release index and the support schedule are required; without the
 /// schedule every line ever marked LTS (back to Node 4) would be offered.
 pub fn node_feed(dl: &dyn Downloader, scratch: &Path) -> Option<crate::version_feed::Feed> {
     use crate::version_feed::fetch_text;
     let mut feed = parse_node_feed(&fetch_text(dl, NODE_INDEX_URL, scratch)?);
-    let lines = parse_node_schedule(&fetch_text(dl, NODE_SCHEDULE_URL, scratch)?, &today());
+    let lines = parse_node_schedule(&fetch_text(dl, NODE_SCHEDULE_URL, scratch)?, &crate::version_feed::today());
     if lines.is_empty() {
         return None;
     }
@@ -222,13 +206,6 @@ mod tests {
                        "v26":{"start":"2026-05-05","end":"2029-04-30"},
                        "v27":{"start":"2027-04-22","end":"2030-04-30"}}"#;
         assert_eq!(parse_node_schedule(json, "2026-10-22"), vec!["26".to_string(), "22".to_string()]);
-    }
-
-    #[test]
-    fn today_is_iso_date() {
-        let t = today();
-        assert_eq!(t.len(), 10);
-        assert!(t.as_str() > "2026-01-01" && &t[4..5] == "-" && &t[7..8] == "-");
     }
 
     #[test]

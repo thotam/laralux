@@ -130,14 +130,16 @@ pub fn install_mariadb_version(
 
 pub const MARIADB_RELEASES_API: &str = "https://downloads.mariadb.org/rest-api/mariadb/";
 
-/// Release lines the MariaDB REST API marks `Stable` (LTS and rolling).
-pub fn parse_mariadb_lines(json: &str) -> Vec<String> {
+/// Release lines the MariaDB REST API marks `Stable` (LTS and rolling) that are
+/// not past their EOL date on `today` (`YYYY-MM-DD`); the API keeps EOL lines `Stable`.
+pub fn parse_mariadb_lines(json: &str, today: &str) -> Vec<String> {
     let root: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
     root.get("major_releases")
         .and_then(|m| m.as_array())
         .into_iter()
         .flatten()
         .filter(|r| r.get("release_status").and_then(|s| s.as_str()) == Some("Stable"))
+        .filter(|r| r.get("release_eol_date").and_then(|d| d.as_str()).map_or(true, |eol| eol.is_empty() || today <= eol))
         .filter_map(|r| r.get("release_id").and_then(|s| s.as_str()).map(str::to_string))
         .collect()
 }
@@ -151,7 +153,7 @@ pub fn parse_mariadb_releases(json: &str) -> Vec<String> {
 /// One request for the stable lines, then one per line; a failed line is skipped.
 pub fn mariadb_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
     use crate::version_feed::fetch_text;
-    let lines = parse_mariadb_lines(&fetch_text(dl, MARIADB_RELEASES_API, scratch)?);
+    let lines = parse_mariadb_lines(&fetch_text(dl, MARIADB_RELEASES_API, scratch)?, &crate::version_feed::today());
     if lines.is_empty() {
         return None;
     }
@@ -171,7 +173,16 @@ mod tests {
     fn mariadb_lines_keep_only_stable() {
         let j = r#"{"major_releases":[{"release_id":"13.2","release_status":"Preview"},
             {"release_id":"13.1","release_status":"RC"},{"release_id":"12.3","release_status":"Stable"}]}"#;
-        assert_eq!(parse_mariadb_lines(j), vec!["12.3".to_string()]);
+        assert_eq!(parse_mariadb_lines(j, "2026-10-22"), vec!["12.3".to_string()]);
+    }
+
+    #[test]
+    fn mariadb_lines_drop_past_eol() {
+        let j = r#"{"major_releases":[
+            {"release_id":"11.8","release_status":"Stable","release_eol_date":"2028-06-04"},
+            {"release_id":"10.6","release_status":"Stable","release_eol_date":"2026-07-06"},
+            {"release_id":"13.0","release_status":"Stable","release_eol_date":null}]}"#;
+        assert_eq!(parse_mariadb_lines(j, "2026-10-22"), vec!["11.8".to_string(), "13.0".to_string()]);
     }
 
     struct RouteDownloader;

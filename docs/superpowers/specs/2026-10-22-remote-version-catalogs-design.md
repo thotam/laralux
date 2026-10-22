@@ -43,7 +43,7 @@ Catalog cuối cùng = `select(feed ∪ danh sách cứng)` ∪ bản đã cài,
 | Node | `nodejs.org/dist/index.json` + `raw.githubusercontent.com/nodejs/Release/main/schedule.json` | major | các major có `start ≤ hôm nay < end` theo schedule |
 | PHP | `dl.static-php.dev/static-php-cli/bulk/?format=json` | minor | 4 minor mới nhất, catalog **theo minor** (xem dưới) |
 | Nginx | `jirutka.github.io/nginx-binaries/index.json` (lọc `name=nginx`, `os=linux`, đúng arch) | minor | 4 mới nhất |
-| MariaDB | `downloads.mariadb.org/rest-api/mariadb/` rồi `.../rest-api/mariadb/<nhánh>/` | minor | `release_status = Stable` |
+| MariaDB | `downloads.mariadb.org/rest-api/mariadb/` rồi `.../rest-api/mariadb/<nhánh>/` | minor | `release_status = Stable` và chưa quá `release_eol_date` (API vẫn để nhánh EOL là Stable) |
 | PostgreSQL | `repo1.maven.org/.../embedded-postgres-binaries-linux-<arch>/maven-metadata.xml` | major | 4 mới nhất |
 | MongoDB | `downloads.mongodb.org/current.json` | minor | nhánh trong `current.json` có build `ubuntu2204` đúng arch |
 | Valkey | `api.github.com/repos/valkey-io/valkey/releases?per_page=100` | minor | 4 mới nhất |
@@ -57,6 +57,7 @@ dạng laralux tải (HTTP 200), gồm MongoDB `9.0.4` bản `ubuntu2204`, Maria
 
 Ghi chú theo nguồn:
 
+- **Mailpit, mkcert** chỉ giữ release có file build đúng arch trong `assets` (mkcert 1.1–1.3 không có bản arm64). Valkey không lọc được vì binary nằm ở `download.valkey.io`.
 - **GitHub API** không xác thực giới hạn 60 request/giờ/IP. Cache 24h và chỉ
   tải khi mở modal nên dư sức. Bỏ release có `prerelease: true` hoặc `draft`,
   bỏ tiền tố `v` ở `tag_name`.
@@ -110,6 +111,8 @@ pub fn select(versions, lines, patches) -> Vec<String>
   chập chờn. Thêm phương thức `fetch_text`/timeout vào `Downloader` nếu
   `fetch` hiện tại không có.
 - Version trong feed có nhưng thiếu binary: cài sẽ báo lỗi 404 như hiện tại.
+- Tải feed lỗi: ghi `<key>.failed`, 1 giờ sau mới thử lại, để mạng chết không làm mỗi lần mở modal chờ 20–40 giây.
+- Modal hiện "Loading versions…" trong lúc chờ `tool_versions`.
 
 ## Kiểm thử
 
