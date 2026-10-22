@@ -146,23 +146,30 @@ pub fn fetch_text(dl: &dyn Downloader, url: &str, scratch: &Path) -> Option<Stri
     text
 }
 
-/// Published, non-draft release tags (without a leading `v`). Anything that is
+/// Published, non-draft release tags (without a leading `v`). With `asset`,
+/// only releases shipping that file for the version are kept. Anything that is
 /// not a release array, such as a rate-limit error body, yields no versions.
-pub fn parse_github_releases(json: &str) -> Feed {
+pub fn parse_github_releases(json: &str, asset: Option<&dyn Fn(&str) -> String>) -> Feed {
     let releases: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
     let flag = |r: &serde_json::Value, k: &str| r.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+    let has_asset = |r: &serde_json::Value, name: &str| {
+        r.get("assets").and_then(|a| a.as_array()).into_iter().flatten()
+            .any(|a| a.get("name").and_then(|n| n.as_str()) == Some(name))
+    };
     let versions = releases
         .iter()
         .filter(|r| !flag(r, "draft") && !flag(r, "prerelease"))
-        .filter_map(|r| r.get("tag_name").and_then(|t| t.as_str()))
-        .map(|t| t.trim_start_matches('v').to_string())
+        .filter_map(|r| {
+            let v = r.get("tag_name")?.as_str()?.trim_start_matches('v').to_string();
+            asset.map_or(true, |a| has_asset(r, &a(&v))).then_some(v)
+        })
         .collect();
     Feed { versions, allowed_lines: None }
 }
 
-pub fn github_feed(dl: &dyn Downloader, scratch: &Path, repo: &str) -> Option<Feed> {
+pub fn github_feed(dl: &dyn Downloader, scratch: &Path, repo: &str, asset: Option<&dyn Fn(&str) -> String>) -> Option<Feed> {
     let url = format!("https://api.github.com/repos/{repo}/releases?per_page=100");
-    Some(parse_github_releases(&fetch_text(dl, &url, scratch)?))
+    Some(parse_github_releases(&fetch_text(dl, &url, scratch)?, asset))
 }
 
 /// Refresh the tool's cached feed when missing or older than 24h. Best effort:
@@ -325,12 +332,20 @@ mod tests {
         let j = r#"[{"tag_name":"v1.31.6","prerelease":false,"draft":false},
                     {"tag_name":"9.2.0-rc1","prerelease":true,"draft":false},
                     {"tag_name":"v1.31.7","prerelease":false,"draft":true}]"#;
-        assert_eq!(parse_github_releases(j).versions, vec!["1.31.6".to_string()]);
+        assert_eq!(parse_github_releases(j, None).versions, vec!["1.31.6".to_string()]);
+    }
+
+    #[test]
+    fn github_releases_require_host_asset_when_given() {
+        let j = r#"[{"tag_name":"v1.4.4","assets":[{"name":"mkcert-v1.4.4-linux-arm64"}]},
+                    {"tag_name":"v1.1.0","assets":[{"name":"mkcert-v1.1.0-linux-amd64"}]}]"#;
+        let asset = |v: &str| format!("mkcert-v{v}-linux-arm64");
+        assert_eq!(parse_github_releases(j, Some(&asset)).versions, vec!["1.4.4".to_string()]);
     }
 
     #[test]
     fn github_rate_limit_body_parses_empty() {
-        assert!(parse_github_releases(r#"{"message":"API rate limit exceeded for 1.2.3.4."}"#).versions.is_empty());
+        assert!(parse_github_releases(r#"{"message":"API rate limit exceeded for 1.2.3.4."}"#, None).versions.is_empty());
     }
 
     #[test]

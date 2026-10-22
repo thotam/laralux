@@ -67,7 +67,9 @@ pub fn install_mkcert_version(
 }
 
 pub fn mkcert_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
-    crate::version_feed::github_feed(dl, scratch, "FiloSottile/mkcert")
+    let arch = mkcert_arch()?;
+    let asset = |v: &str| format!("mkcert-v{v}-linux-{arch}");
+    crate::version_feed::github_feed(dl, scratch, "FiloSottile/mkcert", Some(&asset))
 }
 
 #[cfg(test)]
