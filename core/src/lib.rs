@@ -36,6 +36,7 @@ pub mod certutil_static;
 pub mod layout;
 pub mod orphans;
 pub mod tools;
+pub mod version_feed;
 pub mod progress;
 pub mod symlinks;
 pub mod autostart;
