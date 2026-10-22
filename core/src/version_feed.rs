@@ -96,6 +96,16 @@ pub fn source(tool: ManagedTool) -> Option<Source> {
             line_of: line_major,
             fetch: crate::postgres_static::postgres_feed,
         }),
+        ManagedTool::Mariadb => Some(Source {
+            fallback: &crate::mariadb_static::KNOWN_MARIADB_VERSIONS,
+            line_of: line_minor,
+            fetch: crate::mariadb_static::mariadb_feed,
+        }),
+        ManagedTool::Mongodb => Some(Source {
+            fallback: &crate::mongodb_static::KNOWN_MONGODB_VERSIONS,
+            line_of: line_minor,
+            fetch: crate::mongodb_static::mongodb_feed,
+        }),
         _ => None,
     }
 }

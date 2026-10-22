@@ -116,9 +116,37 @@ pub fn install_mongodb_version(
     Ok(version.to_string())
 }
 
+pub const MONGODB_CURRENT_URL: &str = "https://downloads.mongodb.org/current.json";
+
+/// `current.json` lists the latest release of each maintained line.
+pub fn parse_mongodb_feed(json: &str) -> crate::version_feed::Feed {
+    let root: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let versions: Vec<String> = root
+        .get("versions")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.get("version").and_then(|v| v.as_str()).map(str::to_string))
+        .collect();
+    let lines: Vec<String> = versions.iter().map(|v| crate::version_feed::line_minor(v)).collect();
+    crate::version_feed::Feed { allowed_lines: if lines.is_empty() { None } else { Some(lines) }, versions }
+}
+
+pub fn mongodb_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    Some(parse_mongodb_feed(&crate::version_feed::fetch_text(dl, MONGODB_CURRENT_URL, scratch)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mongodb_feed_reads_current_json() {
+        let j = r#"{"versions":[{"version":"9.0.4"},{"version":"8.0.34"}]}"#;
+        let f = parse_mongodb_feed(j);
+        assert_eq!(f.versions, vec!["9.0.4".to_string(), "8.0.34".to_string()]);
+        assert_eq!(f.allowed_lines, Some(vec!["9.0".to_string(), "8.0".to_string()]));
+    }
 
     #[test]
     fn urls_and_arch() {

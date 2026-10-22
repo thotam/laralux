@@ -128,9 +128,78 @@ pub fn install_mariadb_version(
     Ok(version.to_string())
 }
 
+pub const MARIADB_RELEASES_API: &str = "https://downloads.mariadb.org/rest-api/mariadb/";
+
+/// Release lines the MariaDB REST API marks `Stable` (LTS and rolling).
+pub fn parse_mariadb_lines(json: &str) -> Vec<String> {
+    let root: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    root.get("major_releases")
+        .and_then(|m| m.as_array())
+        .into_iter()
+        .flatten()
+        .filter(|r| r.get("release_status").and_then(|s| s.as_str()) == Some("Stable"))
+        .filter_map(|r| r.get("release_id").and_then(|s| s.as_str()).map(str::to_string))
+        .collect()
+}
+
+/// Patch versions of one line (`.../rest-api/mariadb/<line>/`).
+pub fn parse_mariadb_releases(json: &str) -> Vec<String> {
+    let root: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    root.get("releases").and_then(|r| r.as_object()).map(|o| o.keys().cloned().collect()).unwrap_or_default()
+}
+
+/// One request for the stable lines, then one per line; a failed line is skipped.
+pub fn mariadb_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    use crate::version_feed::fetch_text;
+    let lines = parse_mariadb_lines(&fetch_text(dl, MARIADB_RELEASES_API, scratch)?);
+    if lines.is_empty() {
+        return None;
+    }
+    let versions = lines
+        .iter()
+        .filter_map(|l| fetch_text(dl, &format!("{MARIADB_RELEASES_API}{l}/"), scratch))
+        .flat_map(|j| parse_mariadb_releases(&j))
+        .collect();
+    Some(crate::version_feed::Feed { versions, allowed_lines: Some(lines) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mariadb_lines_keep_only_stable() {
+        let j = r#"{"major_releases":[{"release_id":"13.2","release_status":"Preview"},
+            {"release_id":"13.1","release_status":"RC"},{"release_id":"12.3","release_status":"Stable"}]}"#;
+        assert_eq!(parse_mariadb_lines(j), vec!["12.3".to_string()]);
+    }
+
+    struct RouteDownloader;
+    impl Downloader for RouteDownloader {
+        fn fetch(&self, url: &str, dest: &std::path::Path) -> Result<(), crate::setup::SetupError> {
+            let body = if url.ends_with("/mariadb/") {
+                r#"{"major_releases":[{"release_id":"12.3","release_status":"Stable"},
+                    {"release_id":"11.8","release_status":"Stable"}]}"#
+            } else if url.ends_with("/12.3/") {
+                r#"{"releases":{"12.3.3":{},"12.3.2":{}}}"#
+            } else {
+                return Err(crate::setup::SetupError::Download("boom".into()));
+            };
+            std::fs::write(dest, body)?;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn mariadb_feed_merges_lines_and_skips_failed_line() {
+        let scratch = std::env::temp_dir().join(format!("lara-mdb-feed-{}", std::process::id()));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let mut f = mariadb_feed(&RouteDownloader, &scratch).unwrap();
+        f.versions.sort();
+        assert_eq!(f.versions, vec!["12.3.2".to_string(), "12.3.3".to_string()]);
+        assert_eq!(f.allowed_lines, Some(vec!["12.3".to_string(), "11.8".to_string()]));
+        std::fs::remove_dir_all(&scratch).ok();
+    }
     #[test]
     fn url_and_arch() {
         assert_eq!(mariadb_url("11.4.12", "x86_64"),

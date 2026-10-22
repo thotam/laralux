@@ -117,7 +117,7 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             &cfg.versions.get("nginx").cloned().unwrap_or_default(),
         ),
         ManagedTool::Mariadb => known_catalog(
-            crate::mariadb_static::KNOWN_MARIADB_VERSIONS.iter().map(|v| v.to_string()).collect(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "mariadb"),
             &cfg.versions.get("mariadb").cloned().unwrap_or_default(),
         ),
@@ -127,7 +127,7 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             &cfg.versions.get("postgres").cloned().unwrap_or_default(),
         ),
         ManagedTool::Mongodb => known_catalog(
-            crate::mongodb_static::KNOWN_MONGODB_VERSIONS.iter().map(|v| v.to_string()).collect(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "mongodb"),
             &cfg.versions.get("mongodb").cloned().unwrap_or_default(),
         ),
@@ -285,7 +285,7 @@ mod tests {
         let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("mariadb", "10.11.10")).unwrap();
         let vs = available_versions(ManagedTool::Mariadb, &paths);
-        assert_eq!(vs.len(), crate::mariadb_static::KNOWN_MARIADB_VERSIONS.len());
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Mariadb).len());
         assert!(vs.iter().find(|v| v.version == "10.11.10").unwrap().installed);
         assert_eq!(vs[0].version, "11.8.2"); // newest first
         std::fs::remove_dir_all(&root).ok();
@@ -343,6 +343,6 @@ mod tests {
         assert_eq!(info(ManagedTool::Mongodb).service_kind, Some(ServiceKind::Mongodb));
         let paths = LaraluxPaths::new("/tmp/lara".into());
         let vs = available_versions(ManagedTool::Mongodb, &paths);
-        assert_eq!(vs.len(), crate::mongodb_static::KNOWN_MONGODB_VERSIONS.len());
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Mongodb).len());
     }
 }
