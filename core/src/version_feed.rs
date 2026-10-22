@@ -106,6 +106,21 @@ pub fn source(tool: ManagedTool) -> Option<Source> {
             line_of: line_minor,
             fetch: crate::mongodb_static::mongodb_feed,
         }),
+        ManagedTool::Redis => Some(Source {
+            fallback: &crate::redis_static::KNOWN_REDIS_VERSIONS,
+            line_of: line_minor,
+            fetch: crate::redis_static::valkey_feed,
+        }),
+        ManagedTool::Mailpit => Some(Source {
+            fallback: &crate::mailpit_static::KNOWN_MAILPIT_VERSIONS,
+            line_of: line_minor,
+            fetch: crate::mailpit_static::mailpit_feed,
+        }),
+        ManagedTool::Mkcert => Some(Source {
+            fallback: &crate::mkcert_static::KNOWN_MKCERT_VERSIONS,
+            line_of: line_minor,
+            fetch: crate::mkcert_static::mkcert_feed,
+        }),
         _ => None,
     }
 }
@@ -122,6 +137,25 @@ pub fn fetch_text(dl: &dyn Downloader, url: &str, scratch: &Path) -> Option<Stri
     let text = dl.fetch_feed(url, &file).ok().and_then(|_| std::fs::read_to_string(&file).ok());
     let _ = std::fs::remove_file(&file);
     text
+}
+
+/// Published, non-draft release tags (without a leading `v`). Anything that is
+/// not a release array, such as a rate-limit error body, yields no versions.
+pub fn parse_github_releases(json: &str) -> Feed {
+    let releases: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
+    let flag = |r: &serde_json::Value, k: &str| r.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+    let versions = releases
+        .iter()
+        .filter(|r| !flag(r, "draft") && !flag(r, "prerelease"))
+        .filter_map(|r| r.get("tag_name").and_then(|t| t.as_str()))
+        .map(|t| t.trim_start_matches('v').to_string())
+        .collect();
+    Feed { versions, allowed_lines: None }
+}
+
+pub fn github_feed(dl: &dyn Downloader, scratch: &Path, repo: &str) -> Option<Feed> {
+    let url = format!("https://api.github.com/repos/{repo}/releases?per_page=100");
+    Some(parse_github_releases(&fetch_text(dl, &url, scratch)?))
 }
 
 /// Refresh the tool's cached feed when missing or older than 24h. Best effort:
@@ -248,6 +282,19 @@ mod tests {
         assert!(vs.contains(&"2.2.30".to_string()), "known patches on an allowed line stay");
         assert!(!vs.contains(&"2.9.7".to_string()) && !vs.contains(&"2.8.12".to_string()));
         std::fs::remove_dir_all(paths.root()).ok();
+    }
+
+    #[test]
+    fn github_releases_skip_prerelease_and_strip_v() {
+        let j = r#"[{"tag_name":"v1.31.6","prerelease":false,"draft":false},
+                    {"tag_name":"9.2.0-rc1","prerelease":true,"draft":false},
+                    {"tag_name":"v1.31.7","prerelease":false,"draft":true}]"#;
+        assert_eq!(parse_github_releases(j).versions, vec!["1.31.6".to_string()]);
+    }
+
+    #[test]
+    fn github_rate_limit_body_parses_empty() {
+        assert!(parse_github_releases(r#"{"message":"API rate limit exceeded for 1.2.3.4."}"#).versions.is_empty());
     }
 
     #[test]

@@ -132,17 +132,17 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             &cfg.versions.get("mongodb").cloned().unwrap_or_default(),
         ),
         ManagedTool::Redis => known_catalog(
-            crate::redis_static::KNOWN_REDIS_VERSIONS.iter().map(|v| v.to_string()).collect(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "redis"),
             &cfg.versions.get("redis").cloned().unwrap_or_default(),
         ),
         ManagedTool::Mailpit => known_catalog(
-            crate::mailpit_static::KNOWN_MAILPIT_VERSIONS.iter().map(|v| v.to_string()).collect(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "mailpit"),
             &cfg.versions.get("mailpit").cloned().unwrap_or_default(),
         ),
         ManagedTool::Mkcert => known_catalog(
-            crate::mkcert_static::KNOWN_MKCERT_VERSIONS.iter().map(|v| v.to_string()).collect(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "mkcert"),
             &cfg.versions.get("mkcert").cloned().unwrap_or_default(),
         ),
@@ -297,7 +297,7 @@ mod tests {
         let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("redis", "8.0.4")).unwrap();
         let vs = available_versions(ManagedTool::Redis, &paths);
-        assert_eq!(vs.len(), crate::redis_static::KNOWN_REDIS_VERSIONS.len());
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Redis).len());
         assert!(vs.iter().find(|v| v.version == "8.0.4").unwrap().installed);
         assert_eq!(vs[0].version, "9.1.0"); // newest first
         std::fs::remove_dir_all(&root).ok();
@@ -309,7 +309,7 @@ mod tests {
         let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("mailpit", "1.25.0")).unwrap();
         let vs = available_versions(ManagedTool::Mailpit, &paths);
-        assert_eq!(vs.len(), crate::mailpit_static::KNOWN_MAILPIT_VERSIONS.len());
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Mailpit).len());
         assert!(vs.iter().find(|v| v.version == "1.25.0").unwrap().installed);
         assert_eq!(vs[0].version, "1.30.2"); // newest first
         std::fs::remove_dir_all(&root).ok();

@@ -66,6 +66,10 @@ pub fn install_mkcert_version(
     Ok(version.to_string())
 }
 
+pub fn mkcert_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    crate::version_feed::github_feed(dl, scratch, "FiloSottile/mkcert")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

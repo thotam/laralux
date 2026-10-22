@@ -97,6 +97,10 @@ fn install_one(src: &std::path::Path, dest: &std::path::Path) -> Result<(), Redi
     Ok(())
 }
 
+pub fn valkey_feed(dl: &dyn Downloader, scratch: &std::path::Path) -> Option<crate::version_feed::Feed> {
+    crate::version_feed::github_feed(dl, scratch, "valkey-io/valkey")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
