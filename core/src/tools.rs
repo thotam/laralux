@@ -90,8 +90,7 @@ pub enum ToolError {
 
 /// A multi-version tool's catalog: the curated `known` list unioned with what's
 /// installed, newest-first, with `installed`/`active` flags set.
-fn known_catalog(known: &[&str], installed: Vec<String>, active: &str) -> Vec<ToolVersion> {
-    let mut versions: Vec<String> = known.iter().map(|s| s.to_string()).collect();
+fn known_catalog(mut versions: Vec<String>, installed: Vec<String>, active: &str) -> Vec<ToolVersion> {
     for v in &installed {
         if !versions.contains(v) {
             versions.push(v.clone());
@@ -113,47 +112,47 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             .map(|p| ToolVersion { version: p.version, installed: p.installed, active: p.active })
             .collect(),
         ManagedTool::Nginx => known_catalog(
-            &crate::nginx_static::KNOWN_NGINX_VERSIONS,
+            crate::nginx_static::KNOWN_NGINX_VERSIONS.iter().map(|v| v.to_string()).collect(),
             crate::layout::installed_versions(paths, "nginx"),
             &cfg.versions.get("nginx").cloned().unwrap_or_default(),
         ),
         ManagedTool::Mariadb => known_catalog(
-            &crate::mariadb_static::KNOWN_MARIADB_VERSIONS,
+            crate::mariadb_static::KNOWN_MARIADB_VERSIONS.iter().map(|v| v.to_string()).collect(),
             crate::layout::installed_versions(paths, "mariadb"),
             &cfg.versions.get("mariadb").cloned().unwrap_or_default(),
         ),
         ManagedTool::Postgres => known_catalog(
-            &crate::postgres_static::KNOWN_POSTGRES_VERSIONS,
+            crate::postgres_static::KNOWN_POSTGRES_VERSIONS.iter().map(|v| v.to_string()).collect(),
             crate::layout::installed_versions(paths, "postgres"),
             &cfg.versions.get("postgres").cloned().unwrap_or_default(),
         ),
         ManagedTool::Mongodb => known_catalog(
-            &crate::mongodb_static::KNOWN_MONGODB_VERSIONS,
+            crate::mongodb_static::KNOWN_MONGODB_VERSIONS.iter().map(|v| v.to_string()).collect(),
             crate::layout::installed_versions(paths, "mongodb"),
             &cfg.versions.get("mongodb").cloned().unwrap_or_default(),
         ),
         ManagedTool::Redis => known_catalog(
-            &crate::redis_static::KNOWN_REDIS_VERSIONS,
+            crate::redis_static::KNOWN_REDIS_VERSIONS.iter().map(|v| v.to_string()).collect(),
             crate::layout::installed_versions(paths, "redis"),
             &cfg.versions.get("redis").cloned().unwrap_or_default(),
         ),
         ManagedTool::Mailpit => known_catalog(
-            &crate::mailpit_static::KNOWN_MAILPIT_VERSIONS,
+            crate::mailpit_static::KNOWN_MAILPIT_VERSIONS.iter().map(|v| v.to_string()).collect(),
             crate::layout::installed_versions(paths, "mailpit"),
             &cfg.versions.get("mailpit").cloned().unwrap_or_default(),
         ),
         ManagedTool::Mkcert => known_catalog(
-            &crate::mkcert_static::KNOWN_MKCERT_VERSIONS,
+            crate::mkcert_static::KNOWN_MKCERT_VERSIONS.iter().map(|v| v.to_string()).collect(),
             crate::layout::installed_versions(paths, "mkcert"),
             &cfg.versions.get("mkcert").cloned().unwrap_or_default(),
         ),
         ManagedTool::Composer => known_catalog(
-            &crate::php_cli::composer_catalog_versions(paths).iter().map(String::as_str).collect::<Vec<_>>(),
+            crate::version_feed::catalog_versions(paths, tool),
             crate::layout::installed_versions(paths, "composer"),
             &cfg.versions.get("composer").cloned().unwrap_or_default(),
         ),
         ManagedTool::Node => known_catalog(
-            &crate::node_static::KNOWN_NODE_VERSIONS,
+            crate::node_static::KNOWN_NODE_VERSIONS.iter().map(|v| v.to_string()).collect(),
             crate::layout::installed_versions(paths, "node"),
             &cfg.versions.get("node").cloned().unwrap_or_default(),
         ),
@@ -249,9 +248,19 @@ mod tests {
         let paths = LaraluxPaths::new(root.clone());
         std::fs::create_dir_all(paths.version_dir("composer", "2.8.12")).unwrap();
         let vs = available_versions(ManagedTool::Composer, &paths);
-        assert_eq!(vs.len(), crate::php_cli::KNOWN_COMPOSER_VERSIONS.len());
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Composer).len());
         assert!(vs.iter().find(|v| v.version == "2.8.12").unwrap().installed);
         assert_eq!(vs[0].version, "2.10.3"); // newest first
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn catalog_keeps_installed_outside_feed() {
+        let root = std::env::temp_dir().join(format!("lara-tools-out-{}", std::process::id()));
+        let paths = LaraluxPaths::new(root.clone());
+        std::fs::create_dir_all(paths.version_dir("composer", "2.6.6")).unwrap();
+        let vs = available_versions(ManagedTool::Composer, &paths);
+        assert!(vs.iter().find(|v| v.version == "2.6.6").unwrap().installed);
         std::fs::remove_dir_all(&root).ok();
     }
 

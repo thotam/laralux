@@ -505,9 +505,7 @@ pub async fn tool_versions(
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<laralux_core::tools::ToolVersion>, String> {
         let state = app.state::<AppState>();
         let t = laralux_core::tools::from_key(&tool).ok_or_else(|| format!("unknown tool: {tool}"))?;
-        if t == laralux_core::tools::ManagedTool::Composer {
-            laralux_core::php_cli::refresh_composer_versions(&state.paths, &CurlDownloader);
-        }
+        laralux_core::version_feed::refresh(&state.paths, &CurlDownloader, t);
         Ok(laralux_core::tools::available_versions(t, &state.paths))
     })
     .await
