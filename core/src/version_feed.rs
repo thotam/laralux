@@ -288,6 +288,22 @@ mod tests {
         std::fs::remove_dir_all(paths.root()).ok();
     }
 
+    /// Hits the real feeds: `cargo test live_feeds -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_feeds() {
+        let paths = root();
+        for tool in ManagedTool::ALL {
+            refresh(&paths, &crate::setup::CurlDownloader, tool);
+            let fetched = cached_feed(&paths, tool).is_some();
+            let vs = catalog_versions(&paths, tool);
+            println!("{:<9} feed={fetched} {:?}", crate::tools::info(tool).key, vs);
+            assert!(fetched, "{:?} feed failed", tool);
+            assert!(!vs.is_empty());
+        }
+        std::fs::remove_dir_all(paths.root()).ok();
+    }
+
     #[test]
     fn github_releases_skip_prerelease_and_strip_v() {
         let j = r#"[{"tag_name":"v1.31.6","prerelease":false,"draft":false},

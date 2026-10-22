@@ -142,35 +142,66 @@ pub fn install_node_version(
 
 pub const NODE_INDEX_URL: &str = "https://nodejs.org/dist/index.json";
 
-/// Versions from `dist/index.json`; supported lines are the LTS majors plus
-/// the newest (Current) major, so stale odd releases like 25 drop out.
+pub const NODE_SCHEDULE_URL: &str = "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json";
+
+/// Release versions from `dist/index.json` (nightlies and RCs dropped).
 pub fn parse_node_feed(json: &str) -> crate::version_feed::Feed {
-    use crate::version_feed::{is_stable, line_major, version_key, Feed};
     let entries: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_default();
-    let mut versions = Vec::new();
-    let mut lines: Vec<String> = Vec::new();
-    for e in &entries {
-        let Some(v) = e.get("version").and_then(|v| v.as_str()).map(|v| v.trim_start_matches('v')) else { continue };
-        if !is_stable(v) {
-            continue;
-        }
-        let is_lts = e.get("lts").is_some_and(|l| l.as_bool() != Some(false) && !l.is_null());
-        if is_lts && !lines.contains(&line_major(v)) {
-            lines.push(line_major(v));
-        }
-        versions.push(v.to_string());
-    }
-    if let Some(newest) = versions.iter().max_by_key(|v| version_key(v)).map(|v| line_major(v)) {
-        if !lines.contains(&newest) {
-            lines.push(newest);
-        }
-    }
-    lines.sort_by_key(|l| std::cmp::Reverse(version_key(l)));
-    Feed { versions, allowed_lines: if lines.is_empty() { None } else { Some(lines) } }
+    let versions = entries
+        .iter()
+        .filter_map(|e| e.get("version").and_then(|v| v.as_str()))
+        .map(|v| v.trim_start_matches('v').to_string())
+        .filter(|v| crate::version_feed::is_stable(v))
+        .collect();
+    crate::version_feed::Feed { versions, allowed_lines: None }
 }
 
+/// Majors whose support window covers `today` (`YYYY-MM-DD`), newest first.
+/// `index.json` only says a line was once LTS, not whether it is still supported.
+pub fn parse_node_schedule(json: &str, today: &str) -> Vec<String> {
+    let root: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let date = |e: &serde_json::Value, k: &str| e.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let mut lines: Vec<String> = root
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, e)| {
+            let (start, end) = (date(e, "start"), date(e, "end"));
+            !start.is_empty() && start.as_str() <= today && today < end.as_str()
+        })
+        .map(|(k, _)| k.trim_start_matches('v').to_string())
+        .collect();
+    lines.sort_by_key(|l| std::cmp::Reverse(crate::version_feed::version_key(l)));
+    lines
+}
+
+/// Current UTC date as `YYYY-MM-DD`.
+pub fn today() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    // Days-to-civil conversion (Howard Hinnant's algorithm).
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Both the release index and the support schedule are required; without the
+/// schedule every line ever marked LTS (back to Node 4) would be offered.
 pub fn node_feed(dl: &dyn Downloader, scratch: &Path) -> Option<crate::version_feed::Feed> {
-    Some(parse_node_feed(&crate::version_feed::fetch_text(dl, NODE_INDEX_URL, scratch)?))
+    use crate::version_feed::fetch_text;
+    let mut feed = parse_node_feed(&fetch_text(dl, NODE_INDEX_URL, scratch)?);
+    let lines = parse_node_schedule(&fetch_text(dl, NODE_SCHEDULE_URL, scratch)?, &today());
+    if lines.is_empty() {
+        return None;
+    }
+    feed.allowed_lines = Some(lines);
+    Some(feed)
 }
 
 #[cfg(test)]
@@ -178,12 +209,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn node_feed_allows_lts_and_newest_current() {
-        let json = r#"[{"version":"v26.12.1","lts":false},{"version":"v25.9.0","lts":false},
-                       {"version":"v24.18.0","lts":"Krypton"},{"version":"v22.23.1","lts":"Jod"}]"#;
-        let f = parse_node_feed(json);
-        assert_eq!(f.allowed_lines, Some(vec!["26".to_string(), "24".to_string(), "22".to_string()]));
-        assert!(f.versions.contains(&"26.12.1".to_string()));
+    fn node_feed_strips_v_and_drops_nightlies() {
+        let json = r#"[{"version":"v26.12.1"},{"version":"v25.0.0-nightly2025"},{"version":"v24.18.0"}]"#;
+        assert_eq!(parse_node_feed(json).versions, vec!["26.12.1".to_string(), "24.18.0".to_string()]);
+    }
+
+    #[test]
+    fn node_schedule_keeps_lines_supported_today() {
+        let json = r#"{"v20":{"start":"2023-04-18","end":"2026-04-30"},
+                       "v22":{"start":"2024-04-24","end":"2027-04-30"},
+                       "v25":{"start":"2025-10-15","end":"2026-06-01"},
+                       "v26":{"start":"2026-05-05","end":"2029-04-30"},
+                       "v27":{"start":"2027-04-22","end":"2030-04-30"}}"#;
+        assert_eq!(parse_node_schedule(json, "2026-10-22"), vec!["26".to_string(), "22".to_string()]);
+    }
+
+    #[test]
+    fn today_is_iso_date() {
+        let t = today();
+        assert_eq!(t.len(), 10);
+        assert!(t.as_str() > "2026-01-01" && &t[4..5] == "-" && &t[7..8] == "-");
     }
 
     #[test]

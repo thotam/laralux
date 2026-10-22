@@ -40,12 +40,12 @@ Catalog cuối cùng = `select(feed ∪ danh sách cứng)` ∪ bản đã cài,
 
 | Tool | Feed | Khoá nhánh | Nhánh hiện |
 |---|---|---|---|
-| Node | `nodejs.org/dist/index.json` | major | các major có `lts != false` + major Current mới nhất |
+| Node | `nodejs.org/dist/index.json` + `raw.githubusercontent.com/nodejs/Release/main/schedule.json` | major | các major có `start ≤ hôm nay < end` theo schedule |
 | PHP | `dl.static-php.dev/static-php-cli/bulk/?format=json` | minor | 4 minor mới nhất, catalog **theo minor** (xem dưới) |
 | Nginx | `jirutka.github.io/nginx-binaries/index.json` (lọc `name=nginx`, `os=linux`, đúng arch) | minor | 4 mới nhất |
 | MariaDB | `downloads.mariadb.org/rest-api/mariadb/` rồi `.../rest-api/mariadb/<nhánh>/` | minor | `release_status = Stable` |
 | PostgreSQL | `repo1.maven.org/.../embedded-postgres-binaries-linux-<arch>/maven-metadata.xml` | major | 4 mới nhất |
-| MongoDB | `downloads.mongodb.org/current.json` | minor | mọi nhánh trong `current.json` |
+| MongoDB | `downloads.mongodb.org/current.json` | minor | nhánh trong `current.json` có build `ubuntu2204` đúng arch |
 | Valkey | `api.github.com/repos/valkey-io/valkey/releases?per_page=100` | minor | 4 mới nhất |
 | Mailpit | `api.github.com/repos/axllent/mailpit/releases?per_page=100` | minor | 4 mới nhất |
 | mkcert | `api.github.com/repos/FiloSottile/mkcert/releases?per_page=100` | minor | 4 mới nhất |
@@ -62,7 +62,8 @@ Ghi chú theo nguồn:
   bỏ tiền tố `v` ở `tag_name`.
 - **MariaDB** cần 1 request danh sách nhánh + 1 request mỗi nhánh Stable. Cache
   gộp thành một file danh sách version.
-- **MongoDB** dùng `current.json` (khoảng 465KB), không dùng `full.json` (51MB).
+- **MongoDB** dùng `current.json` (khoảng 465KB), không dùng `full.json` (51MB). File này còn liệt kê 5.0 và 4.4, vốn không có build `ubuntu2204` (403), nên lọc theo `downloads[].target`/`arch`.
+- **Node**: `index.json` chỉ cho biết một nhánh từng là LTS, không cho biết còn hỗ trợ không (lấy theo LTS sẽ ra tới Node 4). Lịch `schedule.json` cho `start`/`end` của từng nhánh. Không tải được lịch thì coi như feed lỗi, giữ cache cũ.
 - **PHP**: catalog vẫn theo minor (`8.4`), vì `php_version` trong config và PHP
   theo từng site gắn với minor, còn lúc cài đã tự chọn patch mới nhất trong
   index. Feed chỉ thay mảng `KNOWN_PHP_VERSIONS` bằng danh sách minor có trong
@@ -88,8 +89,8 @@ pub fn select(versions, lines, patches) -> Vec<String>
   (`Feed { versions, allowed_lines: Option<Vec<String>> }`). Hàm parse là
   thuần, test bằng mẫu cắt từ feed thật.
 - Quy tắc nhánh suy từ feed: `allowed_lines = Some(..)` thì `Allowed`, `None`
-  thì `Latest(4)`. Node, MariaDB, MongoDB, Composer trả `Some` (Node tính sẵn
-  các major LTS + major Current mới nhất trong `parse_feed`). Chưa có cache thì
+  thì `Latest(4)`. Node, MariaDB, MongoDB, Composer trả `Some` (Node lấy từ
+  `schedule.json`). Chưa có cache thì
   áp `Latest(4)` lên danh sách cứng.
 - Cache lưu **kết quả đã parse** (JSON `{versions, allowed_lines}`), không lưu
   feed thô: MongoDB và nginx index lớn, MariaDB gồm nhiều request.
