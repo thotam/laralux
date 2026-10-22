@@ -4,6 +4,24 @@ All notable changes to Laralux are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.6] - 2026-10-22
+
+### Changed
+- Every tool's version list in Setup (PHP, Nginx, MariaDB, PostgreSQL, MongoDB,
+  Redis/Valkey, Mailpit, mkcert, Composer, Node) now comes from the source the
+  binaries are downloaded from, instead of a list fixed at release time. Each
+  supported release line shows its 3 newest patches; PHP lists its 4 newest
+  minors.
+- Only supported lines are offered where the source says which ones are: Node
+  follows the official release schedule, MariaDB drops lines past their EOL
+  date, MongoDB keeps lines with an Ubuntu 22.04 build for this machine, and
+  Composer offers the latest stable plus LTS. Other tools show their 4 newest
+  lines. mkcert and Mailpit only list releases built for this architecture.
+- Lists are cached for 24 hours. Offline, the built-in list is used; after a
+  failed fetch the app waits an hour before trying again. Installed versions
+  always stay listed.
+- The tool dialog shows "Loading versions…" while the list is fetched.
+
 ## [0.8.5] - 2026-09-25
 
 ### Fixed

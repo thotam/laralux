@@ -1,3 +1,14 @@
+laralux (0.8.6-1) UNRELEASED; urgency=medium
+
+  * Setup version lists for every managed tool now come from each tool's
+    upstream download source, cached for 24 hours, with the built-in list as
+    an offline fallback. Each supported release line shows its 3 newest
+    patches; Node, MariaDB, MongoDB and Composer only offer lines their source
+    marks as supported, and mkcert and Mailpit only list releases built for
+    this architecture.
+
+ -- thotam <thanhtamtotaa@gmail.com>  Thu, 22 Oct 2026 12:00:00 +0700
+
 laralux (0.8.5-1) UNRELEASED; urgency=medium
 
   * fix: Composer no longer warns that its development build is over 60 days
