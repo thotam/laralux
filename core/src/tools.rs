@@ -88,7 +88,7 @@ pub enum ToolError {
     Install(String),
 }
 
-/// A multi-version tool's catalog: the curated `known` list unioned with what's
+/// A multi-version tool's catalog: the offered `versions` unioned with what's
 /// installed, newest-first, with `installed`/`active` flags set.
 fn known_catalog(mut versions: Vec<String>, installed: Vec<String>, active: &str) -> Vec<ToolVersion> {
     for v in &installed {
@@ -111,51 +111,14 @@ pub fn available_versions(tool: ManagedTool, paths: &LaraluxPaths) -> Vec<ToolVe
             .into_iter()
             .map(|p| ToolVersion { version: p.version, installed: p.installed, active: p.active })
             .collect(),
-        ManagedTool::Nginx => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "nginx"),
-            &cfg.versions.get("nginx").cloned().unwrap_or_default(),
-        ),
-        ManagedTool::Mariadb => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "mariadb"),
-            &cfg.versions.get("mariadb").cloned().unwrap_or_default(),
-        ),
-        ManagedTool::Postgres => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "postgres"),
-            &cfg.versions.get("postgres").cloned().unwrap_or_default(),
-        ),
-        ManagedTool::Mongodb => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "mongodb"),
-            &cfg.versions.get("mongodb").cloned().unwrap_or_default(),
-        ),
-        ManagedTool::Redis => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "redis"),
-            &cfg.versions.get("redis").cloned().unwrap_or_default(),
-        ),
-        ManagedTool::Mailpit => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "mailpit"),
-            &cfg.versions.get("mailpit").cloned().unwrap_or_default(),
-        ),
-        ManagedTool::Mkcert => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "mkcert"),
-            &cfg.versions.get("mkcert").cloned().unwrap_or_default(),
-        ),
-        ManagedTool::Composer => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "composer"),
-            &cfg.versions.get("composer").cloned().unwrap_or_default(),
-        ),
-        ManagedTool::Node => known_catalog(
-            crate::version_feed::catalog_versions(paths, tool),
-            crate::layout::installed_versions(paths, "node"),
-            &cfg.versions.get("node").cloned().unwrap_or_default(),
-        ),
+        _ => {
+            let key = info(tool).key;
+            known_catalog(
+                crate::version_feed::catalog_versions(paths, tool),
+                crate::layout::installed_versions(paths, key),
+                &cfg.versions.get(key).cloned().unwrap_or_default(),
+            )
+        }
     }
 }
 
@@ -236,8 +199,7 @@ mod tests {
         let paths = LaraluxPaths::new(root.clone());
         paths.ensure_dirs().unwrap();
         let vs = available_versions(ManagedTool::Php, &paths);
-        // KNOWN_PHP_VERSIONS has 6 entries (8.0..8.5); none installed on a fresh root.
-        assert_eq!(vs.len(), 6);
+        assert_eq!(vs.len(), crate::version_feed::catalog_versions(&paths, ManagedTool::Php).len());
         assert!(vs.iter().all(|v| !v.installed));
         std::fs::remove_dir_all(&root).ok();
     }

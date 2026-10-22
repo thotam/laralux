@@ -74,54 +74,58 @@ pub struct Source {
     pub fetch: fn(&dyn Downloader, &Path) -> Option<Feed>,
 }
 
-pub fn source(tool: ManagedTool) -> Option<Source> {
+pub fn source(tool: ManagedTool) -> Source {
     match tool {
-        ManagedTool::Composer => Some(Source {
+        ManagedTool::Composer => Source {
             fallback: &crate::php_cli::KNOWN_COMPOSER_VERSIONS,
             line_of: line_minor,
             fetch: crate::php_cli::composer_feed,
-        }),
-        ManagedTool::Node => Some(Source {
+        },
+        ManagedTool::Node => Source {
             fallback: &crate::node_static::KNOWN_NODE_VERSIONS,
             line_of: line_major,
             fetch: crate::node_static::node_feed,
-        }),
-        ManagedTool::Nginx => Some(Source {
+        },
+        ManagedTool::Nginx => Source {
             fallback: &crate::nginx_static::KNOWN_NGINX_VERSIONS,
             line_of: line_minor,
             fetch: crate::nginx_static::nginx_feed,
-        }),
-        ManagedTool::Postgres => Some(Source {
+        },
+        ManagedTool::Postgres => Source {
             fallback: &crate::postgres_static::KNOWN_POSTGRES_VERSIONS,
             line_of: line_major,
             fetch: crate::postgres_static::postgres_feed,
-        }),
-        ManagedTool::Mariadb => Some(Source {
+        },
+        ManagedTool::Mariadb => Source {
             fallback: &crate::mariadb_static::KNOWN_MARIADB_VERSIONS,
             line_of: line_minor,
             fetch: crate::mariadb_static::mariadb_feed,
-        }),
-        ManagedTool::Mongodb => Some(Source {
+        },
+        ManagedTool::Mongodb => Source {
             fallback: &crate::mongodb_static::KNOWN_MONGODB_VERSIONS,
             line_of: line_minor,
             fetch: crate::mongodb_static::mongodb_feed,
-        }),
-        ManagedTool::Redis => Some(Source {
+        },
+        ManagedTool::Redis => Source {
             fallback: &crate::redis_static::KNOWN_REDIS_VERSIONS,
             line_of: line_minor,
             fetch: crate::redis_static::valkey_feed,
-        }),
-        ManagedTool::Mailpit => Some(Source {
+        },
+        ManagedTool::Mailpit => Source {
             fallback: &crate::mailpit_static::KNOWN_MAILPIT_VERSIONS,
             line_of: line_minor,
             fetch: crate::mailpit_static::mailpit_feed,
-        }),
-        ManagedTool::Mkcert => Some(Source {
+        },
+        ManagedTool::Mkcert => Source {
             fallback: &crate::mkcert_static::KNOWN_MKCERT_VERSIONS,
             line_of: line_minor,
             fetch: crate::mkcert_static::mkcert_feed,
-        }),
-        _ => None,
+        },
+        ManagedTool::Php => Source {
+            fallback: &crate::php_versions::KNOWN_PHP_VERSIONS,
+            line_of: line_minor,
+            fetch: crate::php_static::php_feed,
+        },
     }
 }
 
@@ -161,7 +165,7 @@ pub fn github_feed(dl: &dyn Downloader, scratch: &Path, repo: &str) -> Option<Fe
 /// Refresh the tool's cached feed when missing or older than 24h. Best effort:
 /// any failure keeps the previous cache.
 pub fn refresh(paths: &LaraluxPaths, dl: &dyn Downloader, tool: ManagedTool) {
-    let Some(src) = source(tool) else { return };
+    let src = source(tool);
     let cache = cache_path(paths, tool);
     let fresh = std::fs::metadata(&cache)
         .and_then(|m| m.modified())
@@ -188,7 +192,7 @@ pub fn cached_feed(paths: &LaraluxPaths, tool: ManagedTool) -> Option<Feed> {
 /// Versions to offer for `tool`: cached feed merged with the fallback list,
 /// reduced to the newest patches of the selected lines.
 pub fn catalog_versions(paths: &LaraluxPaths, tool: ManagedTool) -> Vec<String> {
-    let Some(src) = source(tool) else { return Vec::new() };
+    let src = source(tool);
     let mut versions: Vec<String> = src.fallback.iter().map(|v| v.to_string()).collect();
     let mut lines = Lines::Latest(DEFAULT_LINES);
     if let Some(feed) = cached_feed(paths, tool) {
